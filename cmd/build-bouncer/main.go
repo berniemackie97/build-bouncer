@@ -29,6 +29,8 @@ func main() {
 	case "-h", "--help", "help":
 		printHelp()
 		os.Exit(exitOK)
+	case "setup":
+		os.Exit(cmdSetup(os.Args[2:]))
 	case "init":
 		os.Exit(cmdInit(os.Args[2:]))
 	case "check":
@@ -51,14 +53,67 @@ func printHelp() {
 A terminal bouncer for your repo: runs checks and blocks git push when things fail.
 
 Usage:
+  build-bouncer setup [--force] [--no-copy] [--ci]
   build-bouncer init [--force]
   build-bouncer check [--ci]
   build-bouncer hook install [--no-copy]
+  build-bouncer hook status
+  build-bouncer hook uninstall [--force]
 
 Notes:
   - 'hook install' installs a git pre-push hook that runs 'build-bouncer check'.
   - Config lives in .buildbouncer.yaml (YAML).
 `)
+}
+
+func cmdSetup(args []string) int {
+	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
+	force := fs.Bool("force", false, "overwrite existing config + default insults file")
+	noCopy := fs.Bool("no-copy", false, "do not copy the build-bouncer binary into .git/hooks/bin")
+	ci := fs.Bool("ci", false, "CI mode (less sass)")
+	_ = fs.Parse(args)
+
+	// Setup requires a git repo (because it installs hooks).
+	root, err := git.FindRepoRoot()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "setup:", err)
+		return exitUsage
+	}
+
+	cfgPath := filepath.Join(root, ".buildbouncer.yaml")
+
+	// Ensure config exists (create if missing; overwrite if --force).
+	if _, err := os.Stat(cfgPath); os.IsNotExist(err) || *force {
+		initArgs := []string{}
+		if *force {
+			initArgs = append(initArgs, "--force")
+		}
+		if code := cmdInit(initArgs); code != exitOK {
+			return code
+		}
+	} else if err != nil {
+		fmt.Fprintln(os.Stderr, "setup:", err)
+		return exitUsage
+	} else {
+		fmt.Println("Config exists:", cfgPath)
+	}
+
+	// Install hook.
+	opts := hooks.InstallOptions{
+		CopySelf: !*noCopy,
+	}
+	if err := hooks.InstallPrePushHook(opts); err != nil {
+		fmt.Fprintln(os.Stderr, "setup:", err)
+		return exitUsage
+	}
+	fmt.Println("Installed git pre-push hook.")
+
+	// Run a check once so user sees it working.
+	checkArgs := []string{}
+	if *ci {
+		checkArgs = append(checkArgs, "--ci")
+	}
+	return cmdCheck(checkArgs)
 }
 
 func cmdInit(args []string) int {
@@ -121,7 +176,7 @@ insults:
 
 func cmdHook(args []string) int {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "hook: missing subcommand (expected: install)")
+		fmt.Fprintln(os.Stderr, "hook: missing subcommand (expected: install|status|uninstall)")
 		return exitUsage
 	}
 
@@ -141,6 +196,37 @@ func cmdHook(args []string) int {
 		}
 
 		fmt.Println("Installed git pre-push hook.")
+		return exitOK
+
+	case "status":
+		st, err := hooks.GetStatus()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "hook status:", err)
+			return exitUsage
+		}
+
+		if !st.Installed {
+			fmt.Println("pre-push hook: not installed")
+			return exitOK
+		}
+
+		fmt.Println("pre-push hook: installed")
+		fmt.Println("path:", st.HookPath)
+		fmt.Println("installed by build-bouncer:", st.Ours)
+		fmt.Println("copied binary present:", st.CopiedBinary)
+		return exitOK
+
+	case "uninstall":
+		fs := flag.NewFlagSet("hook uninstall", flag.ContinueOnError)
+		force := fs.Bool("force", false, "remove hook even if it wasn't installed by build-bouncer")
+		_ = fs.Parse(args[1:])
+
+		if err := hooks.UninstallPrePushHook(*force); err != nil {
+			fmt.Fprintln(os.Stderr, "hook uninstall:", err)
+			return exitUsage
+		}
+
+		fmt.Println("Uninstalled git pre-push hook (and cleaned up hook binaries when possible).")
 		return exitOK
 
 	default:

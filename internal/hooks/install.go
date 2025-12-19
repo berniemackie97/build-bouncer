@@ -60,8 +60,9 @@ func InstallPrePushHook(opts InstallOptions) error {
 }
 
 func renderPrePushHook(hasCopiedBinary bool) string {
-	body := `#!/bin/sh
-set -eu
+	body := "#!/bin/sh\n" +
+		prePushMarker + "\n" +
+		`set -eu
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
