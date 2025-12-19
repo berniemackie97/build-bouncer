@@ -20,23 +20,27 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
-	if err := validate(&cfg); err != nil {
+	if err := validateAndDefault(&cfg); err != nil {
 		return nil, err
 	}
 
 	return &cfg, nil
 }
 
-func validate(cfg *Config) error {
-	if cfg.Version <= 0 {
-		return errors.New("config: missing/invalid version")
+func validateAndDefault(cfg *Config) error {
+	if cfg.Version == 0 {
+		cfg.Version = 1
+	}
+	if cfg.Version != 1 {
+		return fmt.Errorf("config: unsupported version %d", cfg.Version)
 	}
 
 	if len(cfg.Checks) == 0 {
 		return errors.New("config: no checks configured")
 	}
 
-	for i, c := range cfg.Checks {
+	for i := range cfg.Checks {
+		c := cfg.Checks[i]
 		if strings.TrimSpace(c.Name) == "" {
 			return fmt.Errorf("config: checks[%d] missing name", i)
 		}
@@ -49,7 +53,10 @@ func validate(cfg *Config) error {
 		cfg.Insults.Mode = "snarky"
 	}
 	if strings.TrimSpace(cfg.Insults.File) == "" {
-		cfg.Insults.File = "assets/insults/default.txt"
+		cfg.Insults.File = "assets/insults/default.json"
+	}
+	if strings.TrimSpace(cfg.Insults.Locale) == "" {
+		cfg.Insults.Locale = "en"
 	}
 
 	return nil

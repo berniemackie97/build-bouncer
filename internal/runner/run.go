@@ -1,12 +1,14 @@
 package runner
 
 import (
-	"bufio"
+	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -18,8 +20,54 @@ type Options struct {
 	CI bool
 }
 
-func RunAll(root string, cfg *config.Config, _ Options) ([]string, error) {
-	var failed []string
+type Report struct {
+	Failures     []string
+	FailureTails map[string]string // checkName -> output tail (combined stdout/stderr)
+}
+
+type limitedBuffer struct {
+	max int
+	buf []byte
+}
+
+func newLimitedBuffer(max int) *limitedBuffer {
+	return &limitedBuffer{max: max, buf: make([]byte, 0, max)}
+}
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	if b.max <= 0 {
+		return len(p), nil
+	}
+
+	if len(p) >= b.max {
+		b.buf = append(b.buf[:0], p[len(p)-b.max:]...)
+		return len(p), nil
+	}
+
+	needed := len(b.buf) + len(p) - b.max
+	if needed > 0 {
+		b.buf = b.buf[needed:]
+	}
+	b.buf = append(b.buf, p...)
+	return len(p), nil
+}
+
+func (b *limitedBuffer) String() string { return string(b.buf) }
+
+// Backwards compatible API
+func RunAll(root string, cfg *config.Config, opts Options) ([]string, error) {
+	rep, err := RunAllReport(root, cfg, opts)
+	if err != nil {
+		return nil, err
+	}
+	return rep.Failures, nil
+}
+
+func RunAllReport(root string, cfg *config.Config, _ Options) (Report, error) {
+	rep := Report{
+		Failures:     []string{},
+		FailureTails: map[string]string{},
+	}
 
 	for _, c := range cfg.Checks {
 		fmt.Printf("==> %s\n", c.Name)
@@ -29,28 +77,32 @@ func RunAll(root string, cfg *config.Config, _ Options) ([]string, error) {
 			dir = filepath.Join(root, filepath.FromSlash(c.Cwd))
 		}
 
-		exitCode, err := runOne(dir, c.Run, c.Env)
+		exitCode, tail, err := runOne(dir, c.Run, c.Env)
 		if err != nil {
-			return nil, err
+			return Report{}, err
 		}
 
 		if exitCode != 0 {
-			failed = append(failed, c.Name)
+			rep.Failures = append(rep.Failures, c.Name)
+			rep.FailureTails[c.Name] = tail
 			fmt.Printf("!! %s failed (exit %d)\n\n", c.Name, exitCode)
 		} else {
 			fmt.Printf("OK %s\n\n", c.Name)
 		}
 	}
 
-	return failed, nil
+	return rep, nil
 }
 
-func runOne(dir string, command string, env map[string]string) (int, error) {
+func runOne(dir string, command string, env map[string]string) (int, string, error) {
+	tailBuf := newLimitedBuffer(128 * 1024)
+
 	name, args := shellCommand(command)
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+
+	cmd.Stdout = io.MultiWriter(os.Stdout, tailBuf)
+	cmd.Stderr = io.MultiWriter(os.Stderr, tailBuf)
 
 	cmd.Env = os.Environ()
 	for k, v := range env {
@@ -59,14 +111,14 @@ func runOne(dir string, command string, env map[string]string) (int, error) {
 
 	err := cmd.Run()
 	if err == nil {
-		return 0, nil
+		return 0, tailBuf.String(), nil
 	}
 
 	if ee, ok := err.(*exec.ExitError); ok {
-		return ee.ExitCode(), nil
+		return ee.ExitCode(), tailBuf.String(), nil
 	}
 
-	return 1, err
+	return 1, tailBuf.String(), err
 }
 
 func shellCommand(command string) (string, []string) {
@@ -76,28 +128,352 @@ func shellCommand(command string) (string, []string) {
 	return "sh", []string{"-c", command}
 }
 
-func PickInsult(root string, ins config.Insults) string {
-	path := filepath.Join(root, filepath.FromSlash(ins.File))
+// --------------------
+// Insults (JSON pack)
+// --------------------
+
+type insultPack struct {
+	Version         int              `json:"version"`
+	MaxHistory      int              `json:"maxHistory"`
+	DefaultCooldown int              `json:"defaultCooldown"`
+	Templates       []insultTemplate `json:"templates"`
+}
+
+type insultTemplate struct {
+	ID         string   `json:"id"`
+	Categories []string `json:"categories"` // tests | lint | build | ci | any
+	Locales    []string `json:"locales"`    // optional
+	Weight     int      `json:"weight"`     // default 1
+	Cooldown   int      `json:"cooldown"`   // default pack.DefaultCooldown
+	Text       string   `json:"text"`
+}
+
+type insultState struct {
+	Version int      `json:"version"`
+	Recent  []string `json:"recent"` // most-recent-first template IDs
+}
+
+func PickInsult(root string, ins config.Insults, rep Report) string {
+	packPath := filepath.Join(root, filepath.FromSlash(ins.File))
+	pack, err := loadInsultPack(packPath)
+	if err != nil || len(pack.Templates) == 0 {
+		return formatInsult(ins.Mode, "Push blocked. Failed: "+strings.Join(rep.Failures, ", "))
+	}
+
+	if pack.MaxHistory <= 0 {
+		pack.MaxHistory = 40
+	}
+	if pack.DefaultCooldown < 0 {
+		pack.DefaultCooldown = 0
+	}
+
+	category := categoryFromFailures(rep.Failures)
+
+	locale := strings.TrimSpace(ins.Locale)
+	if locale == "" {
+		locale = "en"
+	}
+
+	statePath := resolveStatePath(root)
+	st := loadState(statePath)
+
+	check := pickFailingCheck(rep.Failures)
+	detail := extractDetail(category, rep, check)
+	if strings.TrimSpace(detail) == "" {
+		detail = check
+	}
+
+	candidates := filterTemplates(pack, category, locale, st)
+
+	// If cooldown filtered out everything, relax cooldown.
+	if len(candidates) == 0 {
+		candidates = filterTemplates(pack, category, locale, insultState{Version: st.Version})
+	}
+
+	// If still nothing, allow any category.
+	if len(candidates) == 0 {
+		candidates = filterTemplates(pack, "any", locale, insultState{Version: st.Version})
+	}
+
+	if len(candidates) == 0 {
+		return formatInsult(ins.Mode, "Push blocked. Failed: "+strings.Join(rep.Failures, ", "))
+	}
+
+	chosen := weightedPick(candidates)
+
+	msg := strings.TrimSpace(chosen.Text)
+	msg = strings.ReplaceAll(msg, "{check}", check)
+	msg = strings.ReplaceAll(msg, "{checks}", strings.Join(rep.Failures, ", "))
+	msg = strings.ReplaceAll(msg, "{detail}", trimDetail(detail))
+
+	if chosen.ID != "" {
+		st.Recent = append([]string{chosen.ID}, st.Recent...)
+		if len(st.Recent) > pack.MaxHistory {
+			st.Recent = st.Recent[:pack.MaxHistory]
+		}
+		_ = saveState(statePath, st)
+	}
+
+	return formatInsult(ins.Mode, msg)
+}
+
+func loadInsultPack(path string) (insultPack, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return formatInsult(ins.Mode, "Nope. Something failed.")
+		return insultPack{}, err
 	}
+	var p insultPack
+	if err := json.Unmarshal(b, &p); err != nil {
+		return insultPack{}, err
+	}
+	if p.Version <= 0 {
+		p.Version = 1
+	}
+	return p, nil
+}
 
-	var lines []string
-	sc := bufio.NewScanner(strings.NewReader(string(b)))
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line != "" {
-			lines = append(lines, line)
+func resolveStatePath(root string) string {
+	// Store in .git so it never gets committed.
+	gitDir := filepath.Join(root, ".git")
+	if st, err := os.Stat(gitDir); err == nil && st.IsDir() {
+		return filepath.Join(gitDir, "build-bouncer", "insults_state.json")
+	}
+	return filepath.Join(root, ".buildbouncer_insults_state.json")
+}
+
+func loadState(path string) insultState {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return insultState{Version: 1, Recent: nil}
+	}
+	var st insultState
+	if err := json.Unmarshal(b, &st); err != nil {
+		return insultState{Version: 1, Recent: nil}
+	}
+	if st.Version <= 0 {
+		st.Version = 1
+	}
+	return st
+}
+
+func saveState(path string, st insultState) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(st, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return err
+	}
+	_ = os.Remove(path)
+	return os.Rename(tmp, path)
+}
+
+func filterTemplates(pack insultPack, category string, locale string, st insultState) []insultTemplate {
+	var out []insultTemplate
+	for _, t := range pack.Templates {
+		t = normalizeTemplate(pack, t)
+		if strings.TrimSpace(t.Text) == "" {
+			continue
+		}
+		if !matchesLocale(t, locale) {
+			continue
+		}
+		if !matchesCategory(t, category) {
+			continue
+		}
+		if inCooldown(pack, t, st) {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+func normalizeTemplate(pack insultPack, t insultTemplate) insultTemplate {
+	if t.Weight <= 0 {
+		t.Weight = 1
+	}
+	if t.Cooldown == 0 {
+		t.Cooldown = pack.DefaultCooldown
+	}
+	if t.Cooldown < 0 {
+		t.Cooldown = 0
+	}
+	if len(t.Categories) == 0 {
+		t.Categories = []string{"any"}
+	}
+	return t
+}
+
+func matchesCategory(t insultTemplate, category string) bool {
+	want := strings.ToLower(strings.TrimSpace(category))
+	for _, c := range t.Categories {
+		cc := strings.ToLower(strings.TrimSpace(c))
+		if cc == "any" || cc == "*" {
+			return true
+		}
+		if cc == want {
+			return true
 		}
 	}
-	if len(lines) == 0 {
-		return formatInsult(ins.Mode, "Nope. Something failed.")
+	return false
+}
+
+func matchesLocale(t insultTemplate, locale string) bool {
+	if len(t.Locales) == 0 {
+		return true
+	}
+	for _, l := range t.Locales {
+		if strings.EqualFold(strings.TrimSpace(l), locale) {
+			return true
+		}
+	}
+	return false
+}
+
+func inCooldown(pack insultPack, t insultTemplate, st insultState) bool {
+	if t.ID == "" || t.Cooldown <= 0 {
+		return false
 	}
 
+	limit := t.Cooldown
+	if limit > len(st.Recent) {
+		limit = len(st.Recent)
+	}
+
+	for i := 0; i < limit; i++ {
+		if st.Recent[i] == t.ID {
+			return true
+		}
+	}
+
+	return false
+}
+
+func weightedPick(candidates []insultTemplate) insultTemplate {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	chosen := lines[r.Intn(len(lines))]
-	return formatInsult(ins.Mode, chosen)
+
+	total := 0
+	for _, c := range candidates {
+		total += c.Weight
+	}
+	if total <= 0 {
+		return candidates[r.Intn(len(candidates))]
+	}
+
+	n := r.Intn(total)
+	acc := 0
+	for _, c := range candidates {
+		acc += c.Weight
+		if n < acc {
+			return c
+		}
+	}
+	return candidates[len(candidates)-1]
+}
+
+// --------------------
+// Category + details
+// --------------------
+
+var (
+	reGoTestFail = regexp.MustCompile(`(?m)^--- FAIL: ([^\s]+)`)
+	reDotnetFail = regexp.MustCompile(`(?m)^\s*Failed\s+([^\s]+)`)
+	rePytestFail = regexp.MustCompile(`(?m)^FAILED\s+([^\s]+)`)
+	reJestFail   = regexp.MustCompile(`(?m)^FAIL\s+(.+)$`)
+	reFirstError = regexp.MustCompile(`(?mi)^\s*(?:error|fatal|panic):\s*(.+)$`)
+)
+
+func categoryFromFailures(failures []string) string {
+	for _, f := range failures {
+		s := strings.ToLower(f)
+		if strings.Contains(s, "test") || strings.Contains(s, "spec") {
+			return "tests"
+		}
+	}
+	for _, f := range failures {
+		s := strings.ToLower(f)
+		if strings.Contains(s, "build") || strings.Contains(s, "compile") {
+			return "build"
+		}
+	}
+	for _, f := range failures {
+		s := strings.ToLower(f)
+		if strings.Contains(s, "lint") || strings.Contains(s, "vet") || strings.Contains(s, "format") || strings.Contains(s, "fmt") {
+			return "lint"
+		}
+	}
+	for _, f := range failures {
+		s := strings.ToLower(f)
+		if strings.Contains(s, "ci") || strings.Contains(s, "workflow") || strings.Contains(s, "actions") {
+			return "ci"
+		}
+	}
+	return "any"
+}
+
+func pickFailingCheck(failures []string) string {
+	if len(failures) == 0 {
+		return "something"
+	}
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	return failures[r.Intn(len(failures))]
+}
+
+func extractDetail(category string, rep Report, preferredCheck string) string {
+	if out := rep.FailureTails[preferredCheck]; strings.TrimSpace(out) != "" {
+		if d := extractDetailFromOutput(category, out); d != "" {
+			return d
+		}
+	}
+	for _, out := range rep.FailureTails {
+		if d := extractDetailFromOutput(category, out); d != "" {
+			return d
+		}
+	}
+	return ""
+}
+
+func extractDetailFromOutput(category string, out string) string {
+	out = strings.ReplaceAll(out, "\r\n", "\n")
+
+	if category == "tests" {
+		if m := reGoTestFail.FindStringSubmatch(out); len(m) == 2 {
+			return m[1]
+		}
+		if m := reDotnetFail.FindStringSubmatch(out); len(m) == 2 {
+			return m[1]
+		}
+		if m := rePytestFail.FindStringSubmatch(out); len(m) == 2 {
+			return m[1]
+		}
+		if m := reJestFail.FindStringSubmatch(out); len(m) == 2 {
+			return strings.TrimSpace(m[1])
+		}
+	}
+
+	if m := reFirstError.FindStringSubmatch(out); len(m) == 2 {
+		return strings.TrimSpace(m[1])
+	}
+
+	return ""
+}
+
+func trimDetail(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	const max = 80
+	if len(s) > max {
+		return s[:max-3] + "..."
+	}
+	return s
 }
 
 func formatInsult(mode string, msg string) string {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -118,7 +119,7 @@ func cmdSetup(args []string) int {
 
 func cmdInit(args []string) int {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
-	force := fs.Bool("force", false, "overwrite existing config + default insults file")
+	force := fs.Bool("force", false, "overwrite existing config + default insults pack")
 	_ = fs.Parse(args)
 
 	root, err := git.FindRepoRootOrCwd()
@@ -128,7 +129,7 @@ func cmdInit(args []string) int {
 	}
 
 	cfgPath := filepath.Join(root, ".buildbouncer.yaml")
-	insultsPath := filepath.Join(root, "assets", "insults", "default.txt")
+	insultsPath := filepath.Join(root, "assets", "insults", "default.json")
 
 	if !*force {
 		if _, err := os.Stat(cfgPath); err == nil {
@@ -142,13 +143,9 @@ func cmdInit(args []string) int {
 		return exitUsage
 	}
 
-	defaultInsults := "Nice try. The build says no.\nYour tests are having a bad day. So are you.\nThat push is not going anywhere, champ.\n"
-	if *force {
-		_ = os.WriteFile(insultsPath, []byte(defaultInsults), 0o644)
-	} else {
-		if _, err := os.Stat(insultsPath); os.IsNotExist(err) {
-			_ = os.WriteFile(insultsPath, []byte(defaultInsults), 0o644)
-		}
+	if err := ensureDefaultInsultsPack(root, insultsPath, *force); err != nil {
+		fmt.Fprintln(os.Stderr, "init:", err)
+		return exitUsage
 	}
 
 	defaultCfg := `version: 1
@@ -161,7 +158,8 @@ checks:
 
 insults:
   mode: "snarky"   # polite | snarky | nuclear
-  file: "assets/insults/default.txt"
+  file: "assets/insults/default.json"
+  locale: "en"
 `
 	if err := os.WriteFile(cfgPath, []byte(defaultCfg), 0o644); err != nil {
 		fmt.Fprintln(os.Stderr, "init:", err)
@@ -172,6 +170,58 @@ insults:
 	fmt.Println("Ensured:", insultsPath)
 	fmt.Println("Next: build-bouncer hook install")
 	return exitOK
+}
+
+func ensureDefaultInsultsPack(targetRoot string, insultsPath string, force bool) error {
+	if !force {
+		if _, err := os.Stat(insultsPath); err == nil {
+			return nil
+		}
+	}
+
+	templateBytes, err := loadTemplateBytes(targetRoot)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(insultsPath, templateBytes, 0o644)
+}
+
+func loadTemplateBytes(targetRoot string) ([]byte, error) {
+	// 1) If running from the build-bouncer source repo, this exists.
+	candidates := []string{
+		filepath.Join(targetRoot, "assets", "templates", "insults_default.json"),
+	}
+
+	// 2) Allow override for packaging / power users.
+	if dir := strings.TrimSpace(os.Getenv("BUILDBOUNCER_TEMPLATES_DIR")); dir != "" {
+		candidates = append(candidates,
+			filepath.Join(dir, "insults_default.json"),
+			filepath.Join(dir, "templates", "insults_default.json"),
+		)
+	}
+
+	// 3) Installed layouts: check near the executable + common sibling dirs.
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+
+		candidates = append(candidates,
+			filepath.Join(exeDir, "templates", "insults_default.json"),
+			filepath.Join(exeDir, "assets", "templates", "insults_default.json"),
+			filepath.Join(exeDir, "..", "share", "build-bouncer", "templates", "insults_default.json"),
+			filepath.Join(exeDir, "..", "share", "build-bouncer", "insults_default.json"),
+			filepath.Join(exeDir, "..", "libexec", "build-bouncer", "templates", "insults_default.json"),
+		)
+	}
+
+	for _, p := range candidates {
+		b, err := os.ReadFile(p)
+		if err == nil && len(b) > 0 {
+			return b, nil
+		}
+	}
+
+	return nil, errors.New("default insults template not found; expected assets/templates/insults_default.json near the tool or set BUILDBOUNCER_TEMPLATES_DIR")
 }
 
 func cmdHook(args []string) int {
@@ -252,12 +302,13 @@ func cmdCheck(args []string) int {
 		return exitUsage
 	}
 
-	failures, err := runner.RunAll(cfgDir, cfg, runner.Options{CI: *ci})
+	rep, err := runner.RunAllReport(cfgDir, cfg, runner.Options{CI: *ci})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "check:", err)
 		return exitUsage
 	}
 
+	failures := rep.Failures
 	if len(failures) > 0 {
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Blocked. Failed checks:")
@@ -266,7 +317,7 @@ func cmdCheck(args []string) int {
 		}
 
 		if !*ci {
-			insult := runner.PickInsult(cfgDir, cfg.Insults)
+			insult := runner.PickInsult(cfgDir, cfg.Insults, rep)
 			insult = strings.TrimSpace(insult)
 			if insult != "" {
 				fmt.Fprintln(os.Stderr, "")

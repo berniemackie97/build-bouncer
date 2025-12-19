@@ -8,4 +8,5 @@ checks:
 
 insults:
   mode: "snarky"   # polite | snarky | nuclear
-  file: "assets/insults/default.txt"
+  file: "assets/insults/default.json"
+  locale: "en"
