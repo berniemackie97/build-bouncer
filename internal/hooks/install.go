@@ -60,33 +60,36 @@ func InstallPrePushHook(opts InstallOptions) error {
 }
 
 func renderPrePushHook(hasCopiedBinary bool) string {
-	body := "#!/bin/sh\n" +
-		prePushMarker + "\n" +
-		`set -eu
+	body := `#!/bin/sh
+set -eu
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
 bb=""
-if command -v build-bouncer >/dev/null 2>&1; then
-  bb="build-bouncer"
 `
 
+	// Prefer repo-pinned binary first when present.
 	if hasCopiedBinary {
 		body += `
-elif [ -x "$repo_root/.git/hooks/bin/build-bouncer" ]; then
+if [ -x "$repo_root/.git/hooks/bin/build-bouncer" ]; then
   bb="$repo_root/.git/hooks/bin/build-bouncer"
 elif [ -x "$repo_root/.git/hooks/bin/build-bouncer.exe" ]; then
   bb="$repo_root/.git/hooks/bin/build-bouncer.exe"
+fi
 `
 	}
 
 	body += `
-else
-  echo "build-bouncer: not found. Install it or run: build-bouncer hook install" 1>&2
-  exit 1
+if [ -z "$bb" ]; then
+  if command -v build-bouncer >/dev/null 2>&1; then
+    bb="build-bouncer"
+  else
+    echo "build-bouncer: not found. Install it or run: build-bouncer hook install" 1>&2
+    exit 1
+  fi
 fi
 
-"$bb" check
+"$bb" check --hook
 `
 	return body
 }
@@ -115,7 +118,6 @@ func copyFile(src string, dst string, mode os.FileMode) error {
 		return err
 	}
 
-	// Windows rename-over-existing is cranky. Nuke first.
 	_ = os.Remove(dst)
 
 	if err := os.Rename(tmp, dst); err != nil {

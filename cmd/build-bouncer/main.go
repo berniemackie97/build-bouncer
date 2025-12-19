@@ -293,6 +293,7 @@ func cmdCheck(args []string) int {
 	fs := flag.NewFlagSet("check", flag.ContinueOnError)
 	ci := fs.Bool("ci", false, "CI mode (no spinner/banter; no random insult)")
 	verbose := fs.Bool("verbose", false, "stream full tool output to the terminal")
+	hook := fs.Bool("hook", false, "hook mode (force spinner/banter even if stdout doesn't look like a TTY)")
 	logDir := fs.String("log-dir", "", "directory to write failure logs (default: .git/build-bouncer/logs)")
 	tail := fs.Int("tail", 30, "number of output lines to show per failed check")
 	_ = fs.Parse(args)
@@ -309,7 +310,11 @@ func cmdCheck(args []string) int {
 		return exitUsage
 	}
 
-	quietUI := !*verbose && !*ci && ui.IsTerminal(os.Stdout)
+	// Quiet UI by default, but:
+	// - never in CI mode
+	// - never if --verbose
+	// - force on for hooks with --hook (even if stdout isn't a TTY)
+	quietUI := !*verbose && !*ci && (*hook || ui.IsTerminal(os.Stdout))
 
 	var bp *banter.Picker
 	if quietUI {
@@ -346,7 +351,6 @@ func cmdCheck(args []string) int {
 				if strings.TrimSpace(msg) == "" {
 					msg = "Checking the list"
 				}
-				// Don’t leak check names in quiet mode.
 				sp.SetMessage(fmt.Sprintf("%s (%d/%d)", msg, e.Index, e.Total))
 			}
 		},
@@ -395,7 +399,6 @@ func cmdCheck(args []string) int {
 		return exitRunFailed
 	}
 
-	// Success output:
 	if quietUI && bp != nil {
 		if msg := strings.TrimSpace(bp.Pick("success")); msg != "" {
 			fmt.Println(msg)
