@@ -1,9 +1,9 @@
 package config
 
 type Config struct {
-	Version int      `yaml:"version"`
-	Checks  []Check  `yaml:"checks"`
-	Insults []Insult `yaml:"insults"`
+	Version int     `yaml:"version"`
+	Checks  []Check `yaml:"checks"`
+	Insults Insults `yaml:"insults"`
 }
 
 type Check struct {

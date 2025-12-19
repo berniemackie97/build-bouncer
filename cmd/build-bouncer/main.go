@@ -46,7 +46,7 @@ func main() {
 }
 
 func printHelp() {
-	fmt.Println(`build-bouncer
+	fmt.Print(`build-bouncer
 
 A terminal bouncer for your repo: runs checks and blocks git push when things fail.
 

@@ -1,62 +1,62 @@
 package hooks
 
 import (
-    "fmt"
-    "io"
-    "os"
-    "path/filepath"
-    "runtime"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"runtime"
 
-    "build-bouncer/internal/git"
+	"build-bouncer/internal/git"
 )
 
 type InstallOptions struct {
-    CopySelf bool
+	CopySelf bool
 }
 
 func InstallPrePushHook(opts InstallOptions) error {
-    root, err := git.FindGitRoot()
-    if err != nil {
-        return err
-    }
+	root, err := git.FindRepoRoot()
+	if err != nil {
+		return err
+	}
 
-    hooksDir := filepath.Join(root, ".git", "hooks")
-    if err := os.MkdirAll(hooksDir, 0o755); err != nil {
-        return err
-    }
+	hooksDir := filepath.Join(root, ".git", "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		return err
+	}
 
-    var copied bool
-    if opts.CopySelf {
-        exe, err := os.Executable()
-        if err != nil {
-            return err
-        }
+	var copied bool
+	if opts.CopySelf {
+		exe, err := os.Executable()
+		if err != nil {
+			return err
+		}
 
-        binDir := filepath.Join(hooksDir, "bin")
-        if err := os.MkdirAll(binDir, 0o755); err != nil {
-            return err
-        }
+		binDir := filepath.Join(hooksDir, "bin")
+		if err := os.MkdirAll(binDir, 0o755); err != nil {
+			return err
+		}
 
-        dest := filepath.Join(binDir, "build-bouncer")
-        if runtime.GOOS == "windows" {
-            dest += ".exe"
-        }
+		dest := filepath.Join(binDir, "build-bouncer")
+		if runtime.GOOS == "windows" {
+			dest += ".exe"
+		}
 
-        if err := copyFile(exe, dest, 0o755); err != nil {
-            return fmt.Errorf("copy self into hook bin: %w", err)
-        }
+		if err := copyFile(exe, dest, 0o755); err != nil {
+			return fmt.Errorf("copy self into hook bin: %w", err)
+		}
 
-        copied = true
-    }
+		copied = true
+	}
 
-    hookPath := filepath.Join(hooksDir, "pre-push")
-    hookBody := renderPrePushHook(copied)
-    if err := os.WriteFile(hookPath, [])byte(hookBody), 0o755); err != nil {
-        return err
-    }
+	hookPath := filepath.Join(hooksDir, "pre-push")
+	hookBody := renderPrePushHook(copied)
+	if err := os.WriteFile(hookPath, []byte(hookBody), 0o755); err != nil {
+		return err
+	}
 
-    _ = os.Chmod(hookPath, 0o755)
-    return nil
+	_ = os.Chmod(hookPath, 0o755)
+	return nil
 }
 
 func renderPrePushHook(hasCopiedBinary bool) string {
@@ -91,38 +91,37 @@ fi
 }
 
 func copyFile(src string, dst string, mode os.FileMode) error {
-    in, err := os.Open(src)
-    if err != nil {
-        return err
-    }
-    defer in.Close()
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
 
-    tmp := dst + ".tmp"
-    out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
-    if err != nil {
-        return err
-    }
+	tmp := dst + ".tmp"
+	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+	if err != nil {
+		return err
+	}
 
-    if _, err := io.Copy(out, in); err != nil {
-        _ = out.Close()
-        _ = os.Remove(tmp)
-        return err
-    }
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
 
-    if err := out.Close(); err != nil {
-        _ = os.Remove(tmp)
-        return err
-    }
+	if err := out.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
 
-    // Windows rename over existing can be problematic. Nuke first.
+	// Windows rename-over-existing is cranky. Nuke first.
+	_ = os.Remove(dst)
 
-    _ = os.Remove(dst)
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
 
-    if err := os.Rename(tmp, dst); err != nil {
-        _ = os.Remove(tmp)
-        return err
-    }
-
-    _ = os.Chmod(dst, mode)
-    return nil
+	_ = os.Chmod(dst, mode)
+	return nil
 }

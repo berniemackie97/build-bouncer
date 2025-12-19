@@ -66,7 +66,7 @@ func runOne(dir string, command string, env map[string]string) (int, error) {
 		return ee.ExitCode(), nil
 	}
 
-	return -1, err
+	return 1, err
 }
 
 func shellCommand(command string) (string, []string) {
@@ -87,7 +87,7 @@ func PickInsult(root string, ins config.Insults) string {
 	sc := bufio.NewScanner(strings.NewReader(string(b)))
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
-		if lin != "" {
+		if line != "" {
 			lines = append(lines, line)
 		}
 	}
