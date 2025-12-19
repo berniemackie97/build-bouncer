@@ -8,10 +8,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"build-bouncer/internal/banter"
 	"build-bouncer/internal/config"
 	"build-bouncer/internal/git"
 	"build-bouncer/internal/hooks"
 	"build-bouncer/internal/runner"
+	"build-bouncer/internal/ui"
 )
 
 const (
@@ -56,25 +58,26 @@ A terminal bouncer for your repo: runs checks and blocks git push when things fa
 Usage:
   build-bouncer setup [--force] [--no-copy] [--ci]
   build-bouncer init [--force]
-  build-bouncer check [--ci]
+  build-bouncer check [--ci] [--verbose] [--log-dir DIR] [--tail N]
   build-bouncer hook install [--no-copy]
   build-bouncer hook status
   build-bouncer hook uninstall [--force]
 
 Notes:
-  - 'hook install' installs a git pre-push hook that runs 'build-bouncer check'.
+  - Quiet mode (default) shows banter + spinner instead of raw output.
+  - --verbose streams full tool output.
+  - Failure logs are written to .git/build-bouncer/logs by default.
   - Config lives in .buildbouncer.yaml (YAML).
 `)
 }
 
 func cmdSetup(args []string) int {
 	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
-	force := fs.Bool("force", false, "overwrite existing config + default insults file")
+	force := fs.Bool("force", false, "overwrite existing config + default packs")
 	noCopy := fs.Bool("no-copy", false, "do not copy the build-bouncer binary into .git/hooks/bin")
-	ci := fs.Bool("ci", false, "CI mode (less sass)")
+	ci := fs.Bool("ci", false, "CI mode")
 	_ = fs.Parse(args)
 
-	// Setup requires a git repo (because it installs hooks).
 	root, err := git.FindRepoRoot()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "setup:", err)
@@ -83,7 +86,6 @@ func cmdSetup(args []string) int {
 
 	cfgPath := filepath.Join(root, ".buildbouncer.yaml")
 
-	// Ensure config exists (create if missing; overwrite if --force).
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) || *force {
 		initArgs := []string{}
 		if *force {
@@ -99,17 +101,13 @@ func cmdSetup(args []string) int {
 		fmt.Println("Config exists:", cfgPath)
 	}
 
-	// Install hook.
-	opts := hooks.InstallOptions{
-		CopySelf: !*noCopy,
-	}
+	opts := hooks.InstallOptions{CopySelf: !*noCopy}
 	if err := hooks.InstallPrePushHook(opts); err != nil {
 		fmt.Fprintln(os.Stderr, "setup:", err)
 		return exitUsage
 	}
 	fmt.Println("Installed git pre-push hook.")
 
-	// Run a check once so user sees it working.
 	checkArgs := []string{}
 	if *ci {
 		checkArgs = append(checkArgs, "--ci")
@@ -119,7 +117,7 @@ func cmdSetup(args []string) int {
 
 func cmdInit(args []string) int {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
-	force := fs.Bool("force", false, "overwrite existing config + default insults pack")
+	force := fs.Bool("force", false, "overwrite existing config + default packs")
 	_ = fs.Parse(args)
 
 	root, err := git.FindRepoRootOrCwd()
@@ -130,6 +128,7 @@ func cmdInit(args []string) int {
 
 	cfgPath := filepath.Join(root, ".buildbouncer.yaml")
 	insultsPath := filepath.Join(root, "assets", "insults", "default.json")
+	banterPath := filepath.Join(root, "assets", "banter", "default.json")
 
 	if !*force {
 		if _, err := os.Stat(cfgPath); err == nil {
@@ -142,8 +141,16 @@ func cmdInit(args []string) int {
 		fmt.Fprintln(os.Stderr, "init:", err)
 		return exitUsage
 	}
+	if err := os.MkdirAll(filepath.Dir(banterPath), 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, "init:", err)
+		return exitUsage
+	}
 
-	if err := ensureDefaultInsultsPack(root, insultsPath, *force); err != nil {
+	if err := ensureDefaultPack(root, insultsPath, "insults_default.json", *force); err != nil {
+		fmt.Fprintln(os.Stderr, "init:", err)
+		return exitUsage
+	}
+	if err := ensureDefaultPack(root, banterPath, "banter_default.json", *force); err != nil {
 		fmt.Fprintln(os.Stderr, "init:", err)
 		return exitUsage
 	}
@@ -160,6 +167,10 @@ insults:
   mode: "snarky"   # polite | snarky | nuclear
   file: "assets/insults/default.json"
   locale: "en"
+
+banter:
+  file: "assets/banter/default.json"
+  locale: "en"
 `
 	if err := os.WriteFile(cfgPath, []byte(defaultCfg), 0o644); err != nil {
 		fmt.Fprintln(os.Stderr, "init:", err)
@@ -168,49 +179,45 @@ insults:
 
 	fmt.Println("Created:", cfgPath)
 	fmt.Println("Ensured:", insultsPath)
+	fmt.Println("Ensured:", banterPath)
 	fmt.Println("Next: build-bouncer hook install")
 	return exitOK
 }
 
-func ensureDefaultInsultsPack(targetRoot string, insultsPath string, force bool) error {
+func ensureDefaultPack(targetRoot string, destPath string, templateName string, force bool) error {
 	if !force {
-		if _, err := os.Stat(insultsPath); err == nil {
+		if _, err := os.Stat(destPath); err == nil {
 			return nil
 		}
 	}
 
-	templateBytes, err := loadTemplateBytes(targetRoot)
+	templateBytes, err := loadTemplateBytes(targetRoot, templateName)
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(insultsPath, templateBytes, 0o644)
+	return os.WriteFile(destPath, templateBytes, 0o644)
 }
 
-func loadTemplateBytes(targetRoot string) ([]byte, error) {
-	// 1) If running from the build-bouncer source repo, this exists.
+func loadTemplateBytes(targetRoot string, templateName string) ([]byte, error) {
 	candidates := []string{
-		filepath.Join(targetRoot, "assets", "templates", "insults_default.json"),
+		filepath.Join(targetRoot, "assets", "templates", templateName),
 	}
 
-	// 2) Allow override for packaging / power users.
 	if dir := strings.TrimSpace(os.Getenv("BUILDBOUNCER_TEMPLATES_DIR")); dir != "" {
 		candidates = append(candidates,
-			filepath.Join(dir, "insults_default.json"),
-			filepath.Join(dir, "templates", "insults_default.json"),
+			filepath.Join(dir, templateName),
+			filepath.Join(dir, "templates", templateName),
 		)
 	}
 
-	// 3) Installed layouts: check near the executable + common sibling dirs.
 	if exe, err := os.Executable(); err == nil {
 		exeDir := filepath.Dir(exe)
-
 		candidates = append(candidates,
-			filepath.Join(exeDir, "templates", "insults_default.json"),
-			filepath.Join(exeDir, "assets", "templates", "insults_default.json"),
-			filepath.Join(exeDir, "..", "share", "build-bouncer", "templates", "insults_default.json"),
-			filepath.Join(exeDir, "..", "share", "build-bouncer", "insults_default.json"),
-			filepath.Join(exeDir, "..", "libexec", "build-bouncer", "templates", "insults_default.json"),
+			filepath.Join(exeDir, "templates", templateName),
+			filepath.Join(exeDir, "assets", "templates", templateName),
+			filepath.Join(exeDir, "..", "share", "build-bouncer", "templates", templateName),
+			filepath.Join(exeDir, "..", "libexec", "build-bouncer", "templates", templateName),
 		)
 	}
 
@@ -221,7 +228,7 @@ func loadTemplateBytes(targetRoot string) ([]byte, error) {
 		}
 	}
 
-	return nil, errors.New("default insults template not found; expected assets/templates/insults_default.json near the tool or set BUILDBOUNCER_TEMPLATES_DIR")
+	return nil, errors.New("template not found: " + templateName + " (expected assets/templates or set BUILDBOUNCER_TEMPLATES_DIR)")
 }
 
 func cmdHook(args []string) int {
@@ -236,10 +243,7 @@ func cmdHook(args []string) int {
 		noCopy := fs.Bool("no-copy", false, "do not copy the build-bouncer binary into .git/hooks/bin")
 		_ = fs.Parse(args[1:])
 
-		opts := hooks.InstallOptions{
-			CopySelf: !*noCopy,
-		}
-
+		opts := hooks.InstallOptions{CopySelf: !*noCopy}
 		if err := hooks.InstallPrePushHook(opts); err != nil {
 			fmt.Fprintln(os.Stderr, "hook install:", err)
 			return exitUsage
@@ -287,7 +291,10 @@ func cmdHook(args []string) int {
 
 func cmdCheck(args []string) int {
 	fs := flag.NewFlagSet("check", flag.ContinueOnError)
-	ci := fs.Bool("ci", false, "CI mode (less sass, no random insult)")
+	ci := fs.Bool("ci", false, "CI mode (no spinner/banter; no random insult)")
+	verbose := fs.Bool("verbose", false, "stream full tool output to the terminal")
+	logDir := fs.String("log-dir", "", "directory to write failure logs (default: .git/build-bouncer/logs)")
+	tail := fs.Int("tail", 30, "number of output lines to show per failed check")
 	_ = fs.Parse(args)
 
 	cfgPath, cfgDir, err := config.FindConfigFromCwd(".buildbouncer.yaml")
@@ -302,18 +309,78 @@ func cmdCheck(args []string) int {
 		return exitUsage
 	}
 
-	rep, err := runner.RunAllReport(cfgDir, cfg, runner.Options{CI: *ci})
+	quietUI := !*verbose && !*ci && ui.IsTerminal(os.Stdout)
+
+	var bp *banter.Picker
+	if quietUI {
+		if p, err := banter.Load(cfgDir, banter.Config{File: cfg.Banter.File, Locale: cfg.Banter.Locale}); err == nil {
+			bp = p
+		}
+	}
+
+	var sp *ui.Spinner
+	if quietUI {
+		sp = ui.NewSpinner(os.Stdout)
+
+		intro := ""
+		if bp != nil {
+			intro = bp.Pick("intro")
+		}
+		if strings.TrimSpace(intro) == "" {
+			intro = "Checking the list..."
+		}
+
+		sp.Start(intro)
+	}
+
+	opts := runner.Options{
+		CI:      *ci,
+		Verbose: *verbose || *ci,
+		LogDir:  *logDir,
+		Progress: func(e runner.ProgressEvent) {
+			if sp == nil || bp == nil {
+				return
+			}
+			if e.Stage == "start" {
+				msg := bp.Pick("loading")
+				if strings.TrimSpace(msg) == "" {
+					msg = "Checking the list"
+				}
+				// Don’t leak check names in quiet mode.
+				sp.SetMessage(fmt.Sprintf("%s (%d/%d)", msg, e.Index, e.Total))
+			}
+		},
+	}
+
+	rep, err := runner.RunAllReport(cfgDir, cfg, opts)
+	if sp != nil {
+		sp.Stop()
+		fmt.Println("")
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "check:", err)
 		return exitUsage
 	}
 
-	failures := rep.Failures
-	if len(failures) > 0 {
+	if len(rep.Failures) > 0 {
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Blocked. Failed checks:")
-		for _, f := range failures {
+		for _, f := range rep.Failures {
 			fmt.Fprintf(os.Stderr, "  - %s\n", f)
+		}
+
+		if !opts.Verbose {
+			for _, f := range rep.Failures {
+				tailText := runner.TailLines(rep.FailureTails[f], *tail)
+				if strings.TrimSpace(tailText) != "" {
+					fmt.Fprintln(os.Stderr, "")
+					fmt.Fprintf(os.Stderr, "-- %s (tail)\n", f)
+					fmt.Fprintln(os.Stderr, tailText)
+				}
+				if p := rep.LogFiles[f]; strings.TrimSpace(p) != "" {
+					fmt.Fprintf(os.Stderr, "\nLog: %s\n", p)
+				}
+			}
 		}
 
 		if !*ci {
@@ -326,6 +393,14 @@ func cmdCheck(args []string) int {
 		}
 
 		return exitRunFailed
+	}
+
+	// Success output:
+	if quietUI && bp != nil {
+		if msg := strings.TrimSpace(bp.Pick("success")); msg != "" {
+			fmt.Println(msg)
+			return exitOK
+		}
 	}
 
 	fmt.Println("All checks passed.")

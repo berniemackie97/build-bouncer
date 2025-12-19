@@ -16,13 +16,25 @@ import (
 	"build-bouncer/internal/config"
 )
 
+type ProgressEvent struct {
+	Stage    string // start | end
+	Index    int
+	Total    int
+	Check    string
+	ExitCode int
+}
+
 type Options struct {
-	CI bool
+	CI       bool
+	Verbose  bool
+	LogDir   string
+	Progress func(e ProgressEvent)
 }
 
 type Report struct {
 	Failures     []string
-	FailureTails map[string]string // checkName -> output tail (combined stdout/stderr)
+	FailureTails map[string]string // checkName -> output tail
+	LogFiles     map[string]string // checkName -> full log (only on failure)
 }
 
 type limitedBuffer struct {
@@ -38,12 +50,10 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	if b.max <= 0 {
 		return len(p), nil
 	}
-
 	if len(p) >= b.max {
 		b.buf = append(b.buf[:0], p[len(p)-b.max:]...)
 		return len(p), nil
 	}
-
 	needed := len(b.buf) + len(p) - b.max
 	if needed > 0 {
 		b.buf = b.buf[needed:]
@@ -54,39 +64,59 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 
 func (b *limitedBuffer) String() string { return string(b.buf) }
 
-// Backwards compatible API
-func RunAll(root string, cfg *config.Config, opts Options) ([]string, error) {
-	rep, err := RunAllReport(root, cfg, opts)
-	if err != nil {
-		return nil, err
-	}
-	return rep.Failures, nil
-}
-
-func RunAllReport(root string, cfg *config.Config, _ Options) (Report, error) {
+func RunAllReport(root string, cfg *config.Config, opts Options) (Report, error) {
 	rep := Report{
 		Failures:     []string{},
 		FailureTails: map[string]string{},
+		LogFiles:     map[string]string{},
 	}
 
-	for _, c := range cfg.Checks {
-		fmt.Printf("==> %s\n", c.Name)
+	total := len(cfg.Checks)
+
+	for i, c := range cfg.Checks {
+		if opts.Progress != nil {
+			opts.Progress(ProgressEvent{
+				Stage: "start",
+				Index: i + 1,
+				Total: total,
+				Check: c.Name,
+			})
+		}
+
+		if opts.Verbose {
+			fmt.Printf("==> %s\n", c.Name)
+		}
 
 		dir := root
 		if strings.TrimSpace(c.Cwd) != "" {
 			dir = filepath.Join(root, filepath.FromSlash(c.Cwd))
 		}
 
-		exitCode, tail, err := runOne(dir, c.Run, c.Env)
+		exitCode, tail, logPath, err := runOne(root, dir, i, c.Name, c.Run, c.Env, opts)
 		if err != nil {
 			return Report{}, err
+		}
+
+		if opts.Progress != nil {
+			opts.Progress(ProgressEvent{
+				Stage:    "end",
+				Index:    i + 1,
+				Total:    total,
+				Check:    c.Name,
+				ExitCode: exitCode,
+			})
 		}
 
 		if exitCode != 0 {
 			rep.Failures = append(rep.Failures, c.Name)
 			rep.FailureTails[c.Name] = tail
-			fmt.Printf("!! %s failed (exit %d)\n\n", c.Name, exitCode)
-		} else {
+			if logPath != "" {
+				rep.LogFiles[c.Name] = logPath
+			}
+			if opts.Verbose {
+				fmt.Printf("!! %s failed (exit %d)\n\n", c.Name, exitCode)
+			}
+		} else if opts.Verbose {
 			fmt.Printf("OK %s\n\n", c.Name)
 		}
 	}
@@ -94,31 +124,85 @@ func RunAllReport(root string, cfg *config.Config, _ Options) (Report, error) {
 	return rep, nil
 }
 
-func runOne(dir string, command string, env map[string]string) (int, string, error) {
+func runOne(repoRoot string, dir string, idx int, checkName string, command string, env map[string]string, opts Options) (int, string, string, error) {
 	tailBuf := newLimitedBuffer(128 * 1024)
+
+	logDir := opts.LogDir
+	if strings.TrimSpace(logDir) == "" {
+		logDir = resolveDefaultLogDir(repoRoot)
+	}
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		return 1, "", "", err
+	}
+
+	logName := fmt.Sprintf("%s_%02d_%s.log", time.Now().Format("20060102_150405"), idx, sanitize(checkName))
+	logPath := filepath.Join(logDir, logName)
+
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return 1, "", "", err
+	}
+
+	var w io.Writer = io.MultiWriter(logFile, tailBuf)
+	if opts.Verbose {
+		w = io.MultiWriter(os.Stdout, logFile, tailBuf)
+	}
 
 	name, args := shellCommand(command)
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
-
-	cmd.Stdout = io.MultiWriter(os.Stdout, tailBuf)
-	cmd.Stderr = io.MultiWriter(os.Stderr, tailBuf)
+	cmd.Stdout = w
+	cmd.Stderr = w
 
 	cmd.Env = os.Environ()
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
 	}
 
-	err := cmd.Run()
-	if err == nil {
-		return 0, tailBuf.String(), nil
+	runErr := cmd.Run()
+	_ = logFile.Close()
+
+	if runErr == nil {
+		_ = os.Remove(logPath)
+		return 0, tailBuf.String(), "", nil
 	}
 
-	if ee, ok := err.(*exec.ExitError); ok {
-		return ee.ExitCode(), tailBuf.String(), nil
+	if ee, ok := runErr.(*exec.ExitError); ok {
+		return ee.ExitCode(), tailBuf.String(), logPath, nil
 	}
 
-	return 1, tailBuf.String(), err
+	return 1, tailBuf.String(), logPath, runErr
+}
+
+func resolveDefaultLogDir(repoRoot string) string {
+	gitDir := filepath.Join(repoRoot, ".git")
+	if st, err := os.Stat(gitDir); err == nil && st.IsDir() {
+		return filepath.Join(gitDir, "build-bouncer", "logs")
+	}
+	return filepath.Join(repoRoot, ".build-bouncer", "logs")
+}
+
+func sanitize(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "check"
+	}
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-' || r == '_' || r == '.':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	return b.String()
 }
 
 func shellCommand(command string) (string, []string) {
@@ -128,8 +212,23 @@ func shellCommand(command string) (string, []string) {
 	return "sh", []string{"-c", command}
 }
 
+func TailLines(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	lines := strings.Split(s, "\n")
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) <= n {
+		return strings.Join(lines, "\n")
+	}
+	return strings.Join(lines[len(lines)-n:], "\n")
+}
+
 // --------------------
-// Insults (JSON pack)
+// Insults (unchanged)
 // --------------------
 
 type insultPack struct {
@@ -141,16 +240,16 @@ type insultPack struct {
 
 type insultTemplate struct {
 	ID         string   `json:"id"`
-	Categories []string `json:"categories"` // tests | lint | build | ci | any
-	Locales    []string `json:"locales"`    // optional
-	Weight     int      `json:"weight"`     // default 1
-	Cooldown   int      `json:"cooldown"`   // default pack.DefaultCooldown
+	Categories []string `json:"categories"`
+	Locales    []string `json:"locales"`
+	Weight     int      `json:"weight"`
+	Cooldown   int      `json:"cooldown"`
 	Text       string   `json:"text"`
 }
 
 type insultState struct {
 	Version int      `json:"version"`
-	Recent  []string `json:"recent"` // most-recent-first template IDs
+	Recent  []string `json:"recent"`
 }
 
 func PickInsult(root string, ins config.Insults, rep Report) string {
@@ -174,8 +273,8 @@ func PickInsult(root string, ins config.Insults, rep Report) string {
 		locale = "en"
 	}
 
-	statePath := resolveStatePath(root)
-	st := loadState(statePath)
+	statePath := resolveInsultStatePath(root)
+	st := loadInsultState(statePath)
 
 	check := pickFailingCheck(rep.Failures)
 	detail := extractDetail(category, rep, check)
@@ -184,17 +283,12 @@ func PickInsult(root string, ins config.Insults, rep Report) string {
 	}
 
 	candidates := filterTemplates(pack, category, locale, st)
-
-	// If cooldown filtered out everything, relax cooldown.
 	if len(candidates) == 0 {
 		candidates = filterTemplates(pack, category, locale, insultState{Version: st.Version})
 	}
-
-	// If still nothing, allow any category.
 	if len(candidates) == 0 {
 		candidates = filterTemplates(pack, "any", locale, insultState{Version: st.Version})
 	}
-
 	if len(candidates) == 0 {
 		return formatInsult(ins.Mode, "Push blocked. Failed: "+strings.Join(rep.Failures, ", "))
 	}
@@ -211,7 +305,7 @@ func PickInsult(root string, ins config.Insults, rep Report) string {
 		if len(st.Recent) > pack.MaxHistory {
 			st.Recent = st.Recent[:pack.MaxHistory]
 		}
-		_ = saveState(statePath, st)
+		_ = saveInsultState(statePath, st)
 	}
 
 	return formatInsult(ins.Mode, msg)
@@ -232,8 +326,7 @@ func loadInsultPack(path string) (insultPack, error) {
 	return p, nil
 }
 
-func resolveStatePath(root string) string {
-	// Store in .git so it never gets committed.
+func resolveInsultStatePath(root string) string {
 	gitDir := filepath.Join(root, ".git")
 	if st, err := os.Stat(gitDir); err == nil && st.IsDir() {
 		return filepath.Join(gitDir, "build-bouncer", "insults_state.json")
@@ -241,7 +334,7 @@ func resolveStatePath(root string) string {
 	return filepath.Join(root, ".buildbouncer_insults_state.json")
 }
 
-func loadState(path string) insultState {
+func loadInsultState(path string) insultState {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return insultState{Version: 1, Recent: nil}
@@ -256,7 +349,7 @@ func loadState(path string) insultState {
 	return st
 }
 
-func saveState(path string, st insultState) error {
+func saveInsultState(path string, st insultState) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -280,13 +373,13 @@ func filterTemplates(pack insultPack, category string, locale string, st insultS
 		if strings.TrimSpace(t.Text) == "" {
 			continue
 		}
-		if !matchesLocale(t, locale) {
+		if !matchesLocaleInsult(t, locale) {
 			continue
 		}
-		if !matchesCategory(t, category) {
+		if !matchesCategoryInsult(t, category) {
 			continue
 		}
-		if inCooldown(pack, t, st) {
+		if inCooldownInsult(pack, t, st) {
 			continue
 		}
 		out = append(out, t)
@@ -310,7 +403,7 @@ func normalizeTemplate(pack insultPack, t insultTemplate) insultTemplate {
 	return t
 }
 
-func matchesCategory(t insultTemplate, category string) bool {
+func matchesCategoryInsult(t insultTemplate, category string) bool {
 	want := strings.ToLower(strings.TrimSpace(category))
 	for _, c := range t.Categories {
 		cc := strings.ToLower(strings.TrimSpace(c))
@@ -324,7 +417,7 @@ func matchesCategory(t insultTemplate, category string) bool {
 	return false
 }
 
-func matchesLocale(t insultTemplate, locale string) bool {
+func matchesLocaleInsult(t insultTemplate, locale string) bool {
 	if len(t.Locales) == 0 {
 		return true
 	}
@@ -336,28 +429,24 @@ func matchesLocale(t insultTemplate, locale string) bool {
 	return false
 }
 
-func inCooldown(pack insultPack, t insultTemplate, st insultState) bool {
+func inCooldownInsult(pack insultPack, t insultTemplate, st insultState) bool {
 	if t.ID == "" || t.Cooldown <= 0 {
 		return false
 	}
-
 	limit := t.Cooldown
 	if limit > len(st.Recent) {
 		limit = len(st.Recent)
 	}
-
 	for i := 0; i < limit; i++ {
 		if st.Recent[i] == t.ID {
 			return true
 		}
 	}
-
 	return false
 }
 
 func weightedPick(candidates []insultTemplate) insultTemplate {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-
 	total := 0
 	for _, c := range candidates {
 		total += c.Weight
@@ -365,7 +454,6 @@ func weightedPick(candidates []insultTemplate) insultTemplate {
 	if total <= 0 {
 		return candidates[r.Intn(len(candidates))]
 	}
-
 	n := r.Intn(total)
 	acc := 0
 	for _, c := range candidates {
@@ -376,10 +464,6 @@ func weightedPick(candidates []insultTemplate) insultTemplate {
 	}
 	return candidates[len(candidates)-1]
 }
-
-// --------------------
-// Category + details
-// --------------------
 
 var (
 	reGoTestFail = regexp.MustCompile(`(?m)^--- FAIL: ([^\s]+)`)
@@ -460,7 +544,6 @@ func extractDetailFromOutput(category string, out string) string {
 	if m := reFirstError.FindStringSubmatch(out); len(m) == 2 {
 		return strings.TrimSpace(m[1])
 	}
-
 	return ""
 }
 

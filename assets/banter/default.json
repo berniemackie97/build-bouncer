@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "maxHistory": 50,
+  "defaultCooldown": 8,
+  "entries": [
+    {
+      "id": "intro.list.1",
+      "type": "intro",
+      "weight": 5,
+      "text": "Hold up. Checking the list..."
+    },
+    {
+      "id": "intro.cat.1",
+      "type": "intro",
+      "weight": 4,
+      "text": "Look what the cat dragged in. Lemme see your papers..."
+    },
+    {
+      "id": "intro.rope.1",
+      "type": "intro",
+      "weight": 3,
+      "text": "Velvet rope protocol. Stand by..."
+    },
+    {
+      "id": "intro.squint.1",
+      "type": "intro",
+      "weight": 3,
+      "text": "Squinting at your commit like it's a fake ID..."
+    },
+    {
+      "id": "intro.grumble.1",
+      "type": "intro",
+      "weight": 2,
+      "text": "Grumble grumble... alright, let's see..."
+    },
+
+    {
+      "id": "loading.list.1",
+      "type": "loading",
+      "weight": 6,
+      "text": "Checking the list"
+    },
+    {
+      "id": "loading.clip.1",
+      "type": "loading",
+      "weight": 4,
+      "text": "Clipboard noises intensify"
+    },
+    {
+      "id": "loading.mutter.1",
+      "type": "loading",
+      "weight": 4,
+      "text": "Muttering in CI"
+    },
+    {
+      "id": "loading.sniff.1",
+      "type": "loading",
+      "weight": 3,
+      "text": "Sniffing for broken builds"
+    },
+    {
+      "id": "loading.shake.1",
+      "type": "loading",
+      "weight": 3,
+      "text": "Shaking down your repo"
+    },
+    {
+      "id": "loading.scan.1",
+      "type": "loading",
+      "weight": 3,
+      "text": "Scanning for red flags"
+    },
+    {
+      "id": "loading.tickets.1",
+      "type": "loading",
+      "weight": 2,
+      "text": "Counting your lint tickets"
+    },
+
+    {
+      "id": "success.vip.1",
+      "type": "success",
+      "weight": 5,
+      "text": "You're on the list. Go on."
+    },
+    {
+      "id": "success.clean.1",
+      "type": "success",
+      "weight": 4,
+      "text": "All green. Approved."
+    },
+    {
+      "id": "success.stamp.1",
+      "type": "success",
+      "weight": 4,
+      "text": "Stamped. Next."
+    },
+    {
+      "id": "success.velvet.1",
+      "type": "success",
+      "weight": 3,
+      "text": "Velvet rope opens. Don't make me regret this."
+    },
+    {
+      "id": "success.vip2.1",
+      "type": "success",
+      "weight": 2,
+      "text": "VIP behavior detected. Proceed."
+    }
+  ]
+}

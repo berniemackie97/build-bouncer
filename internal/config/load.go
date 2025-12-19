@@ -59,5 +59,12 @@ func validateAndDefault(cfg *Config) error {
 		cfg.Insults.Locale = "en"
 	}
 
+	if strings.TrimSpace(cfg.Banter.File) == "" {
+		cfg.Banter.File = "assets/banter/default.json"
+	}
+	if strings.TrimSpace(cfg.Banter.Locale) == "" {
+		cfg.Banter.Locale = "en"
+	}
+
 	return nil
 }

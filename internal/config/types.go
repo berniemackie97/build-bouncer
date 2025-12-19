@@ -4,6 +4,7 @@ type Config struct {
 	Version int     `yaml:"version"`
 	Checks  []Check `yaml:"checks"`
 	Insults Insults `yaml:"insults"`
+	Banter  Banter  `yaml:"banter"`
 }
 
 type Check struct {
@@ -15,6 +16,11 @@ type Check struct {
 
 type Insults struct {
 	Mode   string `yaml:"mode"`   // polite | snarky | nuclear
-	File   string `yaml:"file"`   // path to JSON pack in the target repo
-	Locale string `yaml:"locale"` // e.g. "en"
+	File   string `yaml:"file"`   // assets/insults/default.json
+	Locale string `yaml:"locale"` // en
+}
+
+type Banter struct {
+	File   string `yaml:"file"`   // assets/banter/default.json
+	Locale string `yaml:"locale"` // en
 }

@@ -10,3 +10,7 @@ insults:
   mode: "snarky"   # polite | snarky | nuclear
   file: "assets/insults/default.json"
   locale: "en"
+
+banter:
+  file: "assets/banter/default.json"
+  locale: "en"
