@@ -1,0 +1,11 @@
+﻿version: 1
+
+checks:
+  - name: "tests"
+    run: "go test ./..."
+  - name: "lint"
+    run: "go vet ./..."
+
+insults:
+  mode: "snarky"   # polite | snarky | nuclear
+  file: "assets/insults/default.txt"

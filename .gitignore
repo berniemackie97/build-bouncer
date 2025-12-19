@@ -1,0 +1,23 @@
+﻿# Binaries
+/bin/
+/dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go build cache
+*.test
+*.out
+
+# IDE
+.vscode/
+.idea/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Logs / temp
+*.log
+tmp/
