@@ -71,14 +71,14 @@ go install .\cmd\build-bouncer
 From your repo root:
 
 ```bash
-build-bouncer init
+build-bouncer init --go
 build-bouncer hook install
 ```
 
 Or do it all in one:
 
 ```bash
-build-bouncer setup
+build-bouncer setup --go
 ```
 
 Now pushing runs checks automatically:
@@ -91,7 +91,7 @@ git push
 
 ## Commands
 
-### `build-bouncer init [--force]`
+### `build-bouncer init [--force] [--template-flag]`
 Creates:
 - `.buildbouncer.yaml`
 - `assets/insults/default.json`
@@ -101,7 +101,40 @@ It populates those from templates shipped with build-bouncer:
 - `assets/templates/insults_default.json`
 - `assets/templates/banter_default.json`
 
-`--force` overwrites existing config and default packs.
+`init` always writes `.buildbouncer.yaml` (overwriting if it already exists).
+`--force` overwrites existing default packs.
+
+If `.github/workflows/*.yml` exists, `init` adds each `run` step as a check and skips duplicates.
+
+If no template flag is provided, `init` prints the list of supported templates.
+
+Currently supported templates:
+- Manual: `--manual`, `--custom`, `--blank`
+- Go: `--go`, `--golang`
+- .NET: `--dotnet`, `--net`
+- Node: `--node`, `--nodejs`, `--js`, `--javascript`
+- React: `--react`, `--reactjs`
+- Vue: `--vue`, `--vuejs`
+- Angular: `--angular`, `--ng`
+- Svelte: `--svelte`, `--sveltekit`
+- Next.js: `--next`, `--nextjs`
+- Nuxt: `--nuxt`, `--nuxtjs`
+- Astro: `--astro`
+- Python: `--python`, `--py`
+- Ruby: `--ruby`, `--rails`
+- PHP: `--php`, `--laravel`
+- Java (Maven): `--maven`, `--java-maven`
+- Java (Gradle): `--gradle`, `--java-gradle`
+- Kotlin: `--kotlin`, `--kt`
+- Android: `--android`
+- Rust: `--rust`
+- C/C++: `--cpp`, `--cxx`, `--cplusplus`
+- Swift: `--swift`
+- Flutter: `--flutter`
+- Dart: `--dart`
+- Elixir: `--elixir`
+
+The manual template includes a placeholder check that fails until you replace it.
 
 ### `build-bouncer check [--hook] [--verbose] [--ci] [--log-dir DIR] [--tail N]`
 Runs all configured checks.
@@ -118,12 +151,13 @@ Exit codes:
 - `2` usage/config error
 - `10` checks failed (push blocked)
 
-### `build-bouncer setup [--force] [--no-copy] [--ci]`
+### `build-bouncer setup [--force] [--no-copy] [--ci] [--template-flag]`
 Convenience: init (if needed) + install hook + run checks.
 
-- `--force` overwrites config/default packs
+- `--force` overwrites default packs
 - `--no-copy` installs hook without copying the binary into `.git/hooks/bin`
 - `--ci` runs checks in CI mode
+- Template flags choose a template when generating config (see list above)
 
 ### `build-bouncer hook install [--no-copy]`
 Installs `.git/hooks/pre-push`.
@@ -321,8 +355,8 @@ The hook prefers that repo-pinned binary first, so everyone on the team gets con
 
 ## Roadmap (not implemented yet)
 
-- Parse GitHub Actions workflows and mirror what can run locally
-- Smarter error “headline” extraction per tool (human-readable summaries)
+- Improve GitHub Actions mirroring (matrices, OS filtering, and non-run steps)
+- Smarter error "headline" extraction per tool (human-readable summaries)
 - Packaging: Homebrew, Scoop, Winget, etc.
 - TUI configuration editor (optional)
 

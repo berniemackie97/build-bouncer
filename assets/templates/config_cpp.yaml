@@ -1,0 +1,18 @@
+version: 1
+
+checks:
+  - name: "configure"
+    run: "cmake -S . -B build"
+  - name: "build"
+    run: "cmake --build build"
+  - name: "tests"
+    run: "ctest --test-dir build"
+
+insults:
+  mode: "snarky"
+  file: "assets/insults/default.json"
+  locale: "en"
+
+banter:
+  file: "assets/banter/default.json"
+  locale: "en"

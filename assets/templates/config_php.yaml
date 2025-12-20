@@ -1,0 +1,16 @@
+version: 1
+
+checks:
+  - name: "lint"
+    run: "composer lint"
+  - name: "tests"
+    run: "composer test"
+
+insults:
+  mode: "snarky"
+  file: "assets/insults/default.json"
+  locale: "en"
+
+banter:
+  file: "assets/banter/default.json"
+  locale: "en"

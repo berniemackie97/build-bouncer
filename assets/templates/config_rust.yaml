@@ -1,0 +1,18 @@
+version: 1
+
+checks:
+  - name: "fmt"
+    run: "cargo fmt --check"
+  - name: "clippy"
+    run: "cargo clippy -- -D warnings"
+  - name: "tests"
+    run: "cargo test"
+
+insults:
+  mode: "snarky"
+  file: "assets/insults/default.json"
+  locale: "en"
+
+banter:
+  file: "assets/banter/default.json"
+  locale: "en"

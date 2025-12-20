@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 func Load(path string) (*Config, error) {
@@ -14,17 +12,7 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	var cfg Config
-	if err := yaml.Unmarshal(b, &cfg); err != nil {
-		return nil, err
-	}
-
-	if err := validateAndDefault(&cfg); err != nil {
-		return nil, err
-	}
-
-	return &cfg, nil
+	return Parse(b)
 }
 
 func validateAndDefault(cfg *Config) error {

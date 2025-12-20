@@ -1,0 +1,16 @@
+version: 1
+
+checks:
+  - name: "tests"
+    run: "dotnet test -c Release"
+  - name: "format"
+    run: "dotnet format --verify-no-changes"
+
+insults:
+  mode: "snarky"
+  file: "assets/insults/default.json"
+  locale: "en"
+
+banter:
+  file: "assets/banter/default.json"
+  locale: "en"

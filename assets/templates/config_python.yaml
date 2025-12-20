@@ -1,0 +1,18 @@
+version: 1
+
+checks:
+  - name: "lint"
+    run: "python -m ruff check ."
+  - name: "format"
+    run: "python -m black --check ."
+  - name: "tests"
+    run: "python -m pytest"
+
+insults:
+  mode: "snarky"
+  file: "assets/insults/default.json"
+  locale: "en"
+
+banter:
+  file: "assets/banter/default.json"
+  locale: "en"

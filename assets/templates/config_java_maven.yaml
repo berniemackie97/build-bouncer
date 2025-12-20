@@ -1,0 +1,16 @@
+version: 1
+
+checks:
+  - name: "tests"
+    run: "mvn test"
+  - name: "build"
+    run: "mvn -DskipTests package"
+
+insults:
+  mode: "snarky"
+  file: "assets/insults/default.json"
+  locale: "en"
+
+banter:
+  file: "assets/banter/default.json"
+  locale: "en"

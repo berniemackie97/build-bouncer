@@ -1,0 +1,16 @@
+version: 1
+
+checks:
+  - name: "lint"
+    run: "bundle exec rubocop"
+  - name: "tests"
+    run: "bundle exec rspec"
+
+insults:
+  mode: "snarky"
+  file: "assets/insults/default.json"
+  locale: "en"
+
+banter:
+  file: "assets/banter/default.json"
+  locale: "en"

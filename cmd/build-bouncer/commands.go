@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"build-bouncer/internal/banter"
+	"build-bouncer/internal/ci"
 	"build-bouncer/internal/cli"
 	"build-bouncer/internal/config"
 	"build-bouncer/internal/git"
@@ -25,22 +26,29 @@ func registerCommands(app *cli.App) {
 func newSetupCommand() cli.Command {
 	return cli.Command{
 		Name:    "setup",
-		Usage:   "setup [--force] [--no-copy] [--ci]",
+		Usage:   "setup [--force] [--no-copy] [--ci] [--template-flag]",
 		Summary: "Init config/packs, install hook, then run checks.",
 		Run: func(ctx cli.Context, args []string) int {
 			fs := cli.NewFlagSet(ctx, "setup")
-			force := fs.Bool("force", false, "overwrite existing config + default packs")
+			force := fs.Bool("force", false, "overwrite default insult/banter packs")
 			noCopy := fs.Bool("no-copy", false, "do not copy the build-bouncer binary into .git/hooks/bin")
 			ci := fs.Bool("ci", false, "CI mode")
+			selector := registerTemplateFlags(fs)
 			if err := fs.Parse(args); err != nil {
 				return exitUsage
 			}
-			return runSetup(*force, *noCopy, *ci, ctx)
+			templateID, err := selector.Selected()
+			if err != nil {
+				fmt.Fprintln(ctx.Stderr, "setup:", err)
+				printInitHelp(ctx)
+				return exitUsage
+			}
+			return runSetup(*force, *noCopy, *ci, templateID, ctx)
 		},
 	}
 }
 
-func runSetup(force bool, noCopy bool, ci bool, ctx cli.Context) int {
+func runSetup(force bool, noCopy bool, ci bool, templateID string, ctx cli.Context) int {
 	root, err := git.FindRepoRoot()
 	if err != nil {
 		fmt.Fprintln(ctx.Stderr, "setup:", err)
@@ -49,15 +57,26 @@ func runSetup(force bool, noCopy bool, ci bool, ctx cli.Context) int {
 
 	cfgPath := filepath.Join(root, ".buildbouncer.yaml")
 
-	if _, err := os.Stat(cfgPath); os.IsNotExist(err) || force {
-		if code := runInit(force, ctx); code != exitOK {
+	if _, err := os.Stat(cfgPath); err == nil {
+		if templateID != "" {
+			if code := runInit(force, templateID, ctx); code != exitOK {
+				return code
+			}
+		} else {
+			fmt.Fprintln(ctx.Stdout, "Config exists:", cfgPath)
+		}
+	} else if os.IsNotExist(err) {
+		if templateID == "" {
+			fmt.Fprintln(ctx.Stderr, "setup: missing template flag (try: build-bouncer setup --go)")
+			printInitHelp(ctx)
+			return exitUsage
+		}
+		if code := runInit(force, templateID, ctx); code != exitOK {
 			return code
 		}
-	} else if err != nil {
+	} else {
 		fmt.Fprintln(ctx.Stderr, "setup:", err)
 		return exitUsage
-	} else {
-		fmt.Fprintln(ctx.Stdout, "Config exists:", cfgPath)
 	}
 
 	opts := hooks.InstallOptions{CopySelf: !noCopy}
@@ -77,20 +96,31 @@ func runSetup(force bool, noCopy bool, ci bool, ctx cli.Context) int {
 func newInitCommand() cli.Command {
 	return cli.Command{
 		Name:    "init",
-		Usage:   "init [--force]",
+		Usage:   "init [--force] [--template-flag]",
 		Summary: "Create .buildbouncer.yaml and default insult/banter packs.",
 		Run: func(ctx cli.Context, args []string) int {
 			fs := cli.NewFlagSet(ctx, "init")
-			force := fs.Bool("force", false, "overwrite existing config + default packs")
+			force := fs.Bool("force", false, "overwrite default insult/banter packs")
+			selector := registerTemplateFlags(fs)
 			if err := fs.Parse(args); err != nil {
 				return exitUsage
 			}
-			return runInit(*force, ctx)
+			templateID, err := selector.Selected()
+			if err != nil {
+				fmt.Fprintln(ctx.Stderr, "init:", err)
+				printInitHelp(ctx)
+				return exitUsage
+			}
+			if templateID == "" {
+				printInitHelp(ctx)
+				return exitOK
+			}
+			return runInit(*force, templateID, ctx)
 		},
 	}
 }
 
-func runInit(force bool, ctx cli.Context) int {
+func runInit(force bool, templateID string, ctx cli.Context) int {
 	root, err := git.FindRepoRootOrCwd()
 	if err != nil {
 		fmt.Fprintln(ctx.Stderr, "init:", err)
@@ -100,13 +130,6 @@ func runInit(force bool, ctx cli.Context) int {
 	cfgPath := filepath.Join(root, ".buildbouncer.yaml")
 	insultsPath := filepath.Join(root, "assets", "insults", "default.json")
 	banterPath := filepath.Join(root, "assets", "banter", "default.json")
-
-	if !force {
-		if _, err := os.Stat(cfgPath); err == nil {
-			fmt.Fprintln(ctx.Stderr, "init: .buildbouncer.yaml already exists (use --force to overwrite)")
-			return exitUsage
-		}
-	}
 
 	if err := os.MkdirAll(filepath.Dir(insultsPath), 0o755); err != nil {
 		fmt.Fprintln(ctx.Stderr, "init:", err)
@@ -126,26 +149,51 @@ func runInit(force bool, ctx cli.Context) int {
 		return exitUsage
 	}
 
-	defaultCfg := `version: 1
+	tmpl, ok := findConfigTemplate(templateID)
+	if !ok {
+		fmt.Fprintln(ctx.Stderr, "init: unknown template:", templateID)
+		printInitHelp(ctx)
+		return exitUsage
+	}
 
-checks:
-  - name: "tests"
-    run: "go test ./..."
-  - name: "lint"
-    run: "go vet ./..."
-
-insults:
-  mode: "snarky"   # polite | snarky | nuclear
-  file: "assets/insults/default.json"
-  locale: "en"
-
-banter:
-  file: "assets/banter/default.json"
-  locale: "en"
-`
-	if err := os.WriteFile(cfgPath, []byte(defaultCfg), 0o644); err != nil {
+	templateBytes, err := loadTemplateBytes(root, tmpl.File)
+	if err != nil {
 		fmt.Fprintln(ctx.Stderr, "init:", err)
 		return exitUsage
+	}
+
+	ciChecks, err := ci.ChecksFromGitHubActions(root)
+	if err != nil {
+		fmt.Fprintln(ctx.Stderr, "init:", err)
+		return exitUsage
+	}
+
+	if len(ciChecks) == 0 {
+		if err := os.WriteFile(cfgPath, templateBytes, 0o644); err != nil {
+			fmt.Fprintln(ctx.Stderr, "init:", err)
+			return exitUsage
+		}
+	} else {
+		cfg, err := config.Parse(templateBytes)
+		if err != nil {
+			fmt.Fprintln(ctx.Stderr, "init:", err)
+			return exitUsage
+		}
+		if templateID == "manual" && len(ciChecks) > 0 {
+			cfg.Checks = stripManualPlaceholder(cfg.Checks)
+		}
+		merge := mergeChecks(cfg.Checks, ciChecks)
+		cfg.Checks = merge.Merged
+		if err := config.Save(cfgPath, cfg); err != nil {
+			fmt.Fprintln(ctx.Stderr, "init:", err)
+			return exitUsage
+		}
+		if len(merge.Added) > 0 {
+			fmt.Fprintf(ctx.Stdout, "Added %d CI checks from .github/workflows\n", len(merge.Added))
+		}
+		if len(merge.Skipped) > 0 {
+			fmt.Fprintf(ctx.Stdout, "Skipped %d duplicate CI checks\n", len(merge.Skipped))
+		}
 	}
 
 	fmt.Fprintln(ctx.Stdout, "Created:", cfgPath)
