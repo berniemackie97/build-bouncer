@@ -1,0 +1,16 @@
+version: 1
+
+checks:
+  - name: "format"
+    run: "terraform fmt -check"
+  - name: "validate"
+    run: "terraform validate"
+
+insults:
+  mode: "snarky"
+  file: "assets/insults/default.json"
+  locale: "en"
+
+banter:
+  file: "assets/banter/default.json"
+  locale: "en"

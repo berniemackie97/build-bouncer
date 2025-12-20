@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	assettemplates "build-bouncer/assets/templates"
 )
 
 type configTemplate struct {
@@ -34,13 +36,13 @@ var configTemplates = []configTemplate{
 		ID:      "dotnet",
 		File:    "config_dotnet.yaml",
 		Summary: ".NET projects (dotnet test, dotnet format)",
-		Flags:   []string{"dotnet", "net"},
+		Flags:   []string{"dotnet", "net", "csharp"},
 	},
 	{
 		ID:      "node",
 		File:    "config_node.yaml",
 		Summary: "Node projects (npm run lint/test/build)",
-		Flags:   []string{"node", "nodejs", "js", "javascript"},
+		Flags:   []string{"node", "nodejs", "js", "javascript", "ts", "typescript"},
 	},
 	{
 		ID:      "react",
@@ -81,14 +83,14 @@ var configTemplates = []configTemplate{
 	{
 		ID:      "astro",
 		File:    "config_node.yaml",
-		Summary: "Astro projects (npm run lint/test/build)",
+		Summary: "Astro projects (uses package.json scripts like check/build)",
 		Flags:   []string{"astro"},
 	},
 	{
 		ID:      "python",
 		File:    "config_python.yaml",
 		Summary: "Python projects (ruff/black/pytest)",
-		Flags:   []string{"python", "py"},
+		Flags:   []string{"python", "py", "django", "flask", "fastapi"},
 	},
 	{
 		ID:      "ruby",
@@ -100,7 +102,7 @@ var configTemplates = []configTemplate{
 		ID:      "php",
 		File:    "config_php.yaml",
 		Summary: "PHP projects (composer scripts)",
-		Flags:   []string{"php", "laravel"},
+		Flags:   []string{"php", "laravel", "symfony"},
 	},
 	{
 		ID:      "maven",
@@ -162,6 +164,60 @@ var configTemplates = []configTemplate{
 		Summary: "Elixir projects (mix format/test)",
 		Flags:   []string{"elixir"},
 	},
+	{
+		ID:      "deno",
+		File:    "config_deno.yaml",
+		Summary: "Deno projects (deno lint/format/test)",
+		Flags:   []string{"deno"},
+	},
+	{
+		ID:      "scala",
+		File:    "config_scala.yaml",
+		Summary: "Scala projects (sbt test)",
+		Flags:   []string{"scala", "sbt"},
+	},
+	{
+		ID:      "clojure",
+		File:    "config_clojure.yaml",
+		Summary: "Clojure projects (lein test)",
+		Flags:   []string{"clojure", "lein", "leiningen"},
+	},
+	{
+		ID:      "haskell",
+		File:    "config_haskell.yaml",
+		Summary: "Haskell projects (stack test)",
+		Flags:   []string{"haskell", "stack", "cabal"},
+	},
+	{
+		ID:      "erlang",
+		File:    "config_erlang.yaml",
+		Summary: "Erlang projects (rebar3 eunit)",
+		Flags:   []string{"erlang", "rebar", "rebar3"},
+	},
+	{
+		ID:      "lua",
+		File:    "config_lua.yaml",
+		Summary: "Lua projects (luacheck/busted)",
+		Flags:   []string{"lua", "luajit"},
+	},
+	{
+		ID:      "perl",
+		File:    "config_perl.yaml",
+		Summary: "Perl projects (prove)",
+		Flags:   []string{"perl"},
+	},
+	{
+		ID:      "r",
+		File:    "config_r.yaml",
+		Summary: "R projects (R CMD check)",
+		Flags:   []string{"r", "rlang"},
+	},
+	{
+		ID:      "terraform",
+		File:    "config_terraform.yaml",
+		Summary: "Terraform projects (fmt/validate)",
+		Flags:   []string{"terraform", "tf"},
+	},
 }
 
 func ensureDefaultPack(targetRoot string, destPath string, templateName string, force bool) error {
@@ -206,6 +262,10 @@ func loadTemplateBytes(targetRoot string, templateName string) ([]byte, error) {
 		if err == nil && len(b) > 0 {
 			return b, nil
 		}
+	}
+
+	if b, err := assettemplates.FS.ReadFile(templateName); err == nil && len(b) > 0 {
+		return b, nil
 	}
 
 	return nil, errors.New("template not found: " + templateName + " (expected assets/templates or set BUILDBOUNCER_TEMPLATES_DIR)")

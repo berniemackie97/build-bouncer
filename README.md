@@ -105,46 +105,29 @@ It populates those from templates shipped with build-bouncer:
 `--force` overwrites existing default packs.
 
 If `.github/workflows/*.yml` exists, `init` adds each `run` step as a check and skips duplicates.
+For Node-based templates, `init` also reads `package.json` scripts and only includes checks that exist.
+Gradle/Maven templates prefer wrapper scripts (`gradlew`/`mvnw`) when present.
 
 If no template flag is provided, `init` prints the list of supported templates.
 
-Currently supported templates:
-- Manual: `--manual`, `--custom`, `--blank`
-- Go: `--go`, `--golang`
-- .NET: `--dotnet`, `--net`
-- Node: `--node`, `--nodejs`, `--js`, `--javascript`
-- React: `--react`, `--reactjs`
-- Vue: `--vue`, `--vuejs`
-- Angular: `--angular`, `--ng`
-- Svelte: `--svelte`, `--sveltekit`
-- Next.js: `--next`, `--nextjs`
-- Nuxt: `--nuxt`, `--nuxtjs`
-- Astro: `--astro`
-- Python: `--python`, `--py`
-- Ruby: `--ruby`, `--rails`
-- PHP: `--php`, `--laravel`
-- Java (Maven): `--maven`, `--java-maven`
-- Java (Gradle): `--gradle`, `--java-gradle`
-- Kotlin: `--kotlin`, `--kt`
-- Android: `--android`
-- Rust: `--rust`
-- C/C++: `--cpp`, `--cxx`, `--cplusplus`
-- Swift: `--swift`
-- Flutter: `--flutter`
-- Dart: `--dart`
-- Elixir: `--elixir`
+Run `build-bouncer init` (no flags) to see the full template list and flag aliases.
+Common templates include Manual, Go, .NET, Node (React/Vue/Angular/Svelte/Next/Nuxt/Astro),
+Python, Ruby, PHP, Java (Maven/Gradle), Kotlin/Android, Rust, C/C++, Swift, Flutter, Dart,
+Elixir, Deno, Scala, Clojure, Haskell, Erlang, Lua, Perl, R, and Terraform.
 
 The manual template includes a placeholder check that fails until you replace it.
 
-### `build-bouncer check [--hook] [--verbose] [--ci] [--log-dir DIR] [--tail N]`
+### `build-bouncer check [--hook] [--verbose] [--ci] [--log-dir DIR] [--tail N] [--parallel N] [--fail-fast]`
 Runs all configured checks.
 
 Flags:
 - `--verbose` : stream full output to terminal (still logs)
 - `--ci` : disables spinner/banter + disables random insults
-- `--hook` : forces spinner/banter even if stdout doesn’t look like a TTY (used by the git hook)
+- `--hook` : forces spinner/banter even if stdout doesn't look like a TTY (used by the git hook)
 - `--log-dir` : override log directory (default: `.git/build-bouncer/logs`)
 - `--tail` : number of lines printed per failed check (default: `30`)
+- `--parallel` : max concurrent checks (default: 1 or config)
+- `--fail-fast` : cancel remaining checks after the first failure
 
 Exit codes:
 - `0` success
@@ -170,8 +153,11 @@ Reports whether the hook exists, whether build-bouncer installed it, and whether
 
 ### `build-bouncer hook uninstall [--force]`
 Removes the hook.
-- Default behavior refuses to delete a hook it didn’t install.
+- Default behavior refuses to delete a hook it didn't install.
 - `--force` removes it anyway.
+
+### `build-bouncer ci sync`
+Merges `.github/workflows/*` `run` steps into `.buildbouncer.yaml` and skips duplicates.
 
 ---
 
@@ -187,6 +173,13 @@ checks:
     run: "go test ./..."
   - name: "lint"
     run: "go vet ./..."
+  - name: "build"
+    run: "go build ./..."
+    timeout: "2m"
+
+runner:
+  maxParallel: 4
+  failFast: true
 
 insults:
   mode: "snarky"   # polite | snarky | nuclear
@@ -204,6 +197,7 @@ Each check:
 - optional:
   - `cwd`: run relative to repo root
   - `env`: key/value env vars for just that check
+  - `timeout`: per-check timeout (example: `30s`, `2m`)
 
 Example with `cwd` + `env`:
 
@@ -215,6 +209,10 @@ checks:
     env:
       CI: "true"
 ```
+
+Runner options (optional):
+- `runner.maxParallel`: maximum concurrent checks
+- `runner.failFast`: cancel remaining checks after the first failure
 
 ---
 
@@ -355,8 +353,8 @@ The hook prefers that repo-pinned binary first, so everyone on the team gets con
 
 ## Roadmap (not implemented yet)
 
-- Improve GitHub Actions mirroring (matrices, OS filtering, and non-run steps)
-- Smarter error "headline" extraction per tool (human-readable summaries)
+- Expand GitHub Actions mirroring (more step types like `uses`, services, caching)
+- Broaden error headline extraction across more tools
 - Packaging: Homebrew, Scoop, Winget, etc.
 - TUI configuration editor (optional)
 

@@ -1,16 +1,27 @@
 version: 1
-
 checks:
-  - name: "tests"
-    run: "go test ./..."
-  - name: "lint"
-    run: "go vet ./..."
-
+    - name: tests
+      run: go test ./...
+    - name: lint
+      run: go vet ./...
+    - name: ci:ci:test-matrix.os:go-env
+      run: go env
+    - name: ci:ci:test-matrix.os:verify-gofmt
+      run: |-
+        set -euo pipefail
+        files=$(find . -name '*.go' -type f)
+        if [ -n "$files" ]; then
+          bad=$(gofmt -l $files)
+          if [ -n "$bad" ]; then
+            echo "gofmt needed on:"
+            echo "$bad"
+            exit 1
+          fi
+        fi
 insults:
-  mode: "snarky"   # polite | snarky | nuclear
-  file: "assets/insults/default.json"
-  locale: "en"
-
+    mode: snarky
+    file: assets/insults/default.json
+    locale: en
 banter:
-  file: "assets/banter/default.json"
-  locale: "en"
+    file: assets/banter/default.json
+    locale: en

@@ -35,6 +35,13 @@ func validateAndDefault(cfg *Config) error {
 		if strings.TrimSpace(c.Run) == "" {
 			return fmt.Errorf("config: checks[%d] missing run", i)
 		}
+		if c.Timeout < 0 {
+			return fmt.Errorf("config: checks[%d] timeout must be >= 0", i)
+		}
+	}
+
+	if cfg.Runner.MaxParallel < 0 {
+		return errors.New("config: runner.maxParallel must be >= 0")
 	}
 
 	if strings.TrimSpace(cfg.Insults.Mode) == "" {

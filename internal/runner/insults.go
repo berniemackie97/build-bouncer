@@ -5,7 +5,6 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -246,14 +245,6 @@ func weightedPick(candidates []insultTemplate) insultTemplate {
 	return candidates[len(candidates)-1]
 }
 
-var (
-	reGoTestFail = regexp.MustCompile(`(?m)^--- FAIL: ([^\s]+)`)
-	reDotnetFail = regexp.MustCompile(`(?m)^\s*Failed\s+([^\s]+)`)
-	rePytestFail = regexp.MustCompile(`(?m)^FAILED\s+([^\s]+)`)
-	reJestFail   = regexp.MustCompile(`(?m)^FAIL\s+(.+)$`)
-	reFirstError = regexp.MustCompile(`(?mi)^\s*(?:error|fatal|panic):\s*(.+)$`)
-)
-
 func categoryFromFailures(failures []string) string {
 	for _, f := range failures {
 		s := strings.ToLower(f)
@@ -291,6 +282,9 @@ func pickFailingCheck(failures []string) string {
 }
 
 func extractDetail(category string, rep Report, preferredCheck string) string {
+	if headline := strings.TrimSpace(rep.FailureHeadlines[preferredCheck]); headline != "" {
+		return headline
+	}
 	if out := rep.FailureTails[preferredCheck]; strings.TrimSpace(out) != "" {
 		if d := extractDetailFromOutput(category, out); d != "" {
 			return d
@@ -299,6 +293,11 @@ func extractDetail(category string, rep Report, preferredCheck string) string {
 	for _, out := range rep.FailureTails {
 		if d := extractDetailFromOutput(category, out); d != "" {
 			return d
+		}
+	}
+	for _, headline := range rep.FailureHeadlines {
+		if strings.TrimSpace(headline) != "" {
+			return headline
 		}
 	}
 	return ""

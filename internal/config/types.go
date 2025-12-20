@@ -1,17 +1,26 @@
 package config
 
+import "time"
+
 type Config struct {
 	Version int     `yaml:"version"`
 	Checks  []Check `yaml:"checks"`
+	Runner  Runner  `yaml:"runner,omitempty"`
 	Insults Insults `yaml:"insults"`
 	Banter  Banter  `yaml:"banter"`
 }
 
 type Check struct {
-	Name string            `yaml:"name"`
-	Run  string            `yaml:"run"`
-	Cwd  string            `yaml:"cwd"`
-	Env  map[string]string `yaml:"env"`
+	Name    string            `yaml:"name"`
+	Run     string            `yaml:"run"`
+	Cwd     string            `yaml:"cwd,omitempty"`
+	Env     map[string]string `yaml:"env,omitempty"`
+	Timeout time.Duration     `yaml:"timeout,omitempty"`
+}
+
+type Runner struct {
+	MaxParallel int  `yaml:"maxParallel,omitempty"`
+	FailFast    bool `yaml:"failFast,omitempty"`
 }
 
 type Insults struct {

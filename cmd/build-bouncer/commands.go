@@ -20,6 +20,7 @@ func registerCommands(app *cli.App) {
 	app.Register(newSetupCommand())
 	app.Register(newInitCommand())
 	app.Register(newCheckCommand())
+	app.Register(newCICommand())
 	app.Register(newHookCommand())
 }
 
@@ -168,32 +169,26 @@ func runInit(force bool, templateID string, ctx cli.Context) int {
 		return exitUsage
 	}
 
-	if len(ciChecks) == 0 {
-		if err := os.WriteFile(cfgPath, templateBytes, 0o644); err != nil {
-			fmt.Fprintln(ctx.Stderr, "init:", err)
-			return exitUsage
-		}
-	} else {
-		cfg, err := config.Parse(templateBytes)
-		if err != nil {
-			fmt.Fprintln(ctx.Stderr, "init:", err)
-			return exitUsage
-		}
-		if templateID == "manual" && len(ciChecks) > 0 {
-			cfg.Checks = stripManualPlaceholder(cfg.Checks)
-		}
-		merge := mergeChecks(cfg.Checks, ciChecks)
-		cfg.Checks = merge.Merged
-		if err := config.Save(cfgPath, cfg); err != nil {
-			fmt.Fprintln(ctx.Stderr, "init:", err)
-			return exitUsage
-		}
-		if len(merge.Added) > 0 {
-			fmt.Fprintf(ctx.Stdout, "Added %d CI checks from .github/workflows\n", len(merge.Added))
-		}
-		if len(merge.Skipped) > 0 {
-			fmt.Fprintf(ctx.Stdout, "Skipped %d duplicate CI checks\n", len(merge.Skipped))
-		}
+	cfg, err := config.Parse(templateBytes)
+	if err != nil {
+		fmt.Fprintln(ctx.Stderr, "init:", err)
+		return exitUsage
+	}
+	applyTemplateOverrides(root, templateID, cfg)
+	if templateID == "manual" && len(ciChecks) > 0 {
+		cfg.Checks = stripManualPlaceholder(cfg.Checks)
+	}
+	merge := mergeChecks(cfg.Checks, ciChecks)
+	cfg.Checks = merge.Merged
+	if err := config.Save(cfgPath, cfg); err != nil {
+		fmt.Fprintln(ctx.Stderr, "init:", err)
+		return exitUsage
+	}
+	if len(merge.Added) > 0 {
+		fmt.Fprintf(ctx.Stdout, "Added %d CI checks from .github/workflows\n", len(merge.Added))
+	}
+	if len(merge.Skipped) > 0 {
+		fmt.Fprintf(ctx.Stdout, "Skipped %d duplicate CI checks\n", len(merge.Skipped))
 	}
 
 	fmt.Fprintln(ctx.Stdout, "Created:", cfgPath)
@@ -206,7 +201,7 @@ func runInit(force bool, templateID string, ctx cli.Context) int {
 func newCheckCommand() cli.Command {
 	return cli.Command{
 		Name:    "check",
-		Usage:   "check [--ci] [--verbose] [--hook] [--log-dir DIR] [--tail N]",
+		Usage:   "check [--ci] [--verbose] [--hook] [--log-dir DIR] [--tail N] [--parallel N] [--fail-fast]",
 		Summary: "Run configured checks.",
 		Run: func(ctx cli.Context, args []string) int {
 			return runCheck(args, ctx)
@@ -221,6 +216,8 @@ func runCheck(args []string, ctx cli.Context) int {
 	hook := fs.Bool("hook", false, "hook mode (force spinner/banter even if stdout doesn't look like a TTY)")
 	logDir := fs.String("log-dir", "", "directory to write failure logs (default: .git/build-bouncer/logs)")
 	tail := fs.Int("tail", 30, "number of output lines to show per failed check")
+	parallel := fs.Int("parallel", 0, "max concurrent checks (default: 1 or config)")
+	failFast := fs.Bool("fail-fast", false, "cancel remaining checks on first failure")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -262,9 +259,11 @@ func runCheck(args []string, ctx cli.Context) int {
 	}
 
 	opts := runner.Options{
-		CI:      *ci,
-		Verbose: *verbose || *ci,
-		LogDir:  *logDir,
+		CI:          *ci,
+		Verbose:     *verbose || *ci,
+		LogDir:      *logDir,
+		MaxParallel: cfg.Runner.MaxParallel,
+		FailFast:    cfg.Runner.FailFast || *failFast,
 		Progress: func(e runner.ProgressEvent) {
 			if sp == nil || bp == nil {
 				return
@@ -277,6 +276,12 @@ func runCheck(args []string, ctx cli.Context) int {
 				sp.SetMessage(fmt.Sprintf("%s (%d/%d)", msg, e.Index, e.Total))
 			}
 		},
+	}
+	if *parallel > 0 {
+		opts.MaxParallel = *parallel
+	}
+	if opts.MaxParallel <= 0 {
+		opts.MaxParallel = 1
 	}
 
 	rep, err := runner.RunAllReport(cfgDir, cfg, opts)
@@ -295,9 +300,21 @@ func runCheck(args []string, ctx cli.Context) int {
 		for _, f := range rep.Failures {
 			fmt.Fprintf(ctx.Stderr, "  - %s\n", f)
 		}
+		if len(rep.Canceled) > 0 {
+			fmt.Fprintln(ctx.Stderr, "")
+			fmt.Fprintln(ctx.Stderr, "Canceled checks:")
+			for _, c := range rep.Canceled {
+				fmt.Fprintf(ctx.Stderr, "  - %s\n", c)
+			}
+		}
 
 		if !opts.Verbose {
 			for _, f := range rep.Failures {
+				if headline := strings.TrimSpace(rep.FailureHeadlines[f]); headline != "" {
+					fmt.Fprintln(ctx.Stderr, "")
+					fmt.Fprintf(ctx.Stderr, "-- %s (headline)\n", f)
+					fmt.Fprintln(ctx.Stderr, headline)
+				}
 				tailText := runner.TailLines(rep.FailureTails[f], *tail)
 				if strings.TrimSpace(tailText) != "" {
 					fmt.Fprintln(ctx.Stderr, "")

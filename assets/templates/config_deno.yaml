@@ -1,0 +1,18 @@
+version: 1
+
+checks:
+  - name: "lint"
+    run: "deno lint"
+  - name: "format"
+    run: "deno fmt --check"
+  - name: "tests"
+    run: "deno test"
+
+insults:
+  mode: "snarky"
+  file: "assets/insults/default.json"
+  locale: "en"
+
+banter:
+  file: "assets/banter/default.json"
+  locale: "en"
