@@ -20,6 +20,7 @@ func registerCommands(app *cli.App) {
 	app.Register(newSetupCommand())
 	app.Register(newInitCommand())
 	app.Register(newCheckCommand())
+	app.Register(newValidateCommand())
 	app.Register(newCICommand())
 	app.Register(newHookCommand())
 }
@@ -295,20 +296,22 @@ func runCheck(args []string, ctx cli.Context) int {
 	}
 
 	if len(rep.Failures) > 0 {
-		fmt.Fprintln(ctx.Stderr, "")
-		fmt.Fprintln(ctx.Stderr, "Blocked. Failed checks:")
-		for _, f := range rep.Failures {
-			fmt.Fprintf(ctx.Stderr, "  - %s\n", f)
-		}
-		if len(rep.Canceled) > 0 {
+		if *verbose || *ci {
 			fmt.Fprintln(ctx.Stderr, "")
-			fmt.Fprintln(ctx.Stderr, "Canceled checks:")
-			for _, c := range rep.Canceled {
-				fmt.Fprintf(ctx.Stderr, "  - %s\n", c)
+			fmt.Fprintln(ctx.Stderr, "Blocked. Failed checks:")
+			for _, f := range rep.Failures {
+				fmt.Fprintf(ctx.Stderr, "  - %s\n", f)
+			}
+			if len(rep.Canceled) > 0 {
+				fmt.Fprintln(ctx.Stderr, "")
+				fmt.Fprintln(ctx.Stderr, "Canceled checks:")
+				for _, c := range rep.Canceled {
+					fmt.Fprintf(ctx.Stderr, "  - %s\n", c)
+				}
 			}
 		}
 
-		if !opts.Verbose {
+		if *verbose {
 			for _, f := range rep.Failures {
 				if headline := strings.TrimSpace(rep.FailureHeadlines[f]); headline != "" {
 					fmt.Fprintln(ctx.Stderr, "")

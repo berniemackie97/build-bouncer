@@ -61,6 +61,7 @@ func PickInsult(root string, ins config.Insults, rep Report) string {
 	if strings.TrimSpace(detail) == "" {
 		detail = check
 	}
+	trimmedDetail := trimDetail(detail)
 
 	candidates := filterTemplates(pack, category, locale, st)
 	if len(candidates) == 0 {
@@ -78,7 +79,8 @@ func PickInsult(root string, ins config.Insults, rep Report) string {
 	msg := strings.TrimSpace(chosen.Text)
 	msg = strings.ReplaceAll(msg, "{check}", check)
 	msg = strings.ReplaceAll(msg, "{checks}", strings.Join(rep.Failures, ", "))
-	msg = strings.ReplaceAll(msg, "{detail}", trimDetail(detail))
+	msg = strings.ReplaceAll(msg, "{detail}", trimmedDetail)
+	msg = ensureInsultContext(msg, check, trimmedDetail)
 
 	if chosen.ID != "" {
 		st.Recent = append([]string{chosen.ID}, st.Recent...)
@@ -282,9 +284,6 @@ func pickFailingCheck(failures []string) string {
 }
 
 func extractDetail(category string, rep Report, preferredCheck string) string {
-	if headline := strings.TrimSpace(rep.FailureHeadlines[preferredCheck]); headline != "" {
-		return headline
-	}
 	if out := rep.FailureTails[preferredCheck]; strings.TrimSpace(out) != "" {
 		if d := extractDetailFromOutput(category, out); d != "" {
 			return d
@@ -295,9 +294,14 @@ func extractDetail(category string, rep Report, preferredCheck string) string {
 			return d
 		}
 	}
+	if headline := strings.TrimSpace(rep.FailureHeadlines[preferredCheck]); headline != "" {
+		if d := extractLocationFromOutput(headline); d != "" {
+			return d
+		}
+	}
 	for _, headline := range rep.FailureHeadlines {
-		if strings.TrimSpace(headline) != "" {
-			return headline
+		if d := extractLocationFromOutput(headline); d != "" {
+			return d
 		}
 	}
 	return ""
@@ -305,6 +309,10 @@ func extractDetail(category string, rep Report, preferredCheck string) string {
 
 func extractDetailFromOutput(category string, out string) string {
 	out = strings.ReplaceAll(out, "\r\n", "\n")
+
+	if loc := extractLocationFromOutput(out); loc != "" {
+		return loc
+	}
 
 	if category == "tests" {
 		if m := reGoTestFail.FindStringSubmatch(out); len(m) == 2 {
@@ -321,10 +329,105 @@ func extractDetailFromOutput(category string, out string) string {
 		}
 	}
 
-	if m := reFirstError.FindStringSubmatch(out); len(m) == 2 {
+	return ""
+}
+
+func extractLocationFromOutput(out string) string {
+	if m := reTscError.FindStringSubmatch(out); len(m) == 5 {
+		return formatLocation(m[1], m[2], m[3])
+	}
+	if m := reGccError.FindStringSubmatch(out); len(m) == 5 {
+		return formatLocation(m[1], m[2], m[3])
+	}
+	if m := reFileLineCol.FindStringSubmatch(out); len(m) == 5 {
+		return formatLocation(m[1], m[2], m[3])
+	}
+	if m := reFileLine.FindStringSubmatch(out); len(m) == 4 {
+		return formatLocation(m[1], m[2], "")
+	}
+	if m := reBlackFormat.FindStringSubmatch(out); len(m) == 2 {
 		return strings.TrimSpace(m[1])
 	}
+	if loc := eslintLocation(out); loc != "" {
+		return loc
+	}
 	return ""
+}
+
+func formatLocation(file string, line string, col string) string {
+	file = strings.TrimSpace(file)
+	line = strings.TrimSpace(line)
+	col = strings.TrimSpace(col)
+	if file == "" || line == "" {
+		return ""
+	}
+	if col != "" {
+		return file + ":" + line + ":" + col
+	}
+	return file + ":" + line
+}
+
+func eslintLocation(out string) string {
+	lines := strings.Split(out, "\n")
+	for i := 0; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		if !reEslintFile.MatchString(line) {
+			continue
+		}
+		for j := i + 1; j < len(lines) && j <= i+6; j++ {
+			next := strings.TrimSpace(lines[j])
+			if next == "" {
+				continue
+			}
+			if m := reEslintIssue.FindStringSubmatch(next); len(m) == 3 {
+				return line + ":" + m[1]
+			}
+		}
+	}
+	return ""
+}
+
+func ensureInsultContext(msg string, check string, detail string) string {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return msg
+	}
+	hasCheck := containsInsensitive(msg, check)
+	hasDetail := containsInsensitive(msg, detail)
+
+	switch {
+	case hasCheck && hasDetail:
+		return msg
+	case hasCheck && detail != "":
+		return msg + " (" + detail + ")"
+	case hasDetail && check != "":
+		return msg + " (" + check + ")"
+	default:
+		context := check
+		if detail != "" && detail != check {
+			if context != "" {
+				context = context + " @ " + detail
+			} else {
+				context = detail
+			}
+		}
+		if strings.TrimSpace(context) == "" {
+			return msg
+		}
+		return msg + " (" + context + ")"
+	}
+}
+
+func containsInsensitive(haystack string, needle string) bool {
+	haystack = strings.ToLower(strings.TrimSpace(haystack))
+	needle = strings.ToLower(strings.TrimSpace(needle))
+	if haystack == "" || needle == "" {
+		return false
+	}
+	return strings.Contains(haystack, needle)
 }
 
 func trimDetail(s string) string {

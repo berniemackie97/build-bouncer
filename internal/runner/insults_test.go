@@ -65,3 +65,18 @@ func TestPickInsultUsesTemplateAndDetail(t *testing.T) {
 		t.Fatalf("expected insult state to be saved, got: %v", err)
 	}
 }
+
+func TestExtractDetailPrefersFileLine(t *testing.T) {
+	out := "src/app.ts(12,5): error TS1234: nope"
+	detail := extractDetailFromOutput("lint", out)
+	if detail != "src/app.ts:12:5" {
+		t.Fatalf("expected file:line:col detail, got %q", detail)
+	}
+}
+
+func TestEnsureInsultContextAppendsDetail(t *testing.T) {
+	msg := ensureInsultContext("Denied.", "lint", "src/app.ts:12:5")
+	if !strings.Contains(msg, "src/app.ts:12:5") {
+		t.Fatalf("expected detail appended, got %q", msg)
+	}
+}

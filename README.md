@@ -28,9 +28,9 @@ It’s intentionally dumb in the right way: **it does not guess your build syste
 - The hook prefers that repo-pinned binary first (so it doesn’t accidentally run some other global version on your PATH).
 
 ### Output modes
-- **Quiet mode (default):** banter + spinner + minimal output
-- **Hook mode (`--hook`):** same as quiet mode, even if Git/hook output doesn’t look like a “real terminal”
-- **Verbose mode (`--verbose`):** streams the full tool output (like a CI transcript)
+- **Quiet mode (default):** banter + spinner + one-line failure output (insult + check/location)
+- **Hook mode (`--hook`):** same as quiet mode, even if Git/hook output doesn't look like a "real terminal"
+- **Verbose mode (`--verbose`):** streams the full tool output + shows per-check headlines/tails
 - **CI mode (`--ci`):** no spinner/banter, no random insult
 
 ### Customizable personality (all external files)
@@ -108,8 +108,10 @@ It populates those from templates shipped with build-bouncer:
 `--force` overwrites existing default packs.
 
 If `.github/workflows/*.yml` exists, `init` adds each `run` step as a check and skips duplicates.
-For Node-based templates, `init` also reads `package.json` scripts and only includes checks that exist.
+For Node-based templates, `init` reads `package.json` scripts (npm/yarn/pnpm/bun) and only includes checks that exist.
+Python templates prefer Poetry/PDM/Pipenv/uv/rye/hatch runners when detected.
 Gradle/Maven templates prefer wrapper scripts (`gradlew`/`mvnw`) when present.
+Rust templates respect `rust-toolchain*` component lists: fmt/clippy checks are included only if the component is listed.
 
 If no template flag is provided, `init` prints the list of supported templates.
 
@@ -136,6 +138,11 @@ Exit codes:
 - `0` success
 - `2` usage/config error
 - `10` checks failed (push blocked)
+
+### `build-bouncer validate [--config PATH]`
+Validates `.buildbouncer.yaml` and prints the number of checks.
+
+Use `--config` to validate a specific file instead of searching from the current directory.
 
 ### `build-bouncer setup [--force] [--no-copy] [--ci] [--template-flag]`
 Convenience: init (if needed) + install hook + run checks.
@@ -202,6 +209,8 @@ Each check:
   - `cwd`: run relative to repo root
   - `env`: key/value env vars for just that check
   - `timeout`: per-check timeout (example: `30s`, `2m`)
+
+`shell` must be just the executable name or path (no arguments). Use `run` for the actual command.
 
 If `shell` is omitted, build-bouncer uses the OS default. On Windows, multi-line POSIX scripts will try `bash`/`sh` if available, and PowerShell-style scripts will try `pwsh`/`powershell`. CI-derived checks default to GitHub's shells (bash on linux/macos, pwsh on windows) when available.
 
@@ -270,11 +279,11 @@ By default:
 
 Logs are only kept for failed checks. Successful checks delete their temp log.
 
-### “Quiet mode is too quiet”
+### "Quiet mode is too quiet"
 Use:
 - `build-bouncer check --verbose`
 
-Or for more failure output without full streaming:
+You can adjust how much summary tail prints after verbose output:
 - `--tail 80`
 
 ### Bypass (standard git behavior)

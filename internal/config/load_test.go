@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -70,5 +71,43 @@ checks:
 
 	if _, err := Load(cfgPath); err == nil {
 		t.Fatal("expected error for unsupported version, got nil")
+	}
+}
+
+func TestLoadFailsWithShellArguments(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	content := `
+version: 1
+checks:
+  - name: bad-shell
+    run: echo hi
+    shell: "bash -lc"
+`
+	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if _, err := Load(cfgPath); err == nil || !strings.Contains(err.Error(), "shell") {
+		t.Fatalf("expected shell validation error, got %v", err)
+	}
+}
+
+func TestLoadAllowsShellPathWithSpaces(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	content := `
+version: 1
+checks:
+  - name: ok-shell
+    run: echo hi
+    shell: 'C:\Program Files\Git\bin\bash.exe'
+`
+	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if _, err := Load(cfgPath); err != nil {
+		t.Fatalf("expected shell path to be accepted, got %v", err)
 	}
 }

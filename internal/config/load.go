@@ -35,6 +35,9 @@ func validateAndDefault(cfg *Config) error {
 		if strings.TrimSpace(c.Run) == "" {
 			return fmt.Errorf("config: checks[%d] missing run", i)
 		}
+		if err := validateShell(c.Shell); err != nil {
+			return fmt.Errorf("config: checks[%d] shell: %w", i, err)
+		}
 		if c.Timeout < 0 {
 			return fmt.Errorf("config: checks[%d] timeout must be >= 0", i)
 		}
@@ -61,5 +64,19 @@ func validateAndDefault(cfg *Config) error {
 		cfg.Banter.Locale = "en"
 	}
 
+	return nil
+}
+
+func validateShell(shell string) error {
+	s := strings.TrimSpace(shell)
+	if s == "" {
+		return nil
+	}
+	if strings.ContainsAny(s, "\r\n\t") {
+		return errors.New("must be a single executable name or path")
+	}
+	if strings.ContainsAny(s, " ") && !strings.ContainsAny(s, `/\`) {
+		return errors.New("must not include arguments (use only the shell executable)")
+	}
 	return nil
 }
