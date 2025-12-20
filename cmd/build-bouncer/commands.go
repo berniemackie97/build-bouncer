@@ -216,7 +216,7 @@ func runCheck(args []string, ctx cli.Context) int {
 	verbose := fs.Bool("verbose", false, "stream full tool output to the terminal")
 	hook := fs.Bool("hook", false, "hook mode (force spinner/banter even if stdout doesn't look like a TTY)")
 	logDir := fs.String("log-dir", "", "directory to write failure logs (default: .git/build-bouncer/logs)")
-	tail := fs.Int("tail", 30, "number of output lines to show per failed check")
+	tail := fs.Int("tail", 0, "extra tail lines per failed check (verbose only)")
 	parallel := fs.Int("parallel", 0, "max concurrent checks (default: 1 or config)")
 	failFast := fs.Bool("fail-fast", false, "cancel remaining checks on first failure")
 	if err := fs.Parse(args); err != nil {
@@ -313,16 +313,22 @@ func runCheck(args []string, ctx cli.Context) int {
 
 		if *verbose {
 			for _, f := range rep.Failures {
-				if headline := strings.TrimSpace(rep.FailureHeadlines[f]); headline != "" {
-					fmt.Fprintln(ctx.Stderr, "")
-					fmt.Fprintf(ctx.Stderr, "-- %s (headline)\n", f)
-					fmt.Fprintln(ctx.Stderr, headline)
+				reason := strings.TrimSpace(runner.ExtractWhy(f, rep.FailureTails[f]))
+				if reason == "" {
+					reason = strings.TrimSpace(rep.FailureHeadlines[f])
 				}
-				tailText := runner.TailLines(rep.FailureTails[f], *tail)
-				if strings.TrimSpace(tailText) != "" {
+				if reason != "" {
 					fmt.Fprintln(ctx.Stderr, "")
-					fmt.Fprintf(ctx.Stderr, "-- %s (tail)\n", f)
-					fmt.Fprintln(ctx.Stderr, tailText)
+					fmt.Fprintf(ctx.Stderr, "-- %s (why)\n", f)
+					fmt.Fprintln(ctx.Stderr, reason)
+				}
+				if *tail > 0 {
+					tailText := runner.TailLines(rep.FailureTails[f], *tail)
+					if strings.TrimSpace(tailText) != "" {
+						fmt.Fprintln(ctx.Stderr, "")
+						fmt.Fprintf(ctx.Stderr, "-- %s (tail)\n", f)
+						fmt.Fprintln(ctx.Stderr, tailText)
+					}
 				}
 				if p := rep.LogFiles[f]; strings.TrimSpace(p) != "" {
 					fmt.Fprintf(ctx.Stderr, "\nLog: %s\n", p)

@@ -40,6 +40,7 @@ type Step struct {
 	Name             string                 `yaml:"name"`
 	Run              string                 `yaml:"run"`
 	Uses             string                 `yaml:"uses"`
+	With             map[string]interface{} `yaml:"with"`
 	Env              map[string]interface{} `yaml:"env"`
 	WorkingDirectory string                 `yaml:"working-directory"`
 	If               string                 `yaml:"if"`
@@ -131,10 +132,18 @@ func checksFromWorkflowFile(path string) ([]config.Check, error) {
 		jobDir := strings.TrimSpace(job.Defaults.Run.WorkingDirectory)
 
 		for _, step := range job.Steps {
-			if strings.TrimSpace(step.Run) == "" {
+			if !stepAppliesToOS(step, currentOS) {
 				continue
 			}
-			if !stepAppliesToOS(step, currentOS) {
+
+			if strings.TrimSpace(step.Run) == "" && strings.TrimSpace(step.Uses) == "" {
+				continue
+			}
+
+			if strings.TrimSpace(step.Run) == "" {
+				if check := checkFromUsesStep(workflowLabel, jobLabel, jobEnv, jobDir, job.Defaults, step); check != nil {
+					out = append(out, *check)
+				}
 				continue
 			}
 
@@ -142,21 +151,18 @@ func checksFromWorkflowFile(path string) ([]config.Check, error) {
 			stepEnv := normalizeEnv(step.Env)
 			env := mergeEnv(jobEnv, stepEnv)
 
+			name := fmt.Sprintf("ci:%s:%s:%s", workflowLabel, jobLabel, stepLabel)
 			cwd := strings.TrimSpace(step.WorkingDirectory)
 			if cwd == "" {
 				cwd = jobDir
 			}
-
 			shell := strings.TrimSpace(step.Shell)
 			if shell == "" {
 				shell = strings.TrimSpace(job.Defaults.Run.Shell)
 			}
-			run := strings.TrimSpace(step.Run)
-
-			name := fmt.Sprintf("ci:%s:%s:%s", workflowLabel, jobLabel, stepLabel)
 			out = append(out, config.Check{
 				Name:  name,
-				Run:   run,
+				Run:   strings.TrimSpace(step.Run),
 				Shell: shell,
 				Cwd:   cwd,
 				Env:   env,
@@ -214,6 +220,18 @@ func labelFromStep(step Step) string {
 	return sanitizeLabel(firstLine)
 }
 
+func labelFromUses(step Step, action string) string {
+	if strings.TrimSpace(step.Name) != "" {
+		return sanitizeLabel(step.Name)
+	}
+	short := actionShortName(action)
+	cache := strings.ToLower(strings.TrimSpace(stepWithString(step, "cache")))
+	if cache != "" {
+		short = short + "-" + cache
+	}
+	return sanitizeLabel(short)
+}
+
 func sanitizeLabel(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	if s == "" {
@@ -265,6 +283,109 @@ func mergeEnv(base map[string]string, override map[string]string) map[string]str
 		out[k] = v
 	}
 	return out
+}
+
+func checkFromUsesStep(workflowLabel string, jobLabel string, jobEnv map[string]string, jobDir string, defaults Defaults, step Step) *config.Check {
+	action := normalizeUsesAction(step.Uses)
+	if action == "" {
+		return nil
+	}
+	run := usesRunCommand(action, step)
+	if strings.TrimSpace(run) == "" {
+		return nil
+	}
+
+	stepEnv := normalizeEnv(step.Env)
+	env := mergeEnv(jobEnv, stepEnv)
+	cwd := strings.TrimSpace(step.WorkingDirectory)
+	if cwd == "" {
+		cwd = jobDir
+	}
+	shell := strings.TrimSpace(step.Shell)
+	if shell == "" {
+		shell = strings.TrimSpace(defaults.Run.Shell)
+	}
+
+	name := fmt.Sprintf("ci:%s:%s:%s", workflowLabel, jobLabel, labelFromUses(step, action))
+	return &config.Check{
+		Name:  name,
+		Run:   run,
+		Shell: shell,
+		Cwd:   cwd,
+		Env:   env,
+	}
+}
+
+func normalizeUsesAction(uses string) string {
+	s := strings.TrimSpace(uses)
+	if s == "" {
+		return ""
+	}
+	s = strings.ToLower(s)
+	if idx := strings.Index(s, "@"); idx >= 0 {
+		s = s[:idx]
+	}
+	s = strings.TrimPrefix(s, "./")
+	if strings.HasPrefix(s, "docker://") {
+		return ""
+	}
+	return s
+}
+
+func actionShortName(action string) string {
+	parts := strings.Split(strings.Trim(action, "/"), "/")
+	if len(parts) == 0 {
+		return action
+	}
+	return parts[len(parts)-1]
+}
+
+func usesRunCommand(action string, step Step) string {
+	switch action {
+	case "actions/checkout":
+		return ""
+	case "actions/cache", "actions/cache/restore", "actions/cache/save":
+		return ""
+	case "actions/setup-node":
+		return setupNodeCommand(step)
+	case "actions/setup-go":
+		return "go version"
+	case "actions/setup-python":
+		return "python --version"
+	case "actions/setup-java":
+		return "java -version"
+	case "actions/setup-dotnet":
+		return "dotnet --version"
+	case "actions/setup-ruby", "ruby/setup-ruby":
+		return "ruby --version"
+	default:
+		return ""
+	}
+}
+
+func setupNodeCommand(step Step) string {
+	cache := strings.ToLower(strings.TrimSpace(stepWithString(step, "cache")))
+	switch cache {
+	case "pnpm":
+		return "pnpm --version"
+	case "yarn":
+		return "yarn --version"
+	case "npm":
+		return "npm --version"
+	default:
+		return "node --version"
+	}
+}
+
+func stepWithString(step Step, key string) string {
+	if step.With == nil {
+		return ""
+	}
+	val, ok := step.With[key]
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(val))
 }
 
 func currentRunnerOS() string {

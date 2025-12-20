@@ -10,6 +10,14 @@ func TestExtractHeadlineGoTest(t *testing.T) {
 	}
 }
 
+func TestExtractHeadlineGoTestTimeout(t *testing.T) {
+	out := "panic: test timed out after 5m0s\n"
+	got := ExtractHeadline("tests", out)
+	if got != "Go test timeout after 5m0s" {
+		t.Fatalf("unexpected headline: %q", got)
+	}
+}
+
 func TestExtractHeadlineJest(t *testing.T) {
 	out := "FAIL src/foo.test.ts\n  ● foo\n"
 	got := ExtractHeadline("tests", out)
@@ -30,6 +38,22 @@ func TestExtractHeadlineTypeScript(t *testing.T) {
 	out := "src/index.ts(10,5): error TS2304: Cannot find name 'x'.\n"
 	got := ExtractHeadline("build", out)
 	if got != "src/index.ts:10: Cannot find name 'x'." {
+		t.Fatalf("unexpected headline: %q", got)
+	}
+}
+
+func TestExtractHeadlineDotnetBuild(t *testing.T) {
+	out := "src/Foo.cs(12,3): error CS0103: The name 'bar' does not exist in the current context\n"
+	got := ExtractHeadline("build", out)
+	if got != "src/Foo.cs:12: The name 'bar' does not exist in the current context" {
+		t.Fatalf("unexpected headline: %q", got)
+	}
+}
+
+func TestExtractHeadlineMaven(t *testing.T) {
+	out := "[ERROR] src/Main.java:[7,9] cannot find symbol\n"
+	got := ExtractHeadline("build", out)
+	if got != "src/Main.java:7: cannot find symbol" {
 		t.Fatalf("unexpected headline: %q", got)
 	}
 }

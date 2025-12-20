@@ -30,7 +30,7 @@ It’s intentionally dumb in the right way: **it does not guess your build syste
 ### Output modes
 - **Quiet mode (default):** banter + spinner + one-line failure output (insult + check/location)
 - **Hook mode (`--hook`):** same as quiet mode, even if Git/hook output doesn't look like a "real terminal"
-- **Verbose mode (`--verbose`):** streams the full tool output + shows per-check headlines/tails
+- **Verbose mode (`--verbose`):** streams the full tool output + shows per-check "why it failed"
 - **CI mode (`--ci`):** no spinner/banter, no random insult
 
 ### Customizable personality (all external files)
@@ -130,7 +130,7 @@ Flags:
 - `--ci` : disables spinner/banter + disables random insults
 - `--hook` : forces spinner/banter even if stdout doesn't look like a TTY (used by the git hook)
 - `--log-dir` : override log directory (default: `.git/build-bouncer/logs`)
-- `--tail` : number of lines printed per failed check (default: `30`)
+- `--tail` : extra tail lines printed per failed check in verbose mode (default: `0`)
 - `--parallel` : max concurrent checks (default: 1 or config)
 - `--fail-fast` : cancel remaining checks after the first failure
 
@@ -168,6 +168,7 @@ Removes the hook.
 
 ### `build-bouncer ci sync`
 Refreshes `ci:` checks from `.github/workflows/*` `run` steps, removes stale CI entries, and skips duplicates against your custom checks.
+Setup actions like `actions/setup-node`/`setup-go`/`setup-python` are mirrored as lightweight checks (ex: `node --version`), and `setup-node` uses `cache` hints to pick npm/yarn/pnpm.
 
 ---
 
@@ -283,7 +284,7 @@ Logs are only kept for failed checks. Successful checks delete their temp log.
 Use:
 - `build-bouncer check --verbose`
 
-You can adjust how much summary tail prints after verbose output:
+If you want extra tail lines after verbose output:
 - `--tail 80`
 
 ### Bypass (standard git behavior)

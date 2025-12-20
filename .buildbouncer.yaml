@@ -7,7 +7,18 @@ checks:
     - name: ci:ci:test-matrix.os:go-env
       run: go env
     - name: ci:ci:test-matrix.os:verify-gofmt
-      run: bash -lc "set -euo pipefail\nfiles=$(find . -name '*.go' -type f)\nif [ -n \"$files\" ]; then\n  bad=$(gofmt -l $files)\n  if [ -n \"$bad\" ]; then\n    echo \"gofmt needed on:\"\n    echo \"$bad\"\n    exit 1\n  fi\nfi"
+      run: |-
+        set -euo pipefail
+        files=$(find . -name '*.go' -type f)
+        if [ -n "$files" ]; then
+          bad=$(gofmt -l $files)
+          if [ -n "$bad" ]; then
+            echo "gofmt needed on:"
+            echo "$bad"
+            exit 1
+          fi
+        fi
+      shell: bash
 insults:
     mode: snarky
     file: assets/insults/default.json

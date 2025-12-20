@@ -16,14 +16,14 @@ func ExtractHeadline(checkName string, output string) string {
 	if m := reGoTestFail.FindStringSubmatch(out); len(m) == 2 {
 		return trimHeadline("Test failed: " + m[1])
 	}
+	if m := reGoTestTimeout.FindStringSubmatch(out); len(m) == 2 {
+		return trimHeadline("Go test timeout after " + strings.TrimSpace(m[1]))
+	}
 	if m := rePytestFail.FindStringSubmatch(out); len(m) == 2 {
 		return trimHeadline("Pytest failed: " + strings.TrimSpace(m[1]))
 	}
 	if m := reJestFail.FindStringSubmatch(out); len(m) == 2 {
 		return trimHeadline("Jest failed: " + strings.TrimSpace(m[1]))
-	}
-	if m := reJestBullet.FindStringSubmatch(out); len(m) == 2 {
-		return trimHeadline(strings.TrimSpace(m[1]))
 	}
 	if m := reGoTestPkg.FindStringSubmatch(out); len(m) == 2 {
 		return trimHeadline("Package failed: " + m[1])
@@ -32,6 +32,12 @@ func ExtractHeadline(checkName string, output string) string {
 		return trimHeadline(".NET failed: " + strings.TrimSpace(m[1]))
 	}
 	if m := reTscError.FindStringSubmatch(out); len(m) == 5 {
+		return trimHeadline(fmt.Sprintf("%s:%s: %s", strings.TrimSpace(m[1]), m[2], strings.TrimSpace(m[4])))
+	}
+	if m := reDotnetBuildError.FindStringSubmatch(out); len(m) == 5 {
+		return trimHeadline(fmt.Sprintf("%s:%s: %s", strings.TrimSpace(m[1]), m[2], strings.TrimSpace(m[4])))
+	}
+	if m := reMavenError.FindStringSubmatch(out); len(m) == 5 {
 		return trimHeadline(fmt.Sprintf("%s:%s: %s", strings.TrimSpace(m[1]), m[2], strings.TrimSpace(m[4])))
 	}
 	if m := reGccError.FindStringSubmatch(out); len(m) == 5 {
@@ -49,6 +55,12 @@ func ExtractHeadline(checkName string, output string) string {
 	if headline := eslintHeadline(out); headline != "" {
 		return trimHeadline(headline)
 	}
+	if m := reRuffIssue.FindStringSubmatch(out); len(m) == 6 {
+		return trimHeadline(fmt.Sprintf("%s:%s:%s: %s %s", strings.TrimSpace(m[1]), m[2], m[3], strings.TrimSpace(m[4]), strings.TrimSpace(m[5])))
+	}
+	if m := reNpmMissingScript.FindStringSubmatch(out); len(m) == 2 {
+		return trimHeadline("npm missing script: " + strings.TrimSpace(m[1]))
+	}
 	if m := reFileLineCol.FindStringSubmatch(out); len(m) == 5 {
 		return trimHeadline(fmt.Sprintf("%s:%s: %s", strings.TrimSpace(m[1]), m[2], strings.TrimSpace(m[4])))
 	}
@@ -56,6 +68,9 @@ func ExtractHeadline(checkName string, output string) string {
 		return trimHeadline(fmt.Sprintf("%s:%s: %s", strings.TrimSpace(m[1]), m[2], strings.TrimSpace(m[3])))
 	}
 	if m := reFirstError.FindStringSubmatch(out); len(m) == 2 {
+		return trimHeadline(strings.TrimSpace(m[1]))
+	}
+	if m := reJestBullet.FindStringSubmatch(out); len(m) == 2 {
 		return trimHeadline(strings.TrimSpace(m[1]))
 	}
 

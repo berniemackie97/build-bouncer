@@ -336,7 +336,19 @@ func extractLocationFromOutput(out string) string {
 	if m := reTscError.FindStringSubmatch(out); len(m) == 5 {
 		return formatLocation(m[1], m[2], m[3])
 	}
+	if m := reDotnetBuildError.FindStringSubmatch(out); len(m) == 5 {
+		return formatLocation(m[1], m[2], m[3])
+	}
+	if m := reMavenError.FindStringSubmatch(out); len(m) == 5 {
+		return formatLocation(m[1], m[2], m[3])
+	}
+	if m := reRuffIssue.FindStringSubmatch(out); len(m) == 6 {
+		return formatLocation(m[1], m[2], m[3])
+	}
 	if m := reGccError.FindStringSubmatch(out); len(m) == 5 {
+		return formatLocation(m[1], m[2], m[3])
+	}
+	if m := reRustLocation.FindStringSubmatch(out); len(m) == 4 {
 		return formatLocation(m[1], m[2], m[3])
 	}
 	if m := reFileLineCol.FindStringSubmatch(out); len(m) == 5 {
