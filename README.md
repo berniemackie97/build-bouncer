@@ -1,5 +1,8 @@
 # build-bouncer
 
+[![wakatime](https://wakatime.com/badge/user/dd1b4aee-71e4-41d0-a2d8-e1b2a0865b30/project/156385c5-7934-4448-b729-513c8a1fab43.svg)](https://wakatime.com/badge/user/dd1b4aee-71e4-41d0-a2d8-e1b2a0865b30/project/156385c5-7934-4448-b729-513c8a1fab43)
+
+---
 A terminal bouncer for your repo: runs your checks and blocks `git push` when things fail.
 
 It’s intentionally dumb in the right way: **it does not guess your build system** (yet). You tell it what to run, it runs it consistently, and it enforces it at the gate.
