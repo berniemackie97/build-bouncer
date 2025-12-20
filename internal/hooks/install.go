@@ -61,6 +61,7 @@ func InstallPrePushHook(opts InstallOptions) error {
 
 func renderPrePushHook(hasCopiedBinary bool) string {
 	body := `#!/bin/sh
+# build-bouncer pre-push hook v1
 set -eu
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
