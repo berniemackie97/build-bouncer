@@ -33,6 +33,7 @@ type Defaults struct {
 
 type RunDefaults struct {
 	WorkingDirectory string `yaml:"working-directory"`
+	Shell            string `yaml:"shell"`
 }
 
 type Step struct {
@@ -42,6 +43,7 @@ type Step struct {
 	Env              map[string]interface{} `yaml:"env"`
 	WorkingDirectory string                 `yaml:"working-directory"`
 	If               string                 `yaml:"if"`
+	Shell            string                 `yaml:"shell"`
 }
 
 type Strategy struct {
@@ -145,12 +147,19 @@ func checksFromWorkflowFile(path string) ([]config.Check, error) {
 				cwd = jobDir
 			}
 
+			shell := strings.TrimSpace(step.Shell)
+			if shell == "" {
+				shell = strings.TrimSpace(job.Defaults.Run.Shell)
+			}
+			run := strings.TrimSpace(step.Run)
+
 			name := fmt.Sprintf("ci:%s:%s:%s", workflowLabel, jobLabel, stepLabel)
 			out = append(out, config.Check{
-				Name: name,
-				Run:  strings.TrimSpace(step.Run),
-				Cwd:  cwd,
-				Env:  env,
+				Name:  name,
+				Run:   run,
+				Shell: shell,
+				Cwd:   cwd,
+				Env:   env,
 			})
 		}
 	}

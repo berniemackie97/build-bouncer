@@ -61,10 +61,8 @@ func runCISync(ctx cli.Context) int {
 		return exitOK
 	}
 
-	mergedBase := cfg.Checks
-	if len(ciChecks) > 0 {
-		mergedBase = stripManualPlaceholder(mergedBase)
-	}
+	mergedBase, removed := stripCIChecks(cfg.Checks)
+	mergedBase = stripManualPlaceholder(mergedBase)
 
 	merge := mergeChecks(mergedBase, ciChecks)
 	cfg.Checks = merge.Merged
@@ -79,6 +77,9 @@ func runCISync(ctx cli.Context) int {
 	}
 	if len(merge.Skipped) > 0 {
 		fmt.Fprintf(ctx.Stdout, "Skipped %d duplicate CI checks\n", len(merge.Skipped))
+	}
+	if removed > 0 {
+		fmt.Fprintf(ctx.Stdout, "Removed %d stale CI checks\n", removed)
 	}
 	if len(merge.Added) == 0 {
 		fmt.Fprintln(ctx.Stdout, "No new CI checks to add.")

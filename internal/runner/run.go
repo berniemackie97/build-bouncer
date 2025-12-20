@@ -140,7 +140,7 @@ func RunAllReport(root string, cfg *config.Config, opts Options) (Report, error)
 				dir = filepath.Join(root, filepath.FromSlash(job.check.Cwd))
 			}
 
-			outcome, err := runOne(ctx, root, dir, job.idx, job.check.Name, job.check.Run, job.check.Env, job.check.Timeout, opts)
+			outcome, err := runOne(ctx, root, dir, job.idx, job.check.Name, job.check.Run, job.check.Shell, job.check.Env, job.check.Timeout, opts)
 
 			if opts.Progress != nil {
 				opts.Progress(ProgressEvent{
@@ -275,7 +275,7 @@ func RunAllReport(root string, cfg *config.Config, opts Options) (Report, error)
 	return rep, nil
 }
 
-func runOne(ctx context.Context, repoRoot string, dir string, idx int, checkName string, command string, env map[string]string, timeout time.Duration, opts Options) (runOutcome, error) {
+func runOne(ctx context.Context, repoRoot string, dir string, idx int, checkName string, command string, shell string, env map[string]string, timeout time.Duration, opts Options) (runOutcome, error) {
 	if ctx.Err() != nil {
 		return runOutcome{ExitCode: 1, Canceled: true}, nil
 	}
@@ -312,7 +312,11 @@ func runOne(ctx context.Context, repoRoot string, dir string, idx int, checkName
 		defer cancel()
 	}
 
-	name, args := shellCommand(command)
+	fallbackShell := ""
+	if strings.TrimSpace(shell) == "" {
+		fallbackShell = defaultShellForCheck(checkName)
+	}
+	name, args := resolveCommand(shell, command, fallbackShell)
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	cmd.Stdout = w
@@ -322,6 +326,7 @@ func runOne(ctx context.Context, repoRoot string, dir string, idx int, checkName
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
 	}
+	cmd.Env = adjustEnvForShell(name, cmd.Env)
 
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()

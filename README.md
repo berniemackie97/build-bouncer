@@ -160,7 +160,7 @@ Removes the hook.
 - `--force` removes it anyway.
 
 ### `build-bouncer ci sync`
-Merges `.github/workflows/*` `run` steps into `.buildbouncer.yaml` and skips duplicates.
+Refreshes `ci:` checks from `.github/workflows/*` `run` steps, removes stale CI entries, and skips duplicates against your custom checks.
 
 ---
 
@@ -198,9 +198,12 @@ Each check:
 - `name`: label shown in output and failure summary
 - `run`: command string executed via shell (`cmd.exe /C` on Windows, `sh -c` elsewhere)
 - optional:
+  - `shell`: override shell (examples: `bash`, `sh`, `powershell`, `pwsh`, `cmd`)
   - `cwd`: run relative to repo root
   - `env`: key/value env vars for just that check
   - `timeout`: per-check timeout (example: `30s`, `2m`)
+
+If `shell` is omitted, build-bouncer uses the OS default. On Windows, multi-line POSIX scripts will try `bash`/`sh` if available, and PowerShell-style scripts will try `pwsh`/`powershell`. CI-derived checks default to GitHub's shells (bash on linux/macos, pwsh on windows) when available.
 
 Example with `cwd` + `env`:
 

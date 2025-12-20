@@ -206,3 +206,40 @@ jobs:
 		t.Fatalf("expected 1 check on non-windows, got %d", len(checks))
 	}
 }
+
+func TestChecksFromGitHubActionsShellBash(t *testing.T) {
+	root := t.TempDir()
+	workflowDir := filepath.Join(root, ".github", "workflows")
+	if err := os.MkdirAll(workflowDir, 0o755); err != nil {
+		t.Fatalf("create workflows dir: %v", err)
+	}
+
+	content := `
+jobs:
+  build:
+    steps:
+      - name: Bash step
+        shell: bash
+        run: |
+          echo "hello"
+          echo "world"
+`
+	path := filepath.Join(workflowDir, "shell.yml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write workflow: %v", err)
+	}
+
+	checks, err := ChecksFromGitHubActions(root)
+	if err != nil {
+		t.Fatalf("ChecksFromGitHubActions error: %v", err)
+	}
+	if len(checks) != 1 {
+		t.Fatalf("expected 1 check, got %d", len(checks))
+	}
+	if checks[0].Shell != "bash" {
+		t.Fatalf("expected shell bash, got %q", checks[0].Shell)
+	}
+	if !strings.Contains(checks[0].Run, "echo \"hello\"") {
+		t.Fatalf("expected script in run, got %q", checks[0].Run)
+	}
+}

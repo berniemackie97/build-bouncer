@@ -13,6 +13,7 @@ type Config struct {
 type Check struct {
 	Name    string            `yaml:"name"`
 	Run     string            `yaml:"run"`
+	Shell   string            `yaml:"shell,omitempty"`
 	Cwd     string            `yaml:"cwd,omitempty"`
 	Env     map[string]string `yaml:"env,omitempty"`
 	Timeout time.Duration     `yaml:"timeout,omitempty"`

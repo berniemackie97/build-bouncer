@@ -19,7 +19,7 @@ func TestRunOneSuccessRemovesLog(t *testing.T) {
 		t.Fatalf("create git dir: %v", err)
 	}
 
-	outcome, err := runOne(context.Background(), root, root, 0, "echo", "echo hello", nil, 0, Options{})
+	outcome, err := runOne(context.Background(), root, root, 0, "echo", "echo hello", "", nil, 0, Options{})
 	if err != nil {
 		t.Fatalf("runOne error: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestRunOneFailureKeepsLog(t *testing.T) {
 
 	cmd := "echo nope && exit 3"
 
-	outcome, err := runOne(context.Background(), root, root, 1, "fail", cmd, nil, 0, Options{})
+	outcome, err := runOne(context.Background(), root, root, 1, "fail", cmd, "", nil, 0, Options{})
 	if err != nil {
 		t.Fatalf("runOne error: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestRunOneTimeout(t *testing.T) {
 	}
 
 	cmd := sleepCommand(2)
-	outcome, err := runOne(context.Background(), root, root, 2, "timeout", cmd, nil, 200*time.Millisecond, Options{})
+	outcome, err := runOne(context.Background(), root, root, 2, "timeout", cmd, "", nil, 200*time.Millisecond, Options{})
 	if err != nil {
 		t.Fatalf("runOne error: %v", err)
 	}

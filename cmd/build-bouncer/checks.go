@@ -2,6 +2,7 @@ package main
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 
 	"build-bouncer/internal/config"
@@ -42,9 +43,16 @@ func mergeChecks(existing []config.Check, additions []config.Check) mergeResult 
 
 func checkKey(c config.Check) string {
 	run := strings.TrimSpace(c.Run)
+	shell := strings.TrimSpace(c.Shell)
+	if shell == "" {
+		if parsedShell, script, ok := unwrapShellRun(run); ok {
+			shell = parsedShell
+			run = script
+		}
+	}
 	cwd := strings.TrimSpace(c.Cwd)
 	env := normalizeEnvKey(c.Env)
-	return run + "\n" + cwd + "\n" + env
+	return shell + "\n" + run + "\n" + cwd + "\n" + env
 }
 
 func normalizeEnvKey(env map[string]string) string {
@@ -66,6 +74,45 @@ func normalizeEnvKey(env map[string]string) string {
 	return b.String()
 }
 
+func unwrapShellRun(run string) (string, string, bool) {
+	if shell, script, ok := parseShellRun("bash", "-lc", run); ok {
+		return shell, script, true
+	}
+	if shell, script, ok := parseShellRun("bash", "-c", run); ok {
+		return shell, script, true
+	}
+	if shell, script, ok := parseShellRun("sh", "-c", run); ok {
+		return shell, script, true
+	}
+	return "", "", false
+}
+
+func parseShellRun(shell string, flag string, run string) (string, string, bool) {
+	prefix := shell + " " + flag
+	if !strings.HasPrefix(run, prefix) {
+		return "", "", false
+	}
+	rest := strings.TrimSpace(run[len(prefix):])
+	if rest == "" {
+		return "", "", false
+	}
+	script, ok := unquoteShellArg(rest)
+	if !ok {
+		return "", "", false
+	}
+	return shell, script, true
+}
+
+func unquoteShellArg(arg string) (string, bool) {
+	if len(arg) < 2 || arg[0] != '"' || arg[len(arg)-1] != '"' {
+		return "", false
+	}
+	if s, err := strconv.Unquote(arg); err == nil {
+		return s, true
+	}
+	return arg[1 : len(arg)-1], true
+}
+
 func stripManualPlaceholder(checks []config.Check) []config.Check {
 	out := make([]config.Check, 0, len(checks))
 	for _, c := range checks {
@@ -75,6 +122,19 @@ func stripManualPlaceholder(checks []config.Check) []config.Check {
 		out = append(out, c)
 	}
 	return out
+}
+
+func stripCIChecks(checks []config.Check) ([]config.Check, int) {
+	out := make([]config.Check, 0, len(checks))
+	removed := 0
+	for _, c := range checks {
+		if strings.HasPrefix(strings.TrimSpace(c.Name), "ci:") {
+			removed++
+			continue
+		}
+		out = append(out, c)
+	}
+	return out, removed
 }
 
 func isManualPlaceholder(c config.Check) bool {
