@@ -37,6 +37,8 @@ type Report struct {
 	FailureTails     map[string]string // checkName -> output tail
 	FailureHeadlines map[string]string // checkName -> headline
 	Canceled         []string
+	Skipped          []string
+	SkipReasons      map[string]string // checkName -> reason
 	LogFiles         map[string]string // checkName -> full log (only on failure)
 }
 
@@ -52,6 +54,8 @@ type runOutcome struct {
 	TimedOut bool
 	Timeout  time.Duration
 	Canceled bool
+	Skipped  bool
+	Reason   string
 }
 
 type checkJob struct {
@@ -94,6 +98,7 @@ func RunAllReport(root string, cfg *config.Config, opts Options) (Report, error)
 		FailureTails:     map[string]string{},
 		FailureHeadlines: map[string]string{},
 		LogFiles:         map[string]string{},
+		SkipReasons:      map[string]string{},
 	}
 
 	total := len(cfg.Checks)
@@ -127,6 +132,30 @@ func RunAllReport(root string, cfg *config.Config, opts Options) (Report, error)
 					Total: total,
 					Check: job.check.Name,
 				})
+			}
+
+			if reason := checkSkipReason(job.check); reason != "" {
+				if opts.Progress != nil {
+					opts.Progress(ProgressEvent{
+						Stage:    "end",
+						Index:    job.idx + 1,
+						Total:    total,
+						Check:    job.check.Name,
+						ExitCode: 0,
+					})
+				}
+				if opts.Verbose {
+					printMu.Lock()
+					fmt.Printf("~~ %s skipped (%s)\n\n", job.check.Name, reason)
+					printMu.Unlock()
+				}
+				results <- checkResult{
+					idx:     job.idx,
+					name:    job.check.Name,
+					outcome: runOutcome{ExitCode: 0, Skipped: true, Reason: reason},
+					err:     nil,
+				}
+				continue
 			}
 
 			if opts.Verbose {
@@ -220,6 +249,14 @@ func RunAllReport(root string, cfg *config.Config, opts Options) (Report, error)
 			continue
 		}
 
+		if res.outcome.Skipped {
+			rep.Skipped = append(rep.Skipped, res.name)
+			if strings.TrimSpace(res.outcome.Reason) != "" {
+				rep.SkipReasons[res.name] = res.outcome.Reason
+			}
+			continue
+		}
+
 		if res.outcome.Canceled {
 			rep.Canceled = append(rep.Canceled, res.name)
 			continue
@@ -266,6 +303,9 @@ func RunAllReport(root string, cfg *config.Config, opts Options) (Report, error)
 	})
 	sort.SliceStable(rep.Canceled, func(i, j int) bool {
 		return order[rep.Canceled[i]] < order[rep.Canceled[j]]
+	})
+	sort.SliceStable(rep.Skipped, func(i, j int) bool {
+		return order[rep.Skipped[i]] < order[rep.Skipped[j]]
 	})
 
 	if firstErr != nil {

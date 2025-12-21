@@ -279,3 +279,34 @@ jobs:
 		t.Fatalf("expected setup-node in name, got %q", checks[0].Name)
 	}
 }
+
+func TestChecksFromGitHubActionsSkipsUnusedSetupAction(t *testing.T) {
+	root := t.TempDir()
+	workflowDir := filepath.Join(root, ".github", "workflows")
+	if err := os.MkdirAll(workflowDir, 0o755); err != nil {
+		t.Fatalf("create workflows dir: %v", err)
+	}
+
+	content := `
+jobs:
+  build:
+    steps:
+      - uses: actions/setup-node@v4
+      - run: go test ./...
+`
+	path := filepath.Join(workflowDir, "setup-unused.yml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write workflow: %v", err)
+	}
+
+	checks, err := ChecksFromGitHubActions(root)
+	if err != nil {
+		t.Fatalf("ChecksFromGitHubActions error: %v", err)
+	}
+	if len(checks) != 1 {
+		t.Fatalf("expected 1 check, got %d", len(checks))
+	}
+	if !strings.Contains(checks[0].Run, "go test") {
+		t.Fatalf("expected go test check, got %q", checks[0].Run)
+	}
+}

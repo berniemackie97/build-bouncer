@@ -7,6 +7,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"build-bouncer/internal/config"
@@ -17,46 +18,86 @@ type packageJSON struct {
 	PackageManager string            `json:"packageManager"`
 }
 
-func applyTemplateOverrides(root string, templateID string, cfg *config.Config) {
+type templateAdjustResult struct {
+	Checks []config.Check
+	Inputs map[string]string
+	Source string
+}
+
+func applyTemplateOverrides(root string, templateID string, checks []config.Check) templateAdjustResult {
+	out := append([]config.Check{}, checks...)
+	inputs := map[string]string{}
+	source := ""
+
 	switch templateID {
 	case "node", "react", "vue", "angular", "svelte", "nextjs", "nuxt", "astro":
-		if checks := nodeChecksFromScripts(root, templateID); len(checks) > 0 {
-			cfg.Checks = checks
+		if nodeChecks, nodeInputs := nodeChecksFromScripts(root, templateID); len(nodeChecks) > 0 {
+			out = nodeChecks
+			source = "detector:node-scripts"
+			for k, v := range nodeInputs {
+				inputs[k] = v
+			}
 		}
 	}
 
 	switch templateID {
 	case "gradle", "kotlin", "android":
-		updateGradleChecks(root, cfg)
+		if updated, runner := updateGradleChecks(root, out); runner != "" {
+			out = updated
+			inputs["gradle.runner"] = runner
+		}
 	case "maven":
-		updateMavenChecks(root, cfg)
+		if updated, runner := updateMavenChecks(root, out); runner != "" {
+			out = updated
+			inputs["maven.runner"] = runner
+		}
 	case "python":
-		updatePythonChecks(root, cfg)
+		if updated, runner := updatePythonChecks(root, out); runner != "" {
+			out = updated
+			inputs["python.runner"] = runner
+		}
 	case "rust":
-		updateRustChecks(root, cfg)
+		if updated, components := updateRustChecks(root, out); len(components) > 0 {
+			out = updated
+			inputs["rust.components"] = strings.Join(components, ",")
+		}
 	}
+
+	if templateID != "" {
+		inputs["template.id"] = templateID
+	}
+
+	return templateAdjustResult{Checks: out, Inputs: inputs, Source: source}
 }
 
-func nodeChecksFromScripts(root string, templateID string) []config.Check {
+func nodeChecksFromScripts(root string, templateID string) ([]config.Check, map[string]string) {
 	pkg, ok := loadPackageJSON(filepath.Join(root, "package.json"))
 	if !ok || len(pkg.Scripts) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	runner := detectNodeRunner(root, pkg)
 	order := nodeScriptOrder(templateID)
 	var checks []config.Check
+	var scripts []string
 	for _, script := range order {
 		if !hasScript(pkg, script) {
 			continue
 		}
+		scripts = append(scripts, script)
 		name := scriptCheckName(script)
 		checks = append(checks, config.Check{
 			Name: name,
 			Run:  fmt.Sprintf("%s run %s", runner, script),
 		})
 	}
-	return checks
+	if len(checks) == 0 {
+		return nil, nil
+	}
+	return checks, map[string]string{
+		"node.runner":  runner,
+		"node.scripts": strings.Join(scripts, ","),
+	}
 }
 
 func nodeScriptOrder(templateID string) []string {
@@ -124,24 +165,28 @@ func detectNodeRunner(root string, pkg packageJSON) string {
 	return "npm"
 }
 
-func updateGradleChecks(root string, cfg *config.Config) {
+func updateGradleChecks(root string, checks []config.Check) ([]config.Check, string) {
 	runner := detectGradleRunner(root)
 	if runner == "" {
-		return
+		return checks, ""
 	}
-	for i := range cfg.Checks {
-		cfg.Checks[i].Run = replaceCommandRunner(cfg.Checks[i].Run, runner, isGradleExecutable)
+	out := append([]config.Check{}, checks...)
+	for i := range out {
+		out[i].Run = replaceCommandRunner(out[i].Run, runner, isGradleExecutable)
 	}
+	return out, runner
 }
 
-func updateMavenChecks(root string, cfg *config.Config) {
+func updateMavenChecks(root string, checks []config.Check) ([]config.Check, string) {
 	runner := detectMavenRunner(root)
 	if runner == "" {
-		return
+		return checks, ""
 	}
-	for i := range cfg.Checks {
-		cfg.Checks[i].Run = replaceCommandRunner(cfg.Checks[i].Run, runner, isMavenExecutable)
+	out := append([]config.Check{}, checks...)
+	for i := range out {
+		out[i].Run = replaceCommandRunner(out[i].Run, runner, isMavenExecutable)
 	}
+	return out, runner
 }
 
 func detectGradleRunner(root string) string {
@@ -174,21 +219,23 @@ func detectMavenRunner(root string) string {
 	return "mvn"
 }
 
-func updatePythonChecks(root string, cfg *config.Config) {
+func updatePythonChecks(root string, checks []config.Check) ([]config.Check, string) {
 	runner := detectPythonRunner(root)
 	if runner == "" {
-		return
+		return checks, ""
 	}
-	for i := range cfg.Checks {
-		switch cfg.Checks[i].Name {
+	out := append([]config.Check{}, checks...)
+	for i := range out {
+		switch out[i].Name {
 		case "lint":
-			cfg.Checks[i].Run = pythonToolCommand(runner, "ruff", "check .")
+			out[i].Run = pythonToolCommand(runner, "ruff", "check .")
 		case "format":
-			cfg.Checks[i].Run = pythonToolCommand(runner, "black", "--check .")
+			out[i].Run = pythonToolCommand(runner, "black", "--check .")
 		case "tests":
-			cfg.Checks[i].Run = pythonToolCommand(runner, "pytest", "")
+			out[i].Run = pythonToolCommand(runner, "pytest", "")
 		}
 	}
+	return out, runner
 }
 
 func detectPythonRunner(root string) string {
@@ -230,13 +277,13 @@ func pythonToolCommand(runner string, tool string, args string) string {
 	return cmd
 }
 
-func updateRustChecks(root string, cfg *config.Config) {
+func updateRustChecks(root string, checks []config.Check) ([]config.Check, []string) {
 	components, ok := rustToolchainComponents(root)
 	if !ok {
-		return
+		return checks, nil
 	}
-	out := cfg.Checks[:0]
-	for _, check := range cfg.Checks {
+	out := make([]config.Check, 0, len(checks))
+	for _, check := range checks {
 		switch check.Name {
 		case "fmt":
 			if !components["rustfmt"] {
@@ -249,7 +296,12 @@ func updateRustChecks(root string, cfg *config.Config) {
 		}
 		out = append(out, check)
 	}
-	cfg.Checks = out
+	var names []string
+	for name := range components {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return out, names
 }
 
 func rustToolchainComponents(root string) (map[string]bool, bool) {

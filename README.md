@@ -15,6 +15,7 @@ It’s intentionally dumb in the right way: **it does not guess your build syste
 - Reads a repo config: **`.buildbouncer/config.yaml`**
 - Keeps build-bouncer config + packs under `.buildbouncer/` (legacy `.buildbouncer.yaml` is still supported)
 - Runs your configured checks (tests, lint, build, whatever you want)
+- Generated checks include stable IDs + source metadata for reproducible re-syncs
 - If any check fails:
   - **blocks the push** (exit code `10`)
   - prints a clean summary of failed checks
@@ -33,6 +34,7 @@ It’s intentionally dumb in the right way: **it does not guess your build syste
 - **Hook mode (`--hook`):** same as quiet mode, even if Git/hook output doesn't look like a "real terminal"
 - **Verbose mode (`--verbose`):** streams the full tool output + shows per-check "why it failed"
 - **CI mode (`--ci`):** no spinner/banter, no random insult
+- Skipped checks (missing tools or OS mismatch) show in verbose/CI output.
 
 ### Customizable personality (all external files)
 - **Insults pack** (JSON): weighted, category-aware (`tests/lint/build/ci/any`), cooldown/no-repeat, supports placeholders like `{check}`, `{checks}`, `{detail}`
@@ -145,6 +147,9 @@ Validates `.buildbouncer/config.yaml` and prints the number of checks.
 
 Use `--config` to validate a specific file instead of searching from the current directory.
 
+### `build-bouncer doctor [--config PATH]`
+Prints resolved shell/cwd, PATH, and missing tools per check.
+
 ### `build-bouncer setup [--force] [--no-copy] [--ci] [--template-flag]`
 Convenience: init (if needed) + install hook + run checks.
 
@@ -188,13 +193,25 @@ Example:
 
 ```yaml
 version: 1
+meta:
+  template:
+    id: "go"
+  inputs:
+    node.runner: "pnpm"
 
 checks:
   - name: "tests"
+    id: "template:go:9c1f5a9a7c3f"
+    source: "template:go"
     run: "go test ./..."
+    requires: ["go"]
   - name: "lint"
+    id: "template:go:1f9a2bc1230d"
+    source: "template:go"
     run: "go vet ./..."
   - name: "build"
+    id: "template:go:3e0a11ff9abc"
+    source: "template:go"
     run: "go build ./..."
     timeout: "2m"
 
@@ -214,17 +231,21 @@ banter:
 
 Each check:
 - `name`: label shown in output and failure summary
+- `id`: stable identifier (generated)
+- `source`: where the check came from (`template:*`, `ci:*`, `detector:*`)
 - `run`: command string executed via shell (`cmd.exe /C` on Windows, `sh -c` elsewhere)
 - optional:
   - `shell`: override shell (examples: `bash`, `sh`, `powershell`, `pwsh`, `cmd`)
   - `cwd`: run relative to repo root
   - `env`: key/value env vars for just that check
+  - `os` / `platforms`: restrict to specific OS (`windows`, `linux`, `macos`)
+  - `requires`: binaries required to run the check (missing tools will be skipped)
   - `timeout`: per-check timeout (example: `30s`, `2m`)
 
 `shell` must be just the executable name or path (no arguments). Use `run` for the actual command.
 
-If `shell` is omitted, build-bouncer uses the OS default. On Windows, multi-line POSIX scripts (and common POSIX one-liners like `ls`) will try `bash`/`sh` if available, and PowerShell-style scripts will try `pwsh`/`powershell`. CI-derived checks default to GitHub's shells (bash on linux/macos, pwsh on windows) when available.
-If you need bash explicitly on Windows, set `shell: bash` or use `bash -lc "..."`.
+If `shell` is omitted, build-bouncer uses the OS default (`cmd` on Windows, `sh` on macOS/Linux).
+Generated checks include explicit shells based on CI defaults or script type; for manual checks, set `shell` if you need `bash` or `pwsh`.
 
 Example with `cwd` + `env`:
 

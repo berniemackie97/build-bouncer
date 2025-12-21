@@ -111,3 +111,53 @@ checks:
 		t.Fatalf("expected shell path to be accepted, got %v", err)
 	}
 }
+
+func TestLoadNormalizesOSAndRequires(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	content := `
+version: 1
+checks:
+  - name: "lint"
+    run: "go vet ./..."
+    os: windows-latest
+    platforms: [linux]
+    requires: dotnet
+`
+	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if len(cfg.Checks[0].OS) != 2 {
+		t.Fatalf("expected 2 os values, got %v", cfg.Checks[0].OS)
+	}
+	if len(cfg.Checks[0].Platforms) != 0 {
+		t.Fatalf("expected platforms to be normalized into os, got %v", cfg.Checks[0].Platforms)
+	}
+	if len(cfg.Checks[0].Requires) != 1 || cfg.Checks[0].Requires[0] != "dotnet" {
+		t.Fatalf("expected requires to be normalized, got %v", cfg.Checks[0].Requires)
+	}
+}
+
+func TestLoadRejectsUnknownOS(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	content := `
+version: 1
+checks:
+  - name: "lint"
+    run: "go vet ./..."
+    os: solaris
+`
+	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if _, err := Load(cfgPath); err == nil || !strings.Contains(err.Error(), "os") {
+		t.Fatalf("expected os validation error, got %v", err)
+	}
+}

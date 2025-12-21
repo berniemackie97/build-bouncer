@@ -3,12 +3,14 @@ package ci
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
 
 	"build-bouncer/internal/config"
+	"build-bouncer/internal/shell"
 	"gopkg.in/yaml.v3"
 )
 
@@ -53,6 +55,15 @@ type Strategy struct {
 
 type RunsOn struct {
 	Values []string
+}
+
+type toolUsage struct {
+	node   bool
+	goLang bool
+	python bool
+	dotnet bool
+	java   bool
+	ruby   bool
 }
 
 func (r *RunsOn) UnmarshalYAML(value *yaml.Node) error {
@@ -127,6 +138,7 @@ func checksFromWorkflowFile(path string) ([]config.Check, error) {
 		if !jobAppliesToOS(job, currentOS) {
 			continue
 		}
+		usage := detectToolsUsed(job.Steps)
 		jobLabel := labelFromJob(jobKey, job.Name)
 		jobEnv := normalizeEnv(job.Env)
 		jobDir := strings.TrimSpace(job.Defaults.Run.WorkingDirectory)
@@ -141,7 +153,7 @@ func checksFromWorkflowFile(path string) ([]config.Check, error) {
 			}
 
 			if strings.TrimSpace(step.Run) == "" {
-				if check := checkFromUsesStep(workflowLabel, jobLabel, jobEnv, jobDir, job.Defaults, step); check != nil {
+				if check := checkFromUsesStep(workflowLabel, jobLabel, jobEnv, jobDir, job.Defaults, step, usage, currentOS); check != nil {
 					out = append(out, *check)
 				}
 				continue
@@ -156,16 +168,15 @@ func checksFromWorkflowFile(path string) ([]config.Check, error) {
 			if cwd == "" {
 				cwd = jobDir
 			}
-			shell := strings.TrimSpace(step.Shell)
-			if shell == "" {
-				shell = strings.TrimSpace(job.Defaults.Run.Shell)
-			}
+			shell := resolveShell(step.Shell, job.Defaults.Run.Shell, currentOS)
 			out = append(out, config.Check{
-				Name:  name,
-				Run:   strings.TrimSpace(step.Run),
-				Shell: shell,
-				Cwd:   cwd,
-				Env:   env,
+				Name:   name,
+				Run:    strings.TrimSpace(step.Run),
+				Shell:  shell,
+				Cwd:    cwd,
+				Env:    env,
+				OS:     config.StringList{currentOS},
+				Source: "ci:" + workflowLabel,
 			})
 		}
 	}
@@ -285,9 +296,67 @@ func mergeEnv(base map[string]string, override map[string]string) map[string]str
 	return out
 }
 
-func checkFromUsesStep(workflowLabel string, jobLabel string, jobEnv map[string]string, jobDir string, defaults Defaults, step Step) *config.Check {
+func detectToolsUsed(steps []Step) toolUsage {
+	usage := toolUsage{}
+	for _, step := range steps {
+		if strings.TrimSpace(step.Run) == "" {
+			continue
+		}
+		token := commandToken(step.Run)
+		switch token {
+		case "node", "npm", "pnpm", "yarn", "bun":
+			usage.node = true
+		case "go":
+			usage.goLang = true
+		case "python", "python3", "pip", "pip3", "pipenv", "poetry", "pdm", "uv", "rye", "hatch":
+			usage.python = true
+		case "dotnet":
+			usage.dotnet = true
+		case "java", "mvn", "mvnw", "gradle", "gradlew":
+			usage.java = true
+		case "ruby", "bundle", "bundler", "rake":
+			usage.ruby = true
+		}
+	}
+	return usage
+}
+
+func commandToken(run string) string {
+	fields := strings.Fields(run)
+	if len(fields) == 0 {
+		return ""
+	}
+	token := strings.Trim(fields[0], `"'`)
+	token = strings.ReplaceAll(token, "\\", "/")
+	base := path.Base(token)
+	return strings.ToLower(base)
+}
+
+func usesActionNeeded(action string, usage toolUsage) bool {
+	switch action {
+	case "actions/setup-node":
+		return usage.node
+	case "actions/setup-go":
+		return usage.goLang
+	case "actions/setup-python":
+		return usage.python
+	case "actions/setup-dotnet":
+		return usage.dotnet
+	case "actions/setup-java":
+		return usage.java
+	case "actions/setup-ruby", "ruby/setup-ruby":
+		return usage.ruby
+	default:
+		return true
+	}
+}
+
+func checkFromUsesStep(workflowLabel string, jobLabel string, jobEnv map[string]string, jobDir string, defaults Defaults, step Step, usage toolUsage, currentOS string) *config.Check {
 	action := normalizeUsesAction(step.Uses)
 	if action == "" {
+		return nil
+	}
+	if !usesActionNeeded(action, usage) {
 		return nil
 	}
 	run := usesRunCommand(action, step)
@@ -301,18 +370,17 @@ func checkFromUsesStep(workflowLabel string, jobLabel string, jobEnv map[string]
 	if cwd == "" {
 		cwd = jobDir
 	}
-	shell := strings.TrimSpace(step.Shell)
-	if shell == "" {
-		shell = strings.TrimSpace(defaults.Run.Shell)
-	}
+	shell := resolveShell(step.Shell, defaults.Run.Shell, currentOS)
 
 	name := fmt.Sprintf("ci:%s:%s:%s", workflowLabel, jobLabel, labelFromUses(step, action))
 	return &config.Check{
-		Name:  name,
-		Run:   run,
-		Shell: shell,
-		Cwd:   cwd,
-		Env:   env,
+		Name:   name,
+		Run:    run,
+		Shell:  shell,
+		Cwd:    cwd,
+		Env:    env,
+		OS:     config.StringList{currentOS},
+		Source: "ci:" + workflowLabel,
 	}
 }
 
@@ -374,6 +442,28 @@ func setupNodeCommand(step Step) string {
 		return "npm --version"
 	default:
 		return "node --version"
+	}
+}
+
+func resolveShell(stepShell string, defaultShell string, currentOS string) string {
+	candidate := strings.TrimSpace(stepShell)
+	if candidate == "" {
+		candidate = strings.TrimSpace(defaultShell)
+	}
+	if normalized := shell.Normalize(candidate); normalized != "" {
+		return normalized
+	}
+	return defaultGitHubShell(currentOS)
+}
+
+func defaultGitHubShell(currentOS string) string {
+	switch currentOS {
+	case "windows":
+		return "pwsh"
+	case "linux", "macos":
+		return "bash"
+	default:
+		return "bash"
 	}
 }
 

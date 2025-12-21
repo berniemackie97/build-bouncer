@@ -25,25 +25,22 @@ func TestNodeTemplateOverridesFromScripts(t *testing.T) {
 		t.Fatalf("write pnpm lock: %v", err)
 	}
 
-	cfg := &config.Config{
-		Version: 1,
-		Checks: []config.Check{
-			{Name: "lint", Run: "npm run lint"},
-			{Name: "tests", Run: "npm run test"},
-			{Name: "build", Run: "npm run build"},
-		},
+	checks := []config.Check{
+		{Name: "lint", Run: "npm run lint"},
+		{Name: "tests", Run: "npm run test"},
+		{Name: "build", Run: "npm run build"},
 	}
 
-	applyTemplateOverrides(root, "astro", cfg)
+	res := applyTemplateOverrides(root, "astro", checks)
 
-	if len(cfg.Checks) != 2 {
-		t.Fatalf("expected 2 checks, got %d", len(cfg.Checks))
+	if len(res.Checks) != 2 {
+		t.Fatalf("expected 2 checks, got %d", len(res.Checks))
 	}
-	if cfg.Checks[0].Name != "check" || cfg.Checks[1].Name != "build" {
-		t.Fatalf("unexpected checks: %+v", cfg.Checks)
+	if res.Checks[0].Name != "check" || res.Checks[1].Name != "build" {
+		t.Fatalf("unexpected checks: %+v", res.Checks)
 	}
-	if cfg.Checks[0].Run != "pnpm run check" || cfg.Checks[1].Run != "pnpm run build" {
-		t.Fatalf("unexpected run commands: %+v", cfg.Checks)
+	if res.Checks[0].Run != "pnpm run check" || res.Checks[1].Run != "pnpm run build" {
+		t.Fatalf("unexpected run commands: %+v", res.Checks)
 	}
 }
 
@@ -59,25 +56,22 @@ func TestGradleWrapperOverride(t *testing.T) {
 		}
 	}
 
-	cfg := &config.Config{
-		Version: 1,
-		Checks: []config.Check{
-			{Name: "tests", Run: "./gradlew test"},
-			{Name: "build", Run: "./gradlew build"},
-		},
+	checks := []config.Check{
+		{Name: "tests", Run: "./gradlew test"},
+		{Name: "build", Run: "./gradlew build"},
 	}
 
-	applyTemplateOverrides(root, "gradle", cfg)
+	res := applyTemplateOverrides(root, "gradle", checks)
 
 	want := "./gradlew"
 	if runtime.GOOS == "windows" {
 		want = ".\\gradlew.bat"
 	}
-	if cfg.Checks[0].Run != want+" test" {
-		t.Fatalf("unexpected tests command: %q", cfg.Checks[0].Run)
+	if res.Checks[0].Run != want+" test" {
+		t.Fatalf("unexpected tests command: %q", res.Checks[0].Run)
 	}
-	if cfg.Checks[1].Run != want+" build" {
-		t.Fatalf("unexpected build command: %q", cfg.Checks[1].Run)
+	if res.Checks[1].Run != want+" build" {
+		t.Fatalf("unexpected build command: %q", res.Checks[1].Run)
 	}
 }
 
@@ -93,25 +87,22 @@ func TestMavenWrapperOverride(t *testing.T) {
 		}
 	}
 
-	cfg := &config.Config{
-		Version: 1,
-		Checks: []config.Check{
-			{Name: "tests", Run: "mvn test"},
-			{Name: "build", Run: "mvn -DskipTests package"},
-		},
+	checks := []config.Check{
+		{Name: "tests", Run: "mvn test"},
+		{Name: "build", Run: "mvn -DskipTests package"},
 	}
 
-	applyTemplateOverrides(root, "maven", cfg)
+	res := applyTemplateOverrides(root, "maven", checks)
 
 	want := "./mvnw"
 	if runtime.GOOS == "windows" {
 		want = ".\\mvnw.cmd"
 	}
-	if cfg.Checks[0].Run != want+" test" {
-		t.Fatalf("unexpected tests command: %q", cfg.Checks[0].Run)
+	if res.Checks[0].Run != want+" test" {
+		t.Fatalf("unexpected tests command: %q", res.Checks[0].Run)
 	}
-	if cfg.Checks[1].Run != want+" -DskipTests package" {
-		t.Fatalf("unexpected build command: %q", cfg.Checks[1].Run)
+	if res.Checks[1].Run != want+" -DskipTests package" {
+		t.Fatalf("unexpected build command: %q", res.Checks[1].Run)
 	}
 }
 
@@ -127,25 +118,22 @@ func TestGradleOverridePreservesTask(t *testing.T) {
 		}
 	}
 
-	cfg := &config.Config{
-		Version: 1,
-		Checks: []config.Check{
-			{Name: "tests", Run: "./gradlew test"},
-			{Name: "build", Run: "./gradlew assemble"},
-		},
+	checks := []config.Check{
+		{Name: "tests", Run: "./gradlew test"},
+		{Name: "build", Run: "./gradlew assemble"},
 	}
 
-	applyTemplateOverrides(root, "android", cfg)
+	res := applyTemplateOverrides(root, "android", checks)
 
 	want := "./gradlew"
 	if runtime.GOOS == "windows" {
 		want = ".\\gradlew.bat"
 	}
-	if cfg.Checks[0].Run != want+" test" {
-		t.Fatalf("unexpected tests command: %q", cfg.Checks[0].Run)
+	if res.Checks[0].Run != want+" test" {
+		t.Fatalf("unexpected tests command: %q", res.Checks[0].Run)
 	}
-	if cfg.Checks[1].Run != want+" assemble" {
-		t.Fatalf("unexpected build command: %q", cfg.Checks[1].Run)
+	if res.Checks[1].Run != want+" assemble" {
+		t.Fatalf("unexpected build command: %q", res.Checks[1].Run)
 	}
 }
 
@@ -165,22 +153,19 @@ func TestNodeTemplateOverridesUsesBun(t *testing.T) {
 		t.Fatalf("write bun.lockb: %v", err)
 	}
 
-	cfg := &config.Config{
-		Version: 1,
-		Checks: []config.Check{
-			{Name: "lint", Run: "npm run lint"},
-			{Name: "tests", Run: "npm run test"},
-			{Name: "build", Run: "npm run build"},
-		},
+	checks := []config.Check{
+		{Name: "lint", Run: "npm run lint"},
+		{Name: "tests", Run: "npm run test"},
+		{Name: "build", Run: "npm run build"},
 	}
 
-	applyTemplateOverrides(root, "node", cfg)
+	res := applyTemplateOverrides(root, "node", checks)
 
-	if len(cfg.Checks) != 2 {
-		t.Fatalf("expected 2 checks, got %d", len(cfg.Checks))
+	if len(res.Checks) != 2 {
+		t.Fatalf("expected 2 checks, got %d", len(res.Checks))
 	}
-	if cfg.Checks[0].Run != "bun run lint" || cfg.Checks[1].Run != "bun run build" {
-		t.Fatalf("unexpected run commands: %+v", cfg.Checks)
+	if res.Checks[0].Run != "bun run lint" || res.Checks[1].Run != "bun run build" {
+		t.Fatalf("unexpected run commands: %+v", res.Checks)
 	}
 }
 
@@ -194,25 +179,22 @@ name = "demo"
 		t.Fatalf("write pyproject.toml: %v", err)
 	}
 
-	cfg := &config.Config{
-		Version: 1,
-		Checks: []config.Check{
-			{Name: "lint", Run: "python -m ruff check ."},
-			{Name: "format", Run: "python -m black --check ."},
-			{Name: "tests", Run: "python -m pytest"},
-		},
+	checks := []config.Check{
+		{Name: "lint", Run: "python -m ruff check ."},
+		{Name: "format", Run: "python -m black --check ."},
+		{Name: "tests", Run: "python -m pytest"},
 	}
 
-	applyTemplateOverrides(root, "python", cfg)
+	res := applyTemplateOverrides(root, "python", checks)
 
-	if cfg.Checks[0].Run != "poetry run ruff check ." {
-		t.Fatalf("unexpected lint command: %q", cfg.Checks[0].Run)
+	if res.Checks[0].Run != "poetry run ruff check ." {
+		t.Fatalf("unexpected lint command: %q", res.Checks[0].Run)
 	}
-	if cfg.Checks[1].Run != "poetry run black --check ." {
-		t.Fatalf("unexpected format command: %q", cfg.Checks[1].Run)
+	if res.Checks[1].Run != "poetry run black --check ." {
+		t.Fatalf("unexpected format command: %q", res.Checks[1].Run)
 	}
-	if cfg.Checks[2].Run != "poetry run pytest" {
-		t.Fatalf("unexpected tests command: %q", cfg.Checks[2].Run)
+	if res.Checks[2].Run != "poetry run pytest" {
+		t.Fatalf("unexpected tests command: %q", res.Checks[2].Run)
 	}
 }
 
@@ -222,25 +204,22 @@ func TestPythonTemplateOverridesUvRunner(t *testing.T) {
 		t.Fatalf("write uv.lock: %v", err)
 	}
 
-	cfg := &config.Config{
-		Version: 1,
-		Checks: []config.Check{
-			{Name: "lint", Run: "python -m ruff check ."},
-			{Name: "format", Run: "python -m black --check ."},
-			{Name: "tests", Run: "python -m pytest"},
-		},
+	checks := []config.Check{
+		{Name: "lint", Run: "python -m ruff check ."},
+		{Name: "format", Run: "python -m black --check ."},
+		{Name: "tests", Run: "python -m pytest"},
 	}
 
-	applyTemplateOverrides(root, "python", cfg)
+	res := applyTemplateOverrides(root, "python", checks)
 
-	if cfg.Checks[0].Run != "uv run ruff check ." {
-		t.Fatalf("unexpected lint command: %q", cfg.Checks[0].Run)
+	if res.Checks[0].Run != "uv run ruff check ." {
+		t.Fatalf("unexpected lint command: %q", res.Checks[0].Run)
 	}
-	if cfg.Checks[1].Run != "uv run black --check ." {
-		t.Fatalf("unexpected format command: %q", cfg.Checks[1].Run)
+	if res.Checks[1].Run != "uv run black --check ." {
+		t.Fatalf("unexpected format command: %q", res.Checks[1].Run)
 	}
-	if cfg.Checks[2].Run != "uv run pytest" {
-		t.Fatalf("unexpected tests command: %q", cfg.Checks[2].Run)
+	if res.Checks[2].Run != "uv run pytest" {
+		t.Fatalf("unexpected tests command: %q", res.Checks[2].Run)
 	}
 }
 
@@ -255,21 +234,18 @@ components = ["rustfmt"]
 		t.Fatalf("write rust-toolchain.toml: %v", err)
 	}
 
-	cfg := &config.Config{
-		Version: 1,
-		Checks: []config.Check{
-			{Name: "fmt", Run: "cargo fmt --check"},
-			{Name: "clippy", Run: "cargo clippy -- -D warnings"},
-			{Name: "tests", Run: "cargo test"},
-		},
+	checks := []config.Check{
+		{Name: "fmt", Run: "cargo fmt --check"},
+		{Name: "clippy", Run: "cargo clippy -- -D warnings"},
+		{Name: "tests", Run: "cargo test"},
 	}
 
-	applyTemplateOverrides(root, "rust", cfg)
+	res := applyTemplateOverrides(root, "rust", checks)
 
-	if len(cfg.Checks) != 2 {
-		t.Fatalf("expected 2 checks, got %d", len(cfg.Checks))
+	if len(res.Checks) != 2 {
+		t.Fatalf("expected 2 checks, got %d", len(res.Checks))
 	}
-	if cfg.Checks[0].Name == "clippy" || cfg.Checks[1].Name == "clippy" {
-		t.Fatalf("expected clippy removed, got %+v", cfg.Checks)
+	if res.Checks[0].Name == "clippy" || res.Checks[1].Name == "clippy" {
+		t.Fatalf("expected clippy removed, got %+v", res.Checks)
 	}
 }

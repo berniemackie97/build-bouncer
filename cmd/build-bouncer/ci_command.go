@@ -61,6 +61,8 @@ func runCISync(ctx cli.Context) int {
 		return exitOK
 	}
 
+	ciChecks = stampGeneratedChecks(ciChecks, "ci")
+
 	mergedBase, removed := stripCIChecks(cfg.Checks)
 	mergedBase = stripManualPlaceholder(mergedBase)
 

@@ -18,9 +18,13 @@ const manualPlaceholderName = "manual:configure"
 const manualPlaceholderSnippet = "TODO: configure build-bouncer checks"
 
 func mergeChecks(existing []config.Check, additions []config.Check) mergeResult {
-	seen := make(map[string]struct{}, len(existing))
+	seenID := make(map[string]struct{}, len(existing))
+	seenContent := make(map[string]struct{}, len(existing))
 	for _, c := range existing {
-		seen[checkKey(c)] = struct{}{}
+		if id := strings.TrimSpace(c.ID); id != "" {
+			seenID[id] = struct{}{}
+		}
+		seenContent[checkContentKey(c)] = struct{}{}
 	}
 
 	merged := append([]config.Check{}, existing...)
@@ -28,12 +32,21 @@ func mergeChecks(existing []config.Check, additions []config.Check) mergeResult 
 	var skipped []config.Check
 
 	for _, c := range additions {
-		key := checkKey(c)
-		if _, ok := seen[key]; ok {
+		if id := strings.TrimSpace(c.ID); id != "" {
+			if _, ok := seenID[id]; ok {
+				skipped = append(skipped, c)
+				continue
+			}
+		}
+		key := checkContentKey(c)
+		if _, ok := seenContent[key]; ok {
 			skipped = append(skipped, c)
 			continue
 		}
-		seen[key] = struct{}{}
+		if id := strings.TrimSpace(c.ID); id != "" {
+			seenID[id] = struct{}{}
+		}
+		seenContent[key] = struct{}{}
 		merged = append(merged, c)
 		added = append(added, c)
 	}
@@ -41,7 +54,7 @@ func mergeChecks(existing []config.Check, additions []config.Check) mergeResult 
 	return mergeResult{Merged: merged, Added: added, Skipped: skipped}
 }
 
-func checkKey(c config.Check) string {
+func checkContentKey(c config.Check) string {
 	run := strings.TrimSpace(c.Run)
 	shell := strings.TrimSpace(c.Shell)
 	if shell == "" {
@@ -128,13 +141,20 @@ func stripCIChecks(checks []config.Check) ([]config.Check, int) {
 	out := make([]config.Check, 0, len(checks))
 	removed := 0
 	for _, c := range checks {
-		if strings.HasPrefix(strings.TrimSpace(c.Name), "ci:") {
+		if isCICheck(c) {
 			removed++
 			continue
 		}
 		out = append(out, c)
 	}
 	return out, removed
+}
+
+func isCICheck(c config.Check) bool {
+	if strings.HasPrefix(strings.TrimSpace(c.Name), "ci:") {
+		return true
+	}
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(c.Source)), "ci")
 }
 
 func isManualPlaceholder(c config.Check) bool {

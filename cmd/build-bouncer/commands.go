@@ -21,6 +21,7 @@ func registerCommands(app *cli.App) {
 	app.Register(newInitCommand())
 	app.Register(newCheckCommand())
 	app.Register(newValidateCommand())
+	app.Register(newDoctorCommand())
 	app.Register(newCICommand())
 	app.Register(newHookCommand())
 	app.Register(newUninstallCommand())
@@ -174,10 +175,19 @@ func runInit(force bool, templateID string, ctx cli.Context) int {
 		fmt.Fprintln(ctx.Stderr, "init:", err)
 		return exitUsage
 	}
-	applyTemplateOverrides(root, templateID, cfg)
+	adjust := applyTemplateOverrides(root, templateID, cfg.Checks)
+	cfg.Checks = adjust.Checks
+	cfg.Meta.Template.ID = templateID
+	cfg.Meta.Inputs = mergeInputs(cfg.Meta.Inputs, adjust.Inputs)
+	templateSource := "template:" + templateID
+	if strings.TrimSpace(adjust.Source) != "" {
+		templateSource = adjust.Source
+	}
+	cfg.Checks = stampGeneratedChecks(cfg.Checks, templateSource)
 	if templateID == "manual" && len(ciChecks) > 0 {
 		cfg.Checks = stripManualPlaceholder(cfg.Checks)
 	}
+	ciChecks = stampGeneratedChecks(ciChecks, "ci")
 	merge := mergeChecks(cfg.Checks, ciChecks)
 	cfg.Checks = merge.Merged
 	if err := config.Save(cfgPath, cfg); err != nil {
@@ -308,6 +318,18 @@ func runCheck(args []string, ctx cli.Context) int {
 					fmt.Fprintf(ctx.Stderr, "  - %s\n", c)
 				}
 			}
+			if len(rep.Skipped) > 0 {
+				fmt.Fprintln(ctx.Stderr, "")
+				fmt.Fprintln(ctx.Stderr, "Skipped checks:")
+				for _, s := range rep.Skipped {
+					reason := strings.TrimSpace(rep.SkipReasons[s])
+					if reason == "" {
+						fmt.Fprintf(ctx.Stderr, "  - %s\n", s)
+						continue
+					}
+					fmt.Fprintf(ctx.Stderr, "  - %s (%s)\n", s, reason)
+				}
+			}
 		}
 
 		if *verbose {
@@ -351,6 +373,19 @@ func runCheck(args []string, ctx cli.Context) int {
 		if msg := strings.TrimSpace(bp.Pick("success")); msg != "" {
 			fmt.Fprintln(ctx.Stdout, msg)
 			return exitOK
+		}
+	}
+
+	if (*verbose || *ci) && len(rep.Skipped) > 0 {
+		fmt.Fprintln(ctx.Stdout, "")
+		fmt.Fprintln(ctx.Stdout, "Skipped checks:")
+		for _, s := range rep.Skipped {
+			reason := strings.TrimSpace(rep.SkipReasons[s])
+			if reason == "" {
+				fmt.Fprintf(ctx.Stdout, "  - %s\n", s)
+				continue
+			}
+			fmt.Fprintf(ctx.Stdout, "  - %s (%s)\n", s, reason)
 		}
 	}
 

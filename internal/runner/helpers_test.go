@@ -35,20 +35,6 @@ func TestToShellPath(t *testing.T) {
 	}
 }
 
-func TestLooksLikePowerShell(t *testing.T) {
-	ps := `$ErrorActionPreference = "Stop"
-Get-ChildItem -Force
-Write-Host "ok"`
-	if !looksLikePowerShell(ps) {
-		t.Fatal("expected PowerShell detection")
-	}
-
-	sh := "set -euo pipefail\nif [ -n \"$FOO\" ]; then\n  echo ok\nfi\n"
-	if looksLikePowerShell(sh) {
-		t.Fatal("did not expect PowerShell detection for posix script")
-	}
-}
-
 func TestFixWindowsPathFromPosix(t *testing.T) {
 	env := []string{
 		"USER=dev",
@@ -73,21 +59,6 @@ func TestFixWindowsPathFromPosix(t *testing.T) {
 	}
 	if !strings.Contains(path, "/usr/bin") {
 		t.Fatalf("expected posix path preserved, got %q", path)
-	}
-}
-
-func TestLooksLikePosixShellDetectsOneLiners(t *testing.T) {
-	if !looksLikePosixShell("ls -la") {
-		t.Fatal("expected posix detection for ls")
-	}
-	if !looksLikePosixShell("./scripts/test.sh") {
-		t.Fatal("expected posix detection for ./script.sh")
-	}
-	if !looksLikePosixShell("ls\npwd\n") {
-		t.Fatal("expected posix detection for multi-line ls")
-	}
-	if looksLikePosixShell("ctest --test-dir build/native") {
-		t.Fatal("did not expect posix detection for ctest")
 	}
 }
 
