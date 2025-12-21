@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "maxHistory": 40,
+  "defaultCooldown": 10,
+  "templates": [
+    {
+      "id": "tests.club.1",
+      "categories": ["tests"],
+      "weight": 5,
+      "text": "Sorry pal, we don't let people in the club with failing tests. ({detail})"
+    },
+    {
+      "id": "tests.red.1",
+      "categories": ["tests"],
+      "weight": 4,
+      "text": "Red tests detected. Fix {detail} before you try to push your luck."
+    },
+    {
+      "id": "tests.vibe.1",
+      "categories": ["tests"],
+      "weight": 3,
+      "text": "Green tests only. {detail} is currently ruining the vibe."
+    },
+    {
+      "id": "tests.nope.1",
+      "categories": ["tests"],
+      "weight": 3,
+      "text": "No entry. Your test suite is throwing tomatoes. ({detail})"
+    },
+    {
+      "id": "tests.reality.1",
+      "categories": ["tests"],
+      "weight": 2,
+      "text": "Reality check failed. Specifically: {detail}."
+    },
+
+    {
+      "id": "lint.socks.1",
+      "categories": ["lint"],
+      "weight": 5,
+      "text": "Lint says your code showed up wearing socks with sandals. Fix {check}."
+    },
+    {
+      "id": "lint.enforce.1",
+      "categories": ["lint"],
+      "weight": 4,
+      "text": "The linter is yelling and I'm enforcing it today. ({check})"
+    },
+    {
+      "id": "lint.behave.1",
+      "categories": ["lint"],
+      "weight": 3,
+      "text": "We do not admit code that can't behave itself. {check} is acting up."
+    },
+    {
+      "id": "lint.public.1",
+      "categories": ["lint"],
+      "weight": 2,
+      "text": "Clean up the warnings. {check} is embarrassing you in public."
+    },
+
+    {
+      "id": "build.complaint.1",
+      "categories": ["build"],
+      "weight": 5,
+      "text": "Build failed. The compiler has filed a complaint. ({detail})"
+    },
+    {
+      "id": "build.ship.1",
+      "categories": ["build"],
+      "weight": 4,
+      "text": "If it doesn't build, it doesn't ship. {check} says nope."
+    },
+    {
+      "id": "build.negotiation.1",
+      "categories": ["build"],
+      "weight": 3,
+      "text": "Build broke. The bouncer doesn’t negotiate with broken binaries. ({check})"
+    },
+    {
+      "id": "build.abstract.1",
+      "categories": ["build"],
+      "weight": 2,
+      "text": "Compilation failed. Please stop trying to ship abstract art. ({detail})"
+    },
+
+    {
+      "id": "ci.robots.1",
+      "categories": ["ci"],
+      "weight": 5,
+      "text": "CI says no. The robots have spoken. ({check})"
+    },
+    {
+      "id": "ci.upstream.1",
+      "categories": ["ci"],
+      "weight": 4,
+      "text": "Pipeline failed. Please do not push your problems upstream. ({check})"
+    },
+    {
+      "id": "ci.word.1",
+      "categories": ["ci"],
+      "weight": 3,
+      "text": "GitHub Actions would like a word. Actually, several. {check} failed."
+    },
+    {
+      "id": "ci.referee.1",
+      "categories": ["ci"],
+      "weight": 2,
+      "text": "CI is the referee. You just got flagged for {check}."
+    },
+
+    {
+      "id": "any.denied.1",
+      "categories": ["any"],
+      "weight": 4,
+      "text": "Denied. Bring green checks and a better attitude (or at least green checks)."
+    },
+    {
+      "id": "any.not-today.1",
+      "categories": ["any"],
+      "weight": 3,
+      "text": "Not today. Fix {checks}, then we can pretend this never happened."
+    },
+    {
+      "id": "any.short.1",
+      "categories": ["any"],
+      "weight": 2,
+      "text": "Push blocked. Fix {detail}."
+    },
+    {
+      "id": "any.multi.1",
+      "categories": ["any"],
+      "weight": 1,
+      "text": "Blocked.\n\nFailed checks: {checks}\nMost guilty: {detail}"
+    }
+  ]
+}

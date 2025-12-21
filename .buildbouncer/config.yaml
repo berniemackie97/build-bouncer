@@ -4,6 +4,8 @@ checks:
       run: go test ./...
     - name: lint
       run: go vet ./...
+    - name: ci:ci:test-matrix.os:set-up-go
+      run: go version
     - name: ci:ci:test-matrix.os:go-env
       run: go env
     - name: ci:ci:test-matrix.os:verify-gofmt
@@ -21,8 +23,8 @@ checks:
       shell: bash
 insults:
     mode: snarky
-    file: assets/insults/default.json
+    file: .buildbouncer/assets/insults/default.json
     locale: en
 banter:
-    file: assets/banter/default.json
+    file: .buildbouncer/assets/banter/default.json
     locale: en

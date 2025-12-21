@@ -76,20 +76,30 @@ func TestFixWindowsPathFromPosix(t *testing.T) {
 	}
 }
 
-func TestShellCommandPrefersBashInGitBash(t *testing.T) {
+func TestLooksLikePosixShellDetectsOneLiners(t *testing.T) {
+	if !looksLikePosixShell("ls -la") {
+		t.Fatal("expected posix detection for ls")
+	}
+	if !looksLikePosixShell("./scripts/test.sh") {
+		t.Fatal("expected posix detection for ./script.sh")
+	}
+	if !looksLikePosixShell("ls\npwd\n") {
+		t.Fatal("expected posix detection for multi-line ls")
+	}
+	if looksLikePosixShell("ctest --test-dir build/native") {
+		t.Fatal("did not expect posix detection for ctest")
+	}
+}
+
+func TestShellCommandDefaultsToCmdOnWindows(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("windows-only behavior")
 	}
-	t.Setenv("MSYSTEM", "MINGW64")
-	if !hasShell("bash") {
-		t.Skip("bash not available")
-	}
-
 	name, args := shellCommand("echo ok")
-	if !strings.Contains(strings.ToLower(filepath.Base(name)), "bash") {
-		t.Fatalf("expected bash shell, got %q", name)
+	if !strings.Contains(strings.ToLower(filepath.Base(name)), "cmd") {
+		t.Fatalf("expected cmd shell, got %q", name)
 	}
-	if len(args) < 2 || args[0] != "-lc" {
+	if len(args) < 2 || args[0] != "/C" {
 		t.Fatalf("unexpected args: %v", args)
 	}
 }

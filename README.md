@@ -223,8 +223,8 @@ Each check:
 
 `shell` must be just the executable name or path (no arguments). Use `run` for the actual command.
 
-If `shell` is omitted, build-bouncer uses the OS default. On Windows, multi-line POSIX scripts will try `bash`/`sh` if available, and PowerShell-style scripts will try `pwsh`/`powershell`. CI-derived checks default to GitHub's shells (bash on linux/macos, pwsh on windows) when available.
-When running inside Git Bash on Windows, the default shell is `bash` (to match the POSIX environment); set `shell: cmd` or `shell: powershell` if you need Windows-native semantics.
+If `shell` is omitted, build-bouncer uses the OS default. On Windows, multi-line POSIX scripts (and common POSIX one-liners like `ls`) will try `bash`/`sh` if available, and PowerShell-style scripts will try `pwsh`/`powershell`. CI-derived checks default to GitHub's shells (bash on linux/macos, pwsh on windows) when available.
+If you need bash explicitly on Windows, set `shell: bash` or use `bash -lc "..."`.
 
 Example with `cwd` + `env`:
 

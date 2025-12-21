@@ -65,6 +65,7 @@ func renderPrePushHook(hasCopiedBinary bool) string {
 set -eu
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$repo_root" || exit 1
 
 bb=""
 `
