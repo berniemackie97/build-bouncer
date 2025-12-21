@@ -26,11 +26,11 @@ type Runner struct {
 
 type Insults struct {
 	Mode   string `yaml:"mode"`   // polite | snarky | nuclear
-	File   string `yaml:"file"`   // assets/insults/default.json
+	File   string `yaml:"file"`   // .buildbouncer/assets/insults/default.json
 	Locale string `yaml:"locale"` // en
 }
 
 type Banter struct {
-	File   string `yaml:"file"`   // assets/banter/default.json
+	File   string `yaml:"file"`   // .buildbouncer/assets/banter/default.json
 	Locale string `yaml:"locale"` // en
 }

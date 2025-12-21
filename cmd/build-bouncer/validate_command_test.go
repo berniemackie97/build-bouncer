@@ -13,7 +13,10 @@ import (
 func TestValidateCommand(t *testing.T) {
 	repo := withTempRepo(t)
 
-	cfgPath := filepath.Join(repo, ".buildbouncer.yaml")
+	cfgPath := filepath.Join(repo, ".buildbouncer", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
 	content := `
 version: 1
 checks:

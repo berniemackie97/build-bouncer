@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -51,14 +52,14 @@ func validateAndDefault(cfg *Config) error {
 		cfg.Insults.Mode = "snarky"
 	}
 	if strings.TrimSpace(cfg.Insults.File) == "" {
-		cfg.Insults.File = "assets/insults/default.json"
+		cfg.Insults.File = filepath.ToSlash(filepath.Join(ConfigDirName, DefaultInsultsRel))
 	}
 	if strings.TrimSpace(cfg.Insults.Locale) == "" {
 		cfg.Insults.Locale = "en"
 	}
 
 	if strings.TrimSpace(cfg.Banter.File) == "" {
-		cfg.Banter.File = "assets/banter/default.json"
+		cfg.Banter.File = filepath.ToSlash(filepath.Join(ConfigDirName, DefaultBanterRel))
 	}
 	if strings.TrimSpace(cfg.Banter.Locale) == "" {
 		cfg.Banter.Locale = "en"

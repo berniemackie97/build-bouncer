@@ -39,7 +39,7 @@ func runCI(args []string, ctx cli.Context) int {
 }
 
 func runCISync(ctx cli.Context) int {
-	cfgPath, cfgDir, err := config.FindConfigFromCwd(".buildbouncer.yaml")
+	cfgPath, cfgDir, err := config.FindConfigFromCwd()
 	if err != nil {
 		fmt.Fprintln(ctx.Stderr, "ci sync:", err)
 		return exitUsage

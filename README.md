@@ -12,7 +12,8 @@ It’s intentionally dumb in the right way: **it does not guess your build syste
 ## What it does (today)
 
 ### Core behavior
-- Reads a repo config: **`.buildbouncer.yaml`**
+- Reads a repo config: **`.buildbouncer/config.yaml`**
+- Keeps build-bouncer config + packs under `.buildbouncer/` (legacy `.buildbouncer.yaml` is still supported)
 - Runs your configured checks (tests, lint, build, whatever you want)
 - If any check fails:
   - **blocks the push** (exit code `10`)
@@ -96,15 +97,15 @@ git push
 
 ### `build-bouncer init [--force] [--template-flag]`
 Creates:
-- `.buildbouncer.yaml`
-- `assets/insults/default.json`
-- `assets/banter/default.json`
+- `.buildbouncer/config.yaml`
+- `.buildbouncer/assets/insults/default.json`
+- `.buildbouncer/assets/banter/default.json`
 
 It populates those from templates shipped with build-bouncer:
 - `assets/templates/insults_default.json`
 - `assets/templates/banter_default.json`
 
-`init` always writes `.buildbouncer.yaml` (overwriting if it already exists).
+`init` always writes `.buildbouncer/config.yaml` (overwriting if it already exists).
 `--force` overwrites existing default packs.
 
 If `.github/workflows/*.yml` exists, `init` adds each `run` step as a check and skips duplicates.
@@ -140,7 +141,7 @@ Exit codes:
 - `10` checks failed (push blocked)
 
 ### `build-bouncer validate [--config PATH]`
-Validates `.buildbouncer.yaml` and prints the number of checks.
+Validates `.buildbouncer/config.yaml` and prints the number of checks.
 
 Use `--config` to validate a specific file instead of searching from the current directory.
 
@@ -166,13 +167,22 @@ Removes the hook.
 - Default behavior refuses to delete a hook it didn't install.
 - `--force` removes it anyway.
 
+### `build-bouncer uninstall [--force]`
+Removes build-bouncer artifacts from the repo, including:
+- `.buildbouncer/`
+- `.buildbouncer.yaml` (legacy)
+- `.git/build-bouncer/`
+- the pre-push hook
+
 ### `build-bouncer ci sync`
 Refreshes `ci:` checks from `.github/workflows/*` `run` steps, removes stale CI entries, and skips duplicates against your custom checks.
 Setup actions like `actions/setup-node`/`setup-go`/`setup-python` are mirrored as lightweight checks (ex: `node --version`), and `setup-node` uses `cache` hints to pick npm/yarn/pnpm.
 
 ---
 
-## Configuration (`.buildbouncer.yaml`)
+## Configuration (`.buildbouncer/config.yaml`)
+
+Legacy configs at `.buildbouncer.yaml` are still read if present.
 
 Example:
 
@@ -194,11 +204,11 @@ runner:
 
 insults:
   mode: "snarky"   # polite | snarky | nuclear
-  file: "assets/insults/default.json"
+  file: ".buildbouncer/assets/insults/default.json"
   locale: "en"
 
 banter:
-  file: "assets/banter/default.json"
+  file: ".buildbouncer/assets/banter/default.json"
   locale: "en"
 ```
 
@@ -214,6 +224,7 @@ Each check:
 `shell` must be just the executable name or path (no arguments). Use `run` for the actual command.
 
 If `shell` is omitted, build-bouncer uses the OS default. On Windows, multi-line POSIX scripts will try `bash`/`sh` if available, and PowerShell-style scripts will try `pwsh`/`powershell`. CI-derived checks default to GitHub's shells (bash on linux/macos, pwsh on windows) when available.
+When running inside Git Bash on Windows, the default shell is `bash` (to match the POSIX environment); set `shell: cmd` or `shell: powershell` if you need Windows-native semantics.
 
 Example with `cwd` + `env`:
 
@@ -238,7 +249,7 @@ Configured via:
 
 ```yaml
 insults:
-  file: "assets/insults/default.json"
+  file: ".buildbouncer/assets/insults/default.json"
 ```
 
 Format supports:
@@ -260,7 +271,7 @@ Configured via:
 
 ```yaml
 banter:
-  file: "assets/banter/default.json"
+  file: ".buildbouncer/assets/banter/default.json"
 ```
 
 Types:
@@ -378,3 +389,4 @@ The hook prefers that repo-pinned binary first, so everyone on the team gets con
 
 ## License
 MIT
+

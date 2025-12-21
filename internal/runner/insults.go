@@ -113,7 +113,7 @@ func resolveInsultStatePath(root string) string {
 	if st, err := os.Stat(gitDir); err == nil && st.IsDir() {
 		return filepath.Join(gitDir, "build-bouncer", "insults_state.json")
 	}
-	return filepath.Join(root, ".buildbouncer_insults_state.json")
+	return filepath.Join(root, config.ConfigDirName, "state", "insults_state.json")
 }
 
 func loadInsultState(path string) insultState {

@@ -11,10 +11,10 @@ func newValidateCommand() cli.Command {
 	return cli.Command{
 		Name:    "validate",
 		Usage:   "validate [--config PATH]",
-		Summary: "Validate .buildbouncer.yaml.",
+		Summary: "Validate .buildbouncer/config.yaml (or legacy .buildbouncer.yaml).",
 		Run: func(ctx cli.Context, args []string) int {
 			fs := cli.NewFlagSet(ctx, "validate")
-			cfgPath := fs.String("config", "", "path to .buildbouncer.yaml")
+			cfgPath := fs.String("config", "", "path to .buildbouncer/config.yaml")
 			if err := fs.Parse(args); err != nil {
 				return exitUsage
 			}
@@ -26,7 +26,7 @@ func newValidateCommand() cli.Command {
 func runValidate(cfgPath string, ctx cli.Context) int {
 	if cfgPath == "" {
 		var err error
-		cfgPath, _, err = config.FindConfigFromCwd(".buildbouncer.yaml")
+		cfgPath, _, err = config.FindConfigFromCwd()
 		if err != nil {
 			fmt.Fprintln(ctx.Stderr, "validate:", err)
 			return exitUsage

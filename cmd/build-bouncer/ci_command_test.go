@@ -14,7 +14,10 @@ import (
 func TestCISyncAddsChecks(t *testing.T) {
 	repo := withTempRepo(t)
 
-	cfgPath := filepath.Join(repo, ".buildbouncer.yaml")
+	cfgPath := filepath.Join(repo, ".buildbouncer", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
 	cfg := &config.Config{
 		Version: 1,
 		Checks: []config.Check{
@@ -22,11 +25,11 @@ func TestCISyncAddsChecks(t *testing.T) {
 		},
 		Insults: config.Insults{
 			Mode:   "snarky",
-			File:   "assets/insults/default.json",
+			File:   ".buildbouncer/assets/insults/default.json",
 			Locale: "en",
 		},
 		Banter: config.Banter{
-			File:   "assets/banter/default.json",
+			File:   ".buildbouncer/assets/banter/default.json",
 			Locale: "en",
 		},
 	}
@@ -70,7 +73,10 @@ jobs:
 func TestCISyncReplacesOldCIChecks(t *testing.T) {
 	repo := withTempRepo(t)
 
-	cfgPath := filepath.Join(repo, ".buildbouncer.yaml")
+	cfgPath := filepath.Join(repo, ".buildbouncer", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
 	cfg := &config.Config{
 		Version: 1,
 		Checks: []config.Check{
@@ -79,11 +85,11 @@ func TestCISyncReplacesOldCIChecks(t *testing.T) {
 		},
 		Insults: config.Insults{
 			Mode:   "snarky",
-			File:   "assets/insults/default.json",
+			File:   ".buildbouncer/assets/insults/default.json",
 			Locale: "en",
 		},
 		Banter: config.Banter{
-			File:   "assets/banter/default.json",
+			File:   ".buildbouncer/assets/banter/default.json",
 			Locale: "en",
 		},
 	}

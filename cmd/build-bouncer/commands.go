@@ -23,6 +23,7 @@ func registerCommands(app *cli.App) {
 	app.Register(newValidateCommand())
 	app.Register(newCICommand())
 	app.Register(newHookCommand())
+	app.Register(newUninstallCommand())
 }
 
 func newSetupCommand() cli.Command {
@@ -57,9 +58,9 @@ func runSetup(force bool, noCopy bool, ci bool, templateID string, ctx cli.Conte
 		return exitUsage
 	}
 
-	cfgPath := filepath.Join(root, ".buildbouncer.yaml")
+	cfgPath, cfgExists := config.FindConfigInRoot(root)
 
-	if _, err := os.Stat(cfgPath); err == nil {
+	if cfgExists {
 		if templateID != "" {
 			if code := runInit(force, templateID, ctx); code != exitOK {
 				return code
@@ -67,7 +68,7 @@ func runSetup(force bool, noCopy bool, ci bool, templateID string, ctx cli.Conte
 		} else {
 			fmt.Fprintln(ctx.Stdout, "Config exists:", cfgPath)
 		}
-	} else if os.IsNotExist(err) {
+	} else {
 		if templateID == "" {
 			fmt.Fprintln(ctx.Stderr, "setup: missing template flag (try: build-bouncer setup --go)")
 			printInitHelp(ctx)
@@ -76,9 +77,6 @@ func runSetup(force bool, noCopy bool, ci bool, templateID string, ctx cli.Conte
 		if code := runInit(force, templateID, ctx); code != exitOK {
 			return code
 		}
-	} else {
-		fmt.Fprintln(ctx.Stderr, "setup:", err)
-		return exitUsage
 	}
 
 	opts := hooks.InstallOptions{CopySelf: !noCopy}
@@ -99,7 +97,7 @@ func newInitCommand() cli.Command {
 	return cli.Command{
 		Name:    "init",
 		Usage:   "init [--force] [--template-flag]",
-		Summary: "Create .buildbouncer.yaml and default insult/banter packs.",
+		Summary: "Create .buildbouncer/config.yaml and default insult/banter packs.",
 		Run: func(ctx cli.Context, args []string) int {
 			fs := cli.NewFlagSet(ctx, "init")
 			force := fs.Bool("force", false, "overwrite default insult/banter packs")
@@ -129,9 +127,10 @@ func runInit(force bool, templateID string, ctx cli.Context) int {
 		return exitUsage
 	}
 
-	cfgPath := filepath.Join(root, ".buildbouncer.yaml")
-	insultsPath := filepath.Join(root, "assets", "insults", "default.json")
-	banterPath := filepath.Join(root, "assets", "banter", "default.json")
+	cfgPath := config.DefaultConfigPath(root)
+	assetsDir := config.DefaultAssetsPath(root)
+	insultsPath := filepath.Join(assetsDir, "insults", "default.json")
+	banterPath := filepath.Join(assetsDir, "banter", "default.json")
 
 	if err := os.MkdirAll(filepath.Dir(insultsPath), 0o755); err != nil {
 		fmt.Fprintln(ctx.Stderr, "init:", err)
@@ -223,7 +222,7 @@ func runCheck(args []string, ctx cli.Context) int {
 		return exitUsage
 	}
 
-	cfgPath, cfgDir, err := config.FindConfigFromCwd(".buildbouncer.yaml")
+	cfgPath, cfgDir, err := config.FindConfigFromCwd()
 	if err != nil {
 		fmt.Fprintln(ctx.Stderr, "check:", err)
 		return exitUsage

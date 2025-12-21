@@ -26,10 +26,10 @@ checks:
 		t.Fatalf("load config: %v", err)
 	}
 
-	if cfg.Insults.File != "assets/insults/default.json" {
+	if cfg.Insults.File != ".buildbouncer/assets/insults/default.json" {
 		t.Fatalf("expected default insults file, got %q", cfg.Insults.File)
 	}
-	if cfg.Banter.File != "assets/banter/default.json" {
+	if cfg.Banter.File != ".buildbouncer/assets/banter/default.json" {
 		t.Fatalf("expected default banter file, got %q", cfg.Banter.File)
 	}
 	if cfg.Insults.Locale != "en" || cfg.Banter.Locale != "en" {

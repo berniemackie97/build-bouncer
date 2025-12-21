@@ -204,7 +204,7 @@ func resolveStatePath(root string) string {
 	if st, err := os.Stat(gitDir); err == nil && st.IsDir() {
 		return filepath.Join(gitDir, "build-bouncer", "banter_state.json")
 	}
-	return filepath.Join(root, ".buildbouncer_banter_state.json")
+	return filepath.Join(root, ".buildbouncer", "state", "banter_state.json")
 }
 
 func loadState(path string) State {

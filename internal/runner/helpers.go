@@ -14,7 +14,7 @@ func resolveDefaultLogDir(repoRoot string) string {
 	if st, err := os.Stat(gitDir); err == nil && st.IsDir() {
 		return filepath.Join(gitDir, "build-bouncer", "logs")
 	}
-	return filepath.Join(repoRoot, ".build-bouncer", "logs")
+	return filepath.Join(repoRoot, ".buildbouncer", "logs")
 }
 
 func sanitize(s string) string {
@@ -42,6 +42,11 @@ func sanitize(s string) string {
 
 func shellCommand(command string) (string, []string) {
 	if runtime.GOOS == "windows" {
+		if isGitBashEnv() && hasShell("bash") {
+			if name, args, ok := commandForShell("bash", command); ok {
+				return name, args
+			}
+		}
 		return "cmd.exe", []string{"/C", command}
 	}
 	return "sh", []string{"-c", command}
@@ -275,6 +280,21 @@ func hasShell(shell string) bool {
 	return err == nil
 }
 
+func isGitBashEnv() bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	if msystem := strings.ToLower(strings.TrimSpace(os.Getenv("MSYSTEM"))); msystem != "" {
+		if strings.HasPrefix(msystem, "mingw") || strings.HasPrefix(msystem, "msys") {
+			return true
+		}
+	}
+	if shell := strings.ToLower(filepath.Base(strings.TrimSpace(os.Getenv("SHELL")))); shell == "bash" || shell == "sh" {
+		return true
+	}
+	return false
+}
+
 func preferWindowsShell(shell string) string {
 	if runtime.GOOS != "windows" {
 		return shell
@@ -297,7 +317,7 @@ func adjustEnvForShell(shell string, env []string) []string {
 	}
 	base := strings.ToLower(filepath.Base(shell))
 	if base != "bash" && base != "bash.exe" && base != "sh" && base != "sh.exe" {
-		return env
+		return fixWindowsPathFromPosix(env)
 	}
 	return fixBashPath(env, detectShellFlavor(shell))
 }
@@ -355,6 +375,66 @@ func fixBashPath(env []string, flavor shellPathFlavor) []string {
 	}
 	env[idx] = "PATH=" + strings.Join(out, ":")
 	return env
+}
+
+func fixWindowsPathFromPosix(env []string) []string {
+	idx := -1
+	path := ""
+	for i, kv := range env {
+		if strings.HasPrefix(strings.ToUpper(kv), "PATH=") {
+			idx = i
+			path = kv[len("PATH="):]
+			break
+		}
+	}
+	if idx == -1 || path == "" {
+		return env
+	}
+	if strings.Contains(path, ";") {
+		return env
+	}
+	if !looksLikePosixPathList(path) {
+		return env
+	}
+
+	entries := strings.Split(path, ":")
+	out := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		entry = strings.Trim(entry, "\"")
+		if entry == "" {
+			continue
+		}
+		if win, ok := posixToWindowsPath(entry); ok {
+			out = append(out, win)
+			continue
+		}
+		out = append(out, entry)
+	}
+	if len(out) == 0 {
+		return env
+	}
+	env[idx] = "PATH=" + strings.Join(out, ";")
+	return env
+}
+
+func looksLikePosixPathList(path string) bool {
+	if strings.HasPrefix(path, "/") {
+		return true
+	}
+	return strings.Contains(path, ":/")
+}
+
+func posixToWindowsPath(path string) (string, bool) {
+	if len(path) < 3 || path[0] != '/' {
+		return "", false
+	}
+	drive := path[1]
+	if !((drive >= 'a' && drive <= 'z') || (drive >= 'A' && drive <= 'Z')) || path[2] != '/' {
+		return "", false
+	}
+	rest := path[3:]
+	rest = strings.ReplaceAll(rest, "/", "\\")
+	return strings.ToUpper(string(drive)) + ":\\" + rest, true
 }
 
 func toShellPath(path string, flavor shellPathFlavor) string {
