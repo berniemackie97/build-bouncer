@@ -58,7 +58,7 @@ checks:
       source: ci:ci
       name: ci:ci:test-matrix.os:go-test
       run: go test ./...
-      shell: pwsh
+      shell: cmd
       os: windows
       requires: go
 insults:
