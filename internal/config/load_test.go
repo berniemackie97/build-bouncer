@@ -35,6 +35,9 @@ checks:
 	if cfg.Insults.Locale != "en" || cfg.Banter.Locale != "en" {
 		t.Fatalf("expected default locales to be en, got insults=%q banter=%q", cfg.Insults.Locale, cfg.Banter.Locale)
 	}
+	if cfg.Banter.Enabled == nil || !*cfg.Banter.Enabled {
+		t.Fatalf("expected banter enabled by default")
+	}
 	if cfg.Version != 1 {
 		t.Fatalf("expected version 1, got %d", cfg.Version)
 	}

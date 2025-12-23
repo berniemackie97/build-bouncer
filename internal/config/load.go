@@ -76,6 +76,10 @@ func validateAndDefault(cfg *Config) error {
 	if strings.TrimSpace(cfg.Banter.Locale) == "" {
 		cfg.Banter.Locale = "en"
 	}
+	if cfg.Banter.Enabled == nil {
+		enabled := true
+		cfg.Banter.Enabled = &enabled
+	}
 
 	return nil
 }

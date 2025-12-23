@@ -46,6 +46,7 @@ type Insults struct {
 }
 
 type Banter struct {
-	File   string `yaml:"file"`   // .buildbouncer/assets/banter/default.json
-	Locale string `yaml:"locale"` // en
+	Enabled *bool  `yaml:"enabled"`
+	File    string `yaml:"file"`   // .buildbouncer/assets/banter/default.json
+	Locale  string `yaml:"locale"` // en
 }

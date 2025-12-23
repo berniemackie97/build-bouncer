@@ -10,6 +10,7 @@ insults:
   locale: "en"
 
 banter:
+  enabled: true
   file: ".buildbouncer/assets/banter/default.json"
   locale: "en"
 

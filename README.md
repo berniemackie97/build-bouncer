@@ -225,9 +225,15 @@ insults:
   locale: "en"
 
 banter:
+  enabled: true
   file: ".buildbouncer/assets/banter/default.json"
   locale: "en"
 ```
+
+Insult modes:
+- `polite`: adds a gentle preface
+- `snarky`: adds a snarky preface (default)
+- `nuclear`: uppercases the line
 
 Each check:
 - `name`: label shown in output and failure summary
@@ -292,6 +298,7 @@ Configured via:
 
 ```yaml
 banter:
+  enabled: true
   file: ".buildbouncer/assets/banter/default.json"
 ```
 
@@ -301,6 +308,7 @@ Types:
 - `success` : printed once if everything passed
 
 This is what makes quiet mode feel like a bouncer instead of a CI log.
+Set `banter.enabled: false` to disable banter lines (spinner falls back to neutral messages).
 
 ---
 

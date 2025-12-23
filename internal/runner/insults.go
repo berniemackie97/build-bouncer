@@ -455,13 +455,39 @@ func trimDetail(s string) string {
 }
 
 func formatInsult(mode string, msg string) string {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return ""
+	}
 	m := strings.ToLower(strings.TrimSpace(mode))
 	switch m {
 	case "polite":
-		return "Blocked: " + msg
+		if hasPrefixInsensitive(msg, []string{"please", "sorry", "apologies"}) {
+			return msg
+		}
+		return "Please address the failing checks before pushing. " + msg
+	case "snarky":
+		if hasPrefixInsensitive(msg, []string{"no", "nope", "denied", "blocked", "push blocked", "not today"}) {
+			return msg
+		}
+		return "Yeah, no. " + msg
 	case "nuclear":
-		return strings.ToUpper(msg)
+		return strings.ToUpper("ABSOLUTELY NOT. " + msg)
 	default:
 		return msg
 	}
+}
+
+func hasPrefixInsensitive(msg string, prefixes []string) bool {
+	msg = strings.ToLower(strings.TrimSpace(msg))
+	for _, prefix := range prefixes {
+		p := strings.ToLower(strings.TrimSpace(prefix))
+		if p == "" {
+			continue
+		}
+		if strings.HasPrefix(msg, p) {
+			return true
+		}
+	}
+	return false
 }

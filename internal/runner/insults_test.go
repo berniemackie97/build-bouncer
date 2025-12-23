@@ -80,3 +80,25 @@ func TestEnsureInsultContextAppendsDetail(t *testing.T) {
 		t.Fatalf("expected detail appended, got %q", msg)
 	}
 }
+
+func TestFormatInsultModes(t *testing.T) {
+	msg := "Build failed. Fix it."
+
+	snarky := formatInsult("snarky", msg)
+	if !strings.HasPrefix(snarky, "Yeah, no. ") {
+		t.Fatalf("expected snarky prefix, got %q", snarky)
+	}
+
+	polite := formatInsult("polite", msg)
+	if !strings.HasPrefix(polite, "Please address the failing checks before pushing. ") {
+		t.Fatalf("expected polite prefix, got %q", polite)
+	}
+
+	nuclear := formatInsult("nuclear", msg)
+	if !strings.HasPrefix(nuclear, "ABSOLUTELY NOT. ") {
+		t.Fatalf("expected nuclear prefix, got %q", nuclear)
+	}
+	if !strings.Contains(nuclear, "BUILD FAILED. FIX IT.") {
+		t.Fatalf("expected nuclear to uppercase message, got %q", nuclear)
+	}
+}

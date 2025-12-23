@@ -1,14 +1,39 @@
 version: 1
+meta:
+    template:
+        id: go
+    inputs:
+        template.id: go
 checks:
-    - name: tests
+    - id: template:go:f6336331e13a
+      source: template:go
+      name: tests
       run: go test ./...
-    - name: lint
+      shell: cmd
+      requires: go
+    - id: template:go:c77a8162c912
+      source: template:go
+      name: lint
       run: go vet ./...
-    - name: ci:ci:test-matrix.os:set-up-go
+      shell: cmd
+      requires: go
+    - id: ci:ci:6bfddfb7806e
+      source: ci:ci
+      name: ci:ci:test-matrix.os:set-up-go
       run: go version
-    - name: ci:ci:test-matrix.os:go-env
+      shell: pwsh
+      os: windows
+      requires: go
+    - id: ci:ci:e176ca0308f8
+      source: ci:ci
+      name: ci:ci:test-matrix.os:go-env
       run: go env
-    - name: ci:ci:test-matrix.os:verify-gofmt
+      shell: pwsh
+      os: windows
+      requires: go
+    - id: ci:ci:7ff8c5bb4cd6
+      source: ci:ci
+      name: ci:ci:test-matrix.os:verify-gofmt
       run: |-
         set -euo pipefail
         files=$(find . -name '*.go' -type f)
@@ -21,10 +46,26 @@ checks:
           fi
         fi
       shell: bash
+      os: windows
+    - id: ci:ci:2513e181be1a
+      source: ci:ci
+      name: ci:ci:test-matrix.os:go-vet
+      run: go vet ./...
+      shell: pwsh
+      os: windows
+      requires: go
+    - id: ci:ci:24a3818b78d7
+      source: ci:ci
+      name: ci:ci:test-matrix.os:go-test
+      run: go test ./...
+      shell: pwsh
+      os: windows
+      requires: go
 insults:
     mode: snarky
     file: .buildbouncer/assets/insults/default.json
     locale: en
 banter:
+    enabled: true
     file: .buildbouncer/assets/banter/default.json
     locale: en

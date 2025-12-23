@@ -245,9 +245,10 @@ func runCheck(args []string, ctx cli.Context) int {
 	}
 
 	quietUI := !*verbose && !*ci && (*hook || ui.IsTerminal(os.Stdout))
+	banterEnabled := cfg.Banter.Enabled == nil || *cfg.Banter.Enabled
 
 	var bp *banter.Picker
-	if quietUI {
+	if quietUI && banterEnabled {
 		if p, err := banter.Load(cfgDir, banter.Config{File: cfg.Banter.File, Locale: cfg.Banter.Locale}); err == nil {
 			bp = p
 		}
@@ -258,11 +259,15 @@ func runCheck(args []string, ctx cli.Context) int {
 		sp = ui.NewSpinner(os.Stdout)
 
 		intro := ""
-		if bp != nil {
+		if banterEnabled && bp != nil {
 			intro = bp.Pick("intro")
 		}
 		if strings.TrimSpace(intro) == "" {
-			intro = "Checking the list..."
+			if banterEnabled {
+				intro = "Checking the list..."
+			} else {
+				intro = "Running checks..."
+			}
 		}
 
 		sp.Start(intro)
@@ -275,13 +280,20 @@ func runCheck(args []string, ctx cli.Context) int {
 		MaxParallel: cfg.Runner.MaxParallel,
 		FailFast:    cfg.Runner.FailFast || *failFast,
 		Progress: func(e runner.ProgressEvent) {
-			if sp == nil || bp == nil {
+			if sp == nil {
 				return
 			}
 			if e.Stage == "start" {
-				msg := bp.Pick("loading")
+				msg := ""
+				if banterEnabled && bp != nil {
+					msg = bp.Pick("loading")
+				}
 				if strings.TrimSpace(msg) == "" {
-					msg = "Checking the list"
+					if banterEnabled {
+						msg = "Checking the list"
+					} else {
+						msg = "Running checks"
+					}
 				}
 				sp.SetMessage(fmt.Sprintf("%s (%d/%d)", msg, e.Index, e.Total))
 			}
