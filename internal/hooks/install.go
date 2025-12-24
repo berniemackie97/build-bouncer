@@ -1,14 +1,15 @@
-// Package hooks contains helpers for installing, uninstalling, and inspecting the
-// git pre-push hook used by build-bouncer.
 package hooks
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"time"
+
+	"github.com/berniemackie97/build-bouncer/internal/git"
 )
 
 type InstallOptions struct {
@@ -16,25 +17,14 @@ type InstallOptions struct {
 }
 
 func InstallPrePushHook(opts InstallOptions) error {
-	repoRoot, hooksDir, err := repoHooksDir()
+	root, err := git.FindRepoRoot()
 	if err != nil {
 		return err
 	}
 
+	hooksDir := filepath.Join(root, ".git", "hooks")
 	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 		return err
-	}
-
-	hookPath := filepath.Join(hooksDir, "pre-push")
-
-	// Enterprise-safe default: never overwrite someone else's hook.
-	// (If the CLI supports --force, it can remove first, then call install.)
-	if b, readErr := os.ReadFile(hookPath); readErr == nil {
-		if !bytes.Contains(b, []byte(prePushMarker)) {
-			return fmt.Errorf("pre-push hook exists but was not installed by build-bouncer (remove it or reinstall with --force)")
-		}
-	} else if !os.IsNotExist(readErr) {
-		return readErr
 	}
 
 	var copied bool
@@ -61,20 +51,9 @@ func InstallPrePushHook(opts InstallOptions) error {
 		copied = true
 	}
 
-	_ = repoRoot
+	hookPath := filepath.Join(hooksDir, "pre-push")
 	hookBody := renderPrePushHook(copied)
-
-	// Write atomically (Git for Windows + AV/indexing can make this flaky otherwise).
-	tmpPath := hookPath + ".tmp"
-	_ = os.Remove(tmpPath)
-
-	if err := os.WriteFile(tmpPath, []byte(hookBody), 0o755); err != nil {
-		return err
-	}
-
-	_ = os.Remove(hookPath) // needed on Windows; rename-over-existing is not allowed
-	if err := os.Rename(tmpPath, hookPath); err != nil {
-		_ = os.Remove(tmpPath)
+	if err := os.WriteFile(hookPath, []byte(hookBody), 0o755); err != nil {
 		return err
 	}
 
@@ -83,21 +62,11 @@ func InstallPrePushHook(opts InstallOptions) error {
 }
 
 func renderPrePushHook(hasCopiedBinary bool) string {
-	// Key enterprise behaviors:
-	// - Hook remains portable across normal repos and worktrees.
-	// - If we copied a binary, prefer the binary located next to the hook (hook_dir/bin).
-	// - Otherwise fall back to PATH.
-	// - Always include the marker so uninstall/status can reliably identify "ours".
 	body := `#!/bin/sh
-# ` + prePushMarker + `
+# build-bouncer pre-push hook v1
 set -eu
 
-# Resolve repo root (best effort). If git isn't available for some reason, fall back.
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-
-# Resolve the directory containing this hook (works for worktrees too).
-hook_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-
 cd "$repo_root" || exit 1
 
 bb=""
@@ -105,17 +74,15 @@ bb=""
 
 	if hasCopiedBinary {
 		body += `
-# Prefer repo-pinned binary (copied during hook install).
-if [ -x "$hook_dir/bin/build-bouncer" ]; then
-  bb="$hook_dir/bin/build-bouncer"
-elif [ -x "$hook_dir/bin/build-bouncer.exe" ]; then
-  bb="$hook_dir/bin/build-bouncer.exe"
+if [ -x "$repo_root/.git/hooks/bin/build-bouncer" ]; then
+  bb="$repo_root/.git/hooks/bin/build-bouncer"
+elif [ -x "$repo_root/.git/hooks/bin/build-bouncer.exe" ]; then
+  bb="$repo_root/.git/hooks/bin/build-bouncer.exe"
 fi
 `
 	}
 
 	body += `
-# Fall back to PATH lookup.
 if [ -z "$bb" ]; then
   if command -v build-bouncer >/dev/null 2>&1; then
     bb="build-bouncer"
@@ -130,53 +97,101 @@ fi
 	return body
 }
 
-func copyFile(src string, dst string, mode os.FileMode) (retErr error) {
+// copyFile writes dst atomically via a temp file in the same directory, then renames.
+// On Windows, AV/indexing can briefly lock new .exe files; we retry rename a few times.
+func copyFile(src string, dst string, mode os.FileMode) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		// Only surface close error if nothing else failed.
-		if cerr := in.Close(); cerr != nil && retErr == nil {
-			retErr = cerr
-		}
-	}()
+	defer func() { _ = in.Close() }()
 
 	tmp := dst + ".tmp"
+	_ = os.Remove(tmp)
+
 	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		// Ensure we don't leak the handle; only return close error if we were otherwise successful.
-		if cerr := out.Close(); cerr != nil && retErr == nil {
-			retErr = cerr
+
+	copyErr := func() error {
+		if _, err := io.Copy(out, in); err != nil {
+			return err
 		}
+		// Best-effort flush. Some filesystems/AV combos behave better with an explicit sync.
+		_ = out.Sync()
+		return nil
 	}()
 
-	if _, err := io.Copy(out, in); err != nil {
+	closeErr := out.Close()
+
+	if copyErr != nil {
+		_ = os.Remove(tmp)
+		return copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(tmp)
+		return closeErr
+	}
+
+	// Windows cannot rename-over-existing; also helps if prior attempts left a file behind.
+	_ = removeFileWithRetries(dst)
+
+	if err := renameWithRetries(tmp, dst); err != nil {
 		_ = os.Remove(tmp)
 		return err
 	}
 
-	// Optional but “enterprise-safe”: flush file contents before rename.
-	// Helps avoid surprising truncation on crashes/AV/filesystems.
-	if err := out.Sync(); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-
-	// Windows: rename-over-existing is not allowed
-	_ = os.Remove(dst)
-
-	if err := os.Rename(tmp, dst); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-
-	if err := os.Chmod(dst, mode); err != nil {
-		return err
-	}
-
+	_ = os.Chmod(dst, mode)
 	return nil
+}
+
+func renameWithRetries(from string, to string) error {
+	// Non-Windows: rename is usually reliable; keep it simple.
+	if runtime.GOOS != "windows" {
+		return os.Rename(from, to)
+	}
+
+	const attempts = 12
+	const delay = 20 * time.Millisecond
+
+	var lastErr error
+	for range attempts {
+		// Best-effort: if something recreated/left 'to', clear it.
+		_ = os.Remove(to)
+
+		lastErr = os.Rename(from, to)
+		if lastErr == nil {
+			return nil
+		}
+		time.Sleep(delay)
+	}
+	return lastErr
+}
+
+func removeFileWithRetries(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+	// Non-Windows: quick attempt is fine.
+	if runtime.GOOS != "windows" {
+		err := os.Remove(path)
+		if err == nil || os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	const attempts = 12
+	const delay = 15 * time.Millisecond
+
+	var lastErr error
+	for range attempts {
+		lastErr = os.Remove(path)
+		if lastErr == nil || os.IsNotExist(lastErr) {
+			return nil
+		}
+		time.Sleep(delay)
+	}
+	return lastErr
 }
