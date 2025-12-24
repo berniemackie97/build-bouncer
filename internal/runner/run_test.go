@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"build-bouncer/internal/config"
+	"github.com/berniemackie97/build-bouncer/internal/config"
 )
 
 func TestRunOneSuccessRemovesLog(t *testing.T) {

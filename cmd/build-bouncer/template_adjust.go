@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"build-bouncer/internal/config"
+	"github.com/berniemackie97/build-bouncer/internal/config"
 )
 
 type packageJSON struct {

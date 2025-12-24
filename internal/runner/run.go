@@ -1,3 +1,5 @@
+// Package runner executes configured checks and produces a report of failures, skips, and logs.
+// It is the core runtime that powers build-bouncer.
 package runner
 
 import (
@@ -12,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"build-bouncer/internal/config"
+	"github.com/berniemackie97/build-bouncer/internal/config"
 )
 
 type ProgressEvent struct {
@@ -43,8 +45,8 @@ type Report struct {
 }
 
 type limitedBuffer struct {
-	max int
-	buf []byte
+	maxBytes int
+	buffer   []byte
 }
 
 type runOutcome struct {
@@ -59,41 +61,49 @@ type runOutcome struct {
 }
 
 type checkJob struct {
-	idx   int
+	index int
 	check config.Check
 }
 
 type checkResult struct {
-	idx     int
+	index   int
 	name    string
 	outcome runOutcome
-	err     error
+	runErr  error
 }
 
-func newLimitedBuffer(max int) *limitedBuffer {
-	return &limitedBuffer{max: max, buf: make([]byte, 0, max)}
+func newLimitedBuffer(maxBytes int) *limitedBuffer {
+	return &limitedBuffer{
+		maxBytes: maxBytes,
+		buffer:   make([]byte, 0, max(0, maxBytes)),
+	}
 }
 
-func (b *limitedBuffer) Write(p []byte) (int, error) {
-	if b.max <= 0 {
-		return len(p), nil
+func (buf *limitedBuffer) Write(payload []byte) (int, error) {
+	if buf.maxBytes <= 0 {
+		return len(payload), nil
 	}
-	if len(p) >= b.max {
-		b.buf = append(b.buf[:0], p[len(p)-b.max:]...)
-		return len(p), nil
+
+	if len(payload) >= buf.maxBytes {
+		buf.buffer = append(buf.buffer[:0], payload[len(payload)-buf.maxBytes:]...)
+		return len(payload), nil
 	}
-	needed := len(b.buf) + len(p) - b.max
-	if needed > 0 {
-		b.buf = b.buf[needed:]
+
+	excessBytes := (len(buf.buffer) + len(payload)) - buf.maxBytes
+	if excessBytes > 0 {
+		buf.buffer = buf.buffer[excessBytes:]
 	}
-	b.buf = append(b.buf, p...)
-	return len(p), nil
+
+	buf.buffer = append(buf.buffer, payload...)
+	return len(payload), nil
 }
 
-func (b *limitedBuffer) String() string { return string(b.buf) }
+func (buf *limitedBuffer) String() string {
+	return string(buf.buffer)
+}
 
-func RunAllReport(root string, cfg *config.Config, opts Options) (Report, error) {
-	rep := Report{
+func RunAllReport(repoRoot string, configuration *config.Config, options Options) (Report, error) {
+	report := Report{
 		Failures:         []string{},
 		FailureTails:     map[string]string{},
 		FailureHeadlines: map[string]string{},
@@ -101,185 +111,212 @@ func RunAllReport(root string, cfg *config.Config, opts Options) (Report, error)
 		SkipReasons:      map[string]string{},
 	}
 
-	total := len(cfg.Checks)
-	if total == 0 {
-		return rep, nil
+	totalChecks := len(configuration.Checks)
+	if totalChecks == 0 {
+		return report, nil
 	}
 
-	maxParallel := opts.MaxParallel
+	maxParallel := options.MaxParallel
 	if maxParallel <= 0 {
 		maxParallel = 1
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	runContext, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
 
-	jobs := make(chan checkJob)
-	results := make(chan checkResult)
-	stopCh := make(chan struct{})
+	jobsChannel := make(chan checkJob)
+	resultsChannel := make(chan checkResult)
+
+	stopDispatch := make(chan struct{})
 	dispatchDone := make(chan struct{})
 
-	var wg sync.WaitGroup
-	printMu := &sync.Mutex{}
+	var workerGroup sync.WaitGroup
+	var outputMutex sync.Mutex
 
-	worker := func() {
-		defer wg.Done()
-		for job := range jobs {
-			if opts.Progress != nil {
-				opts.Progress(ProgressEvent{
+	workerFn := func() {
+		defer workerGroup.Done()
+
+		for job := range jobsChannel {
+			checkDefinition := job.check
+			checkName := checkDefinition.Name
+
+			if options.Progress != nil {
+				options.Progress(ProgressEvent{
 					Stage: "start",
-					Index: job.idx + 1,
-					Total: total,
-					Check: job.check.Name,
+					Index: job.index + 1,
+					Total: totalChecks,
+					Check: checkName,
 				})
 			}
 
-			if reason := checkSkipReason(job.check); reason != "" {
-				if opts.Progress != nil {
-					opts.Progress(ProgressEvent{
+			if skipReason := checkSkipReason(checkDefinition); strings.TrimSpace(skipReason) != "" {
+				if options.Progress != nil {
+					options.Progress(ProgressEvent{
 						Stage:    "end",
-						Index:    job.idx + 1,
-						Total:    total,
-						Check:    job.check.Name,
+						Index:    job.index + 1,
+						Total:    totalChecks,
+						Check:    checkName,
 						ExitCode: 0,
 					})
 				}
-				if opts.Verbose {
-					printMu.Lock()
-					fmt.Printf("~~ %s skipped (%s)\n\n", job.check.Name, reason)
-					printMu.Unlock()
+
+				if options.Verbose {
+					outputMutex.Lock()
+					fmt.Printf("~~ %s skipped (%s)\n\n", checkName, skipReason)
+					outputMutex.Unlock()
 				}
-				results <- checkResult{
-					idx:     job.idx,
-					name:    job.check.Name,
-					outcome: runOutcome{ExitCode: 0, Skipped: true, Reason: reason},
-					err:     nil,
+
+				resultsChannel <- checkResult{
+					index: job.index,
+					name:  checkName,
+					outcome: runOutcome{
+						ExitCode: 0,
+						Skipped:  true,
+						Reason:   skipReason,
+					},
+					runErr: nil,
 				}
 				continue
 			}
 
-			if opts.Verbose {
-				printMu.Lock()
-				fmt.Printf("==> %s\n", job.check.Name)
-				printMu.Unlock()
+			if options.Verbose {
+				outputMutex.Lock()
+				fmt.Printf("==> %s\n", checkName)
+				outputMutex.Unlock()
 			}
 
-			dir := root
-			if strings.TrimSpace(job.check.Cwd) != "" {
-				dir = filepath.Join(root, filepath.FromSlash(job.check.Cwd))
+			workingDirectory := repoRoot
+			if strings.TrimSpace(checkDefinition.Cwd) != "" {
+				workingDirectory = filepath.Join(repoRoot, filepath.FromSlash(checkDefinition.Cwd))
 			}
 
-			outcome, err := runOne(ctx, root, dir, job.idx, job.check.Name, job.check.Run, job.check.Shell, job.check.Env, job.check.Timeout, opts)
+			outcome, runErr := runOne(
+				runContext,
+				repoRoot,
+				workingDirectory,
+				job.index,
+				checkName,
+				checkDefinition.Run,
+				checkDefinition.Shell,
+				checkDefinition.Env,
+				checkDefinition.Timeout,
+				options,
+			)
 
-			if opts.Progress != nil {
-				opts.Progress(ProgressEvent{
+			if options.Progress != nil {
+				options.Progress(ProgressEvent{
 					Stage:    "end",
-					Index:    job.idx + 1,
-					Total:    total,
-					Check:    job.check.Name,
+					Index:    job.index + 1,
+					Total:    totalChecks,
+					Check:    checkName,
 					ExitCode: outcome.ExitCode,
 				})
 			}
 
-			if opts.Verbose {
-				printMu.Lock()
+			if options.Verbose {
+				outputMutex.Lock()
 				switch {
-				case err != nil:
-					fmt.Printf("!! %s error: %v\n\n", job.check.Name, err)
+				case runErr != nil:
+					fmt.Printf("!! %s error: %v\n\n", checkName, runErr)
 				case outcome.Canceled:
-					fmt.Printf("!! %s canceled\n\n", job.check.Name)
+					fmt.Printf("!! %s canceled\n\n", checkName)
 				case outcome.TimedOut:
-					fmt.Printf("!! %s timed out\n\n", job.check.Name)
+					fmt.Printf("!! %s timed out\n\n", checkName)
 				case outcome.ExitCode != 0:
-					fmt.Printf("!! %s failed (exit %d)\n\n", job.check.Name, outcome.ExitCode)
+					fmt.Printf("!! %s failed (exit %d)\n\n", checkName, outcome.ExitCode)
 				default:
-					fmt.Printf("OK %s\n\n", job.check.Name)
+					fmt.Printf("OK %s\n\n", checkName)
 				}
-				printMu.Unlock()
+				outputMutex.Unlock()
 			}
 
-			results <- checkResult{
-				idx:     job.idx,
-				name:    job.check.Name,
+			resultsChannel <- checkResult{
+				index:   job.index,
+				name:    checkName,
 				outcome: outcome,
-				err:     err,
+				runErr:  runErr,
 			}
 		}
 	}
 
-	for i := 0; i < maxParallel; i++ {
-		wg.Add(1)
-		go worker()
+	for workerIndex := 0; workerIndex < maxParallel; workerIndex++ {
+		workerGroup.Add(1)
+		go workerFn()
 	}
 
 	go func() {
-		wg.Wait()
-		close(results)
+		workerGroup.Wait()
+		close(resultsChannel)
 	}()
 
-	scheduled := make([]bool, total)
+	jobScheduled := make([]bool, totalChecks)
 
 	go func() {
 		defer close(dispatchDone)
-		for i, c := range cfg.Checks {
+
+		for checkIndex, checkDefinition := range configuration.Checks {
 			select {
-			case <-stopCh:
-				close(jobs)
+			case <-stopDispatch:
+				close(jobsChannel)
 				return
-			case jobs <- checkJob{idx: i, check: c}:
-				scheduled[i] = true
+			case jobsChannel <- checkJob{index: checkIndex, check: checkDefinition}:
+				jobScheduled[checkIndex] = true
 			}
 		}
-		close(jobs)
+
+		close(jobsChannel)
 	}()
 
 	var stopOnce sync.Once
-	var firstErr error
+	var firstFatalError error
 	failFastTriggered := false
 
-	for res := range results {
-		if res.err != nil && firstErr == nil {
-			firstErr = res.err
-			stopOnce.Do(func() {
-				close(stopCh)
-				cancel()
-			})
+	stopAll := func() {
+		stopOnce.Do(func() {
+			close(stopDispatch)
+			cancelRun()
+		})
+	}
+
+	for result := range resultsChannel {
+		if result.runErr != nil && firstFatalError == nil {
+			firstFatalError = result.runErr
+			stopAll()
 		}
-		if res.err != nil {
+		if result.runErr != nil {
 			continue
 		}
 
-		if res.outcome.Skipped {
-			rep.Skipped = append(rep.Skipped, res.name)
-			if strings.TrimSpace(res.outcome.Reason) != "" {
-				rep.SkipReasons[res.name] = res.outcome.Reason
+		if result.outcome.Skipped {
+			report.Skipped = append(report.Skipped, result.name)
+			if strings.TrimSpace(result.outcome.Reason) != "" {
+				report.SkipReasons[result.name] = result.outcome.Reason
 			}
 			continue
 		}
 
-		if res.outcome.Canceled {
-			rep.Canceled = append(rep.Canceled, res.name)
+		if result.outcome.Canceled {
+			report.Canceled = append(report.Canceled, result.name)
 			continue
 		}
 
-		if res.outcome.ExitCode != 0 || res.outcome.TimedOut {
-			rep.Failures = append(rep.Failures, res.name)
-			rep.FailureTails[res.name] = res.outcome.Tail
-			if res.outcome.LogPath != "" {
-				rep.LogFiles[res.name] = res.outcome.LogPath
-			}
-			if res.outcome.TimedOut {
-				rep.FailureHeadlines[res.name] = fmt.Sprintf("Timed out after %s", res.outcome.Timeout)
-			} else if headline := ExtractHeadline(res.name, res.outcome.Tail); strings.TrimSpace(headline) != "" {
-				rep.FailureHeadlines[res.name] = headline
+		if result.outcome.ExitCode != 0 || result.outcome.TimedOut {
+			report.Failures = append(report.Failures, result.name)
+			report.FailureTails[result.name] = result.outcome.Tail
+
+			if strings.TrimSpace(result.outcome.LogPath) != "" {
+				report.LogFiles[result.name] = result.outcome.LogPath
 			}
 
-			if opts.FailFast && !failFastTriggered {
+			if result.outcome.TimedOut {
+				report.FailureHeadlines[result.name] = fmt.Sprintf("Timed out after %s", result.outcome.Timeout)
+			} else if headline := strings.TrimSpace(ExtractHeadline(result.name, result.outcome.Tail)); headline != "" {
+				report.FailureHeadlines[result.name] = headline
+			}
+
+			if options.FailFast && !failFastTriggered {
 				failFastTriggered = true
-				stopOnce.Do(func() {
-					close(stopCh)
-					cancel()
-				})
+				stopAll()
 			}
 		}
 	}
@@ -287,123 +324,226 @@ func RunAllReport(root string, cfg *config.Config, opts Options) (Report, error)
 	<-dispatchDone
 
 	if failFastTriggered {
-		for i, c := range cfg.Checks {
-			if !scheduled[i] {
-				rep.Canceled = append(rep.Canceled, c.Name)
+		for checkIndex, checkDefinition := range configuration.Checks {
+			if !jobScheduled[checkIndex] {
+				report.Canceled = append(report.Canceled, checkDefinition.Name)
 			}
 		}
 	}
 
-	order := make(map[string]int, total)
-	for i, c := range cfg.Checks {
-		order[c.Name] = i
-	}
-	sort.SliceStable(rep.Failures, func(i, j int) bool {
-		return order[rep.Failures[i]] < order[rep.Failures[j]]
-	})
-	sort.SliceStable(rep.Canceled, func(i, j int) bool {
-		return order[rep.Canceled[i]] < order[rep.Canceled[j]]
-	})
-	sort.SliceStable(rep.Skipped, func(i, j int) bool {
-		return order[rep.Skipped[i]] < order[rep.Skipped[j]]
-	})
-
-	if firstErr != nil {
-		return Report{}, firstErr
+	checkOrder := make(map[string]int, totalChecks)
+	for checkIndex, checkDefinition := range configuration.Checks {
+		checkOrder[checkDefinition.Name] = checkIndex
 	}
 
-	return rep, nil
+	sort.SliceStable(report.Failures, func(leftIndex, rightIndex int) bool {
+		return checkOrder[report.Failures[leftIndex]] < checkOrder[report.Failures[rightIndex]]
+	})
+	sort.SliceStable(report.Canceled, func(leftIndex, rightIndex int) bool {
+		return checkOrder[report.Canceled[leftIndex]] < checkOrder[report.Canceled[rightIndex]]
+	})
+	sort.SliceStable(report.Skipped, func(leftIndex, rightIndex int) bool {
+		return checkOrder[report.Skipped[leftIndex]] < checkOrder[report.Skipped[rightIndex]]
+	})
+
+	if firstFatalError != nil {
+		return Report{}, firstFatalError
+	}
+
+	return report, nil
 }
 
-func runOne(ctx context.Context, repoRoot string, dir string, idx int, checkName string, command string, shell string, env map[string]string, timeout time.Duration, opts Options) (runOutcome, error) {
-	if ctx.Err() != nil {
+func runOne(
+	parentContext context.Context,
+	repoRoot string,
+	workingDirectory string,
+	checkIndex int,
+	checkName string,
+	commandText string,
+	explicitShell string,
+	environmentOverrides map[string]string,
+	timeoutDuration time.Duration,
+	options Options,
+) (runOutcome, error) {
+	if parentContext.Err() != nil {
 		return runOutcome{ExitCode: 1, Canceled: true}, nil
 	}
 
-	tailBuf := newLimitedBuffer(128 * 1024)
+	tailBuffer := newLimitedBuffer(128 * 1024)
 
-	logDir := opts.LogDir
-	if strings.TrimSpace(logDir) == "" {
-		logDir = resolveDefaultLogDir(repoRoot)
+	logDirectory := strings.TrimSpace(options.LogDir)
+	if logDirectory == "" {
+		logDirectory = resolveDefaultLogDir(repoRoot)
 	}
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
+	if err := os.MkdirAll(logDirectory, 0o755); err != nil {
 		return runOutcome{ExitCode: 1}, err
 	}
 
-	logName := fmt.Sprintf("%s_%02d_%s.log", time.Now().Format("20060102_150405"), idx, sanitize(checkName))
-	logPath := filepath.Join(logDir, logName)
+	logFileName := fmt.Sprintf(
+		"%s_%02d_%s.log",
+		time.Now().Format("20060102_150405"),
+		checkIndex,
+		sanitize(checkName),
+	)
+	logPath := filepath.Join(logDirectory, logFileName)
 
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 	if err != nil {
 		return runOutcome{ExitCode: 1}, err
 	}
 
-	var w io.Writer = io.MultiWriter(logFile, tailBuf)
-	if opts.Verbose {
-		w = io.MultiWriter(os.Stdout, logFile, tailBuf)
-	}
-
-	ctxRun := ctx
-	var cancel context.CancelFunc
-	if timeout > 0 {
-		ctxRun, cancel = context.WithTimeout(ctx, timeout)
-	}
-	if cancel != nil {
-		defer cancel()
-	}
-
-	fallbackShell := ""
-	if strings.TrimSpace(shell) == "" {
-		fallbackShell = defaultShellForCheck(checkName)
-	}
-	name, args := resolveCommand(shell, command, fallbackShell)
-	cmd := exec.Command(name, args...)
-	cmd.Dir = dir
-	cmd.Stdout = w
-	cmd.Stderr = w
-
-	cmd.Env = os.Environ()
-	for k, v := range env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-	}
-	cmd.Env = adjustEnvForShell(name, cmd.Env)
-
-	if err := cmd.Start(); err != nil {
+	// Important on Windows: you cannot delete the file while it is still open.
+	// We close explicitly on every return path.
+	closeLogFile := func() {
 		_ = logFile.Close()
+	}
+
+	outputWriter := io.MultiWriter(logFile, tailBuffer)
+	if options.Verbose {
+		outputWriter = io.MultiWriter(os.Stdout, logFile, tailBuffer)
+	}
+
+	runContext := parentContext
+	var cancelRun context.CancelFunc
+	if timeoutDuration > 0 {
+		runContext, cancelRun = context.WithTimeout(parentContext, timeoutDuration)
+	}
+	if cancelRun != nil {
+		defer cancelRun()
+	}
+
+	// Enterprise behavior: no implicit defaults. If shell is not configured, we use OS default.
+	execName, execArgs := resolveCommand(explicitShell, commandText, "")
+
+	command := exec.Command(execName, execArgs...) //nolint:gosec // command comes from user config by design
+	command.Dir = workingDirectory
+	command.Stdout = outputWriter
+	command.Stderr = outputWriter
+
+	command.Env = applyEnvOverrides(os.Environ(), environmentOverrides)
+	command.Env = adjustEnvForShell(execName, command.Env)
+
+	if err := command.Start(); err != nil {
+		closeLogFile()
+		_ = os.Remove(logPath) // best-effort cleanup for an empty log created before spawn
 		return runOutcome{ExitCode: 1}, err
 	}
 
-	done := make(chan error, 1)
-	go func() {
-		done <- cmd.Wait()
-	}()
+	waitDone := make(chan error, 1)
+	go func() { waitDone <- command.Wait() }()
 
 	select {
-	case <-ctxRun.Done():
-		_ = cmd.Process.Kill()
-		<-done
-		_ = logFile.Close()
+	case <-runContext.Done():
+		if command.Process != nil {
+			_ = command.Process.Kill()
+		}
+		<-waitDone
+
+		closeLogFile()
+
 		outcome := runOutcome{
 			ExitCode: 1,
-			Tail:     tailBuf.String(),
+			Tail:     tailBuffer.String(),
 			LogPath:  logPath,
 		}
-		if ctxRun.Err() == context.DeadlineExceeded {
+
+		if runContext.Err() == context.DeadlineExceeded {
 			outcome.TimedOut = true
-			outcome.Timeout = timeout
+			outcome.Timeout = timeoutDuration
 		} else {
 			outcome.Canceled = true
 		}
+
 		return outcome, nil
-	case runErr := <-done:
-		_ = logFile.Close()
-		if runErr == nil {
-			_ = os.Remove(logPath)
-			return runOutcome{ExitCode: 0, Tail: tailBuf.String()}, nil
+
+	case waitErr := <-waitDone:
+		if waitErr == nil {
+			closeLogFile()
+
+			if err := removeFileWithRetries(logPath); err != nil {
+				// This should be rare, but if we promised success logs are removed,
+				// failing to remove it is a real error.
+				return runOutcome{ExitCode: 0, Tail: tailBuffer.String()}, err
+			}
+
+			return runOutcome{ExitCode: 0, Tail: tailBuffer.String()}, nil
 		}
-		if ee, ok := runErr.(*exec.ExitError); ok {
-			return runOutcome{ExitCode: ee.ExitCode(), Tail: tailBuf.String(), LogPath: logPath}, nil
+
+		closeLogFile()
+
+		if exitErr, ok := waitErr.(*exec.ExitError); ok {
+			return runOutcome{
+				ExitCode: exitErr.ExitCode(),
+				Tail:     tailBuffer.String(),
+				LogPath:  logPath,
+			}, nil
 		}
-		return runOutcome{ExitCode: 1, Tail: tailBuf.String(), LogPath: logPath}, runErr
+
+		return runOutcome{
+			ExitCode: 1,
+			Tail:     tailBuffer.String(),
+			LogPath:  logPath,
+		}, waitErr
 	}
+}
+
+func removeFileWithRetries(path string) error {
+	// On Windows you can still hit short-lived locks (AV, indexing, etc).
+	// A few tiny retries makes this deterministic for tests and less annoying in real life.
+	const attempts = 8
+	const delay = 15 * time.Millisecond
+
+	var lastErr error
+	for attempt := range attempts {
+		lastErr = os.Remove(path)
+		if lastErr == nil || os.IsNotExist(lastErr) {
+			return nil
+		}
+		// Do not sleep after the last attempt.
+		if attempt < attempts-1 {
+			time.Sleep(delay)
+		}
+	}
+	return lastErr
+}
+
+func applyEnvOverrides(baseEnv []string, overrides map[string]string) []string {
+	if len(overrides) == 0 {
+		return baseEnv
+	}
+
+	mergedEnv := make([]string, len(baseEnv))
+	copy(mergedEnv, baseEnv)
+
+	envIndexByKey := make(map[string]int, len(mergedEnv))
+	for entryIndex, entry := range mergedEnv {
+		key, _, hasSeparator := strings.Cut(entry, "=")
+		if !hasSeparator {
+			continue
+		}
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" {
+			continue
+		}
+		// Last one wins for existing duplicates in the base env.
+		envIndexByKey[trimmedKey] = entryIndex
+	}
+
+	for key, value := range overrides {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" {
+			continue
+		}
+
+		formatted := fmt.Sprintf("%s=%s", trimmedKey, value)
+		if existingIndex, found := envIndexByKey[trimmedKey]; found {
+			mergedEnv[existingIndex] = formatted
+			continue
+		}
+
+		envIndexByKey[trimmedKey] = len(mergedEnv)
+		mergedEnv = append(mergedEnv, formatted)
+	}
+
+	return mergedEnv
 }

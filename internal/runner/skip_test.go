@@ -5,16 +5,25 @@ import (
 	"strings"
 	"testing"
 
-	"build-bouncer/internal/config"
+	"github.com/berniemackie97/build-bouncer/internal/config"
 )
 
 func TestRunAllReportSkipsOSMismatch(t *testing.T) {
 	root := t.TempDir()
-	other := map[string]string{
-		"windows": "linux",
-		"linux":   "windows",
-		"darwin":  "windows",
-	}[runtime.GOOS]
+
+	// This test is written for the common GOOS values we actually support in config.
+	// If we run on something else, skip instead of quietly changing what we are testing.
+	var other string
+	switch runtime.GOOS {
+	case "windows":
+		other = "linux"
+	case "linux":
+		other = "windows"
+	case "darwin":
+		other = "windows"
+	default:
+		t.Skip("unsupported GOOS for this test: " + runtime.GOOS)
+	}
 
 	cfg := &config.Config{
 		Version: 1,
@@ -45,6 +54,7 @@ func TestRunAllReportSkipsOSMismatch(t *testing.T) {
 func TestRunAllReportSkipsMissingTools(t *testing.T) {
 	root := t.TempDir()
 	missingTool := "bb_missing_tool_12345"
+
 	cfg := &config.Config{
 		Version: 1,
 		Checks: []config.Check{

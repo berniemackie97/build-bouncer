@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"build-bouncer/internal/cli"
-	"build-bouncer/internal/config"
+	"github.com/berniemackie97/build-bouncer/internal/cli"
+	"github.com/berniemackie97/build-bouncer/internal/config"
 )
 
 func TestCISyncAddsChecks(t *testing.T) {

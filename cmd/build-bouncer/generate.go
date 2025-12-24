@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"build-bouncer/internal/config"
-	"build-bouncer/internal/shell"
+	"github.com/berniemackie97/build-bouncer/internal/config"
+	"github.com/berniemackie97/build-bouncer/internal/shell"
 )
 
 func stampGeneratedChecks(checks []config.Check, source string) []config.Check {

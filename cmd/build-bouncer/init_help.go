@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"build-bouncer/internal/cli"
+	"github.com/berniemackie97/build-bouncer/internal/cli"
 )
 
 func printInitHelp(ctx cli.Context) {

@@ -5,76 +5,144 @@ import (
 	"strings"
 )
 
+// ExtractWhy tries to pull a single human readable reason out of a check output.
+// This is meant for a short headline, not a full error report.
+// Ordering matters. We prefer the most specific signals first and fall back to generic patterns last.
 func ExtractWhy(checkName string, output string) string {
-	out := strings.ReplaceAll(output, "\r\n", "\n")
-	if strings.TrimSpace(out) == "" {
+	normalizedOutput := normalizeNewlinesToLF(output)
+
+	trim := strings.TrimSpace
+	if trim(normalizedOutput) == "" {
 		return ""
 	}
 
-	if m := reGoTestTimeout.FindStringSubmatch(out); len(m) == 2 {
-		return trimHeadline("Go test timeout after " + strings.TrimSpace(m[1]))
+	// Timeouts / test runners
+	if submatches := reGoTestTimeout.FindStringSubmatch(normalizedOutput); len(submatches) == 2 {
+		timeoutDetail := trim(submatches[1])
+		return trimHeadline("Go test timeout after " + timeoutDetail)
 	}
-	if m := reGoTestFail.FindStringSubmatch(out); len(m) == 2 {
-		return trimHeadline("Test failed: " + strings.TrimSpace(m[1]))
+
+	if submatches := reGoTestFail.FindStringSubmatch(normalizedOutput); len(submatches) == 2 {
+		failingTestName := trim(submatches[1])
+		return trimHeadline("Test failed: " + failingTestName)
 	}
-	if m := rePytestFail.FindStringSubmatch(out); len(m) == 2 {
-		return trimHeadline("Pytest failed: " + strings.TrimSpace(m[1]))
+
+	if submatches := rePytestFail.FindStringSubmatch(normalizedOutput); len(submatches) == 2 {
+		pytestDetail := trim(submatches[1])
+		return trimHeadline("Pytest failed: " + pytestDetail)
 	}
-	if m := reJestFail.FindStringSubmatch(out); len(m) == 2 {
-		return trimHeadline("Jest failed: " + strings.TrimSpace(m[1]))
+
+	if submatches := reJestFail.FindStringSubmatch(normalizedOutput); len(submatches) == 2 {
+		jestDetail := trim(submatches[1])
+		return trimHeadline("Jest failed: " + jestDetail)
 	}
-	if m := reRuffIssue.FindStringSubmatch(out); len(m) == 6 {
-		return trimHeadline(fmt.Sprintf("Ruff %s: %s:%s:%s: %s", strings.TrimSpace(m[4]), strings.TrimSpace(m[1]), m[2], m[3], strings.TrimSpace(m[5])))
+
+	// Linters / compilers / build tools (prefer file/line style signals when present)
+	if submatches := reRuffIssue.FindStringSubmatch(normalizedOutput); len(submatches) == 6 {
+		filePath := trim(submatches[1])
+		line := trim(submatches[2])
+		col := trim(submatches[3])
+		rule := trim(submatches[4])
+		message := trim(submatches[5])
+		return trimHeadline(fmt.Sprintf("Ruff %s: %s:%s:%s: %s", rule, filePath, line, col, message))
 	}
-	if m := reTscError.FindStringSubmatch(out); len(m) == 5 {
-		return trimHeadline(fmt.Sprintf("TypeScript: %s:%s:%s: %s", strings.TrimSpace(m[1]), m[2], m[3], strings.TrimSpace(m[4])))
+
+	if submatches := reTscError.FindStringSubmatch(normalizedOutput); len(submatches) == 5 {
+		filePath := trim(submatches[1])
+		line := trim(submatches[2])
+		col := trim(submatches[3])
+		message := trim(submatches[4])
+		return trimHeadline(fmt.Sprintf("TypeScript: %s:%s:%s: %s", filePath, line, col, message))
 	}
-	if m := reDotnetBuildError.FindStringSubmatch(out); len(m) == 5 {
-		return trimHeadline(fmt.Sprintf(".NET error: %s:%s:%s: %s", strings.TrimSpace(m[1]), m[2], m[3], strings.TrimSpace(m[4])))
+
+	if submatches := reDotnetBuildError.FindStringSubmatch(normalizedOutput); len(submatches) == 5 {
+		filePath := trim(submatches[1])
+		line := trim(submatches[2])
+		col := trim(submatches[3])
+		message := trim(submatches[4])
+		return trimHeadline(fmt.Sprintf(".NET error: %s:%s:%s: %s", filePath, line, col, message))
 	}
-	if m := reMavenError.FindStringSubmatch(out); len(m) == 5 {
-		return trimHeadline(fmt.Sprintf("Maven error: %s:%s:%s: %s", strings.TrimSpace(m[1]), m[2], m[3], strings.TrimSpace(m[4])))
+
+	if submatches := reMavenError.FindStringSubmatch(normalizedOutput); len(submatches) == 5 {
+		filePath := trim(submatches[1])
+		line := trim(submatches[2])
+		col := trim(submatches[3])
+		message := trim(submatches[4])
+		return trimHeadline(fmt.Sprintf("Maven error: %s:%s:%s: %s", filePath, line, col, message))
 	}
-	if m := reGccError.FindStringSubmatch(out); len(m) == 5 {
-		return trimHeadline(fmt.Sprintf("Compiler error: %s:%s:%s: %s", strings.TrimSpace(m[1]), m[2], m[3], strings.TrimSpace(m[4])))
+
+	if submatches := reGccError.FindStringSubmatch(normalizedOutput); len(submatches) == 5 {
+		filePath := trim(submatches[1])
+		line := trim(submatches[2])
+		col := trim(submatches[3])
+		message := trim(submatches[4])
+		return trimHeadline(fmt.Sprintf("Compiler error: %s:%s:%s: %s", filePath, line, col, message))
 	}
-	if headline := eslintHeadline(out); headline != "" {
+
+	if headline := eslintHeadline(normalizedOutput); headline != "" {
 		return trimHeadline("ESLint: " + headline)
 	}
 
-	if m := reRustError.FindStringSubmatch(out); len(m) == 2 {
-		loc := ""
-		if lm := reRustLocation.FindStringSubmatch(out); len(lm) == 4 {
-			loc = formatLocation(lm[1], lm[2], lm[3])
+	// Rust: error line sometimes appears separate from location. Prefer both if possible.
+	if submatches := reRustError.FindStringSubmatch(normalizedOutput); len(submatches) == 2 {
+		rustMessage := trim(submatches[1])
+		location := ""
+
+		if locationMatches := reRustLocation.FindStringSubmatch(normalizedOutput); len(locationMatches) == 4 {
+			location = formatLocation(locationMatches[1], locationMatches[2], locationMatches[3])
 		}
-		msg := "Rust error: " + strings.TrimSpace(m[1])
-		if loc != "" {
-			msg += " (" + loc + ")"
+
+		headline := "Rust error: " + rustMessage
+		if location != "" {
+			headline += " (" + location + ")"
 		}
-		return trimHeadline(msg)
-	}
-	if lm := reRustLocation.FindStringSubmatch(out); len(lm) == 4 {
-		return trimHeadline("Rust error at " + formatLocation(lm[1], lm[2], lm[3]))
+
+		return trimHeadline(headline)
 	}
 
-	if m := reBlackFormat.FindStringSubmatch(out); len(m) == 2 {
-		return trimHeadline("Black would reformat: " + strings.TrimSpace(m[1]))
-	}
-	if m := reTerraformErr.FindStringSubmatch(out); len(m) == 2 {
-		return trimHeadline("Terraform error: " + strings.TrimSpace(m[1]))
-	}
-	if m := reNpmMissingScript.FindStringSubmatch(out); len(m) == 2 {
-		return trimHeadline("npm missing script: " + strings.TrimSpace(m[1]))
-	}
-	if m := reFileLineCol.FindStringSubmatch(out); len(m) == 5 {
-		return trimHeadline(fmt.Sprintf("Error at %s:%s:%s: %s", strings.TrimSpace(m[1]), m[2], m[3], strings.TrimSpace(m[4])))
-	}
-	if m := reFileLine.FindStringSubmatch(out); len(m) == 4 {
-		return trimHeadline(fmt.Sprintf("Error at %s:%s: %s", strings.TrimSpace(m[1]), m[2], strings.TrimSpace(m[3])))
-	}
-	if m := reFirstError.FindStringSubmatch(out); len(m) == 2 {
-		return trimHeadline("Error: " + strings.TrimSpace(m[1]))
+	if locationMatches := reRustLocation.FindStringSubmatch(normalizedOutput); len(locationMatches) == 4 {
+		location := formatLocation(locationMatches[1], locationMatches[2], locationMatches[3])
+		return trimHeadline("Rust error at " + location)
 	}
 
+	// Formatters / misc tooling
+	if submatches := reBlackFormat.FindStringSubmatch(normalizedOutput); len(submatches) == 2 {
+		filePath := trim(submatches[1])
+		return trimHeadline("Black would reformat: " + filePath)
+	}
+
+	if submatches := reTerraformErr.FindStringSubmatch(normalizedOutput); len(submatches) == 2 {
+		terraformMessage := trim(submatches[1])
+		return trimHeadline("Terraform error: " + terraformMessage)
+	}
+
+	if submatches := reNpmMissingScript.FindStringSubmatch(normalizedOutput); len(submatches) == 2 {
+		scriptName := trim(submatches[1])
+		return trimHeadline("npm missing script: " + scriptName)
+	}
+
+	// Generic file:line:col patterns
+	if submatches := reFileLineCol.FindStringSubmatch(normalizedOutput); len(submatches) == 5 {
+		filePath := trim(submatches[1])
+		line := trim(submatches[2])
+		col := trim(submatches[3])
+		message := trim(submatches[4])
+		return trimHeadline(fmt.Sprintf("Error at %s:%s:%s: %s", filePath, line, col, message))
+	}
+
+	if submatches := reFileLine.FindStringSubmatch(normalizedOutput); len(submatches) == 4 {
+		filePath := trim(submatches[1])
+		line := trim(submatches[2])
+		message := trim(submatches[3])
+		return trimHeadline(fmt.Sprintf("Error at %s:%s: %s", filePath, line, message))
+	}
+
+	// Last resort: first "error:" style line
+	if submatches := reFirstError.FindStringSubmatch(normalizedOutput); len(submatches) == 2 {
+		errorMessage := trim(submatches[1])
+		return trimHeadline("Error: " + errorMessage)
+	}
+
+	_ = checkName // reserved for future check-specific heuristics
 	return ""
 }

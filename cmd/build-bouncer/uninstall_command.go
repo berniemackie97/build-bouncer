@@ -5,10 +5,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"build-bouncer/internal/cli"
-	"build-bouncer/internal/config"
-	"build-bouncer/internal/git"
-	"build-bouncer/internal/hooks"
+	"github.com/berniemackie97/build-bouncer/internal/cli"
+	"github.com/berniemackie97/build-bouncer/internal/config"
+	"github.com/berniemackie97/build-bouncer/internal/git"
+	"github.com/berniemackie97/build-bouncer/internal/hooks"
 )
 
 func newUninstallCommand() cli.Command {

@@ -3,7 +3,7 @@ package hooks
 import (
 	"path/filepath"
 
-	"build-bouncer/internal/git"
+	"github.com/berniemackie97/build-bouncer/internal/git"
 )
 
 const prePushMarker = "# build-bouncer pre-push hook v1"

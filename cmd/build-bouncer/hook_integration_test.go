@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"build-bouncer/internal/cli"
+	"github.com/berniemackie97/build-bouncer/internal/cli"
 )
 
 func withTempRepo(t *testing.T) string {

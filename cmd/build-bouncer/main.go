@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"build-bouncer/internal/cli"
+	"github.com/berniemackie97/build-bouncer/internal/cli"
 )
 
 const (

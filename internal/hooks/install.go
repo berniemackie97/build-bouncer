@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"build-bouncer/internal/git"
+	"github.com/berniemackie97/build-bouncer/internal/git"
 )
 
 type InstallOptions struct {

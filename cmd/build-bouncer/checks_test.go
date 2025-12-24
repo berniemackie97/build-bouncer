@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"build-bouncer/internal/config"
+	"github.com/berniemackie97/build-bouncer/internal/config"
 )
 
 func TestMergeChecksSkipsDuplicates(t *testing.T) {

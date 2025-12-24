@@ -6,14 +6,16 @@ import (
 	"path/filepath"
 	"strings"
 
-	"build-bouncer/internal/banter"
-	"build-bouncer/internal/ci"
-	"build-bouncer/internal/cli"
-	"build-bouncer/internal/config"
-	"build-bouncer/internal/git"
-	"build-bouncer/internal/hooks"
-	"build-bouncer/internal/runner"
-	"build-bouncer/internal/ui"
+	"github.com/berniemackie97/build-bouncer/internal/ci"
+	"github.com/berniemackie97/build-bouncer/internal/cli"
+	"github.com/berniemackie97/build-bouncer/internal/config"
+
+	"github.com/berniemackie97/build-bouncer/internal/git"
+	"github.com/berniemackie97/build-bouncer/internal/hooks"
+	"github.com/berniemackie97/build-bouncer/internal/runner"
+	"github.com/berniemackie97/build-bouncer/internal/ui"
+
+	"github.com/berniemackie97/build-bouncer/internal/banter"
 )
 
 func registerCommands(app *cli.App) {

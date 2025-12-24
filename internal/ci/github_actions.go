@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"strings"
 
-	"build-bouncer/internal/config"
-	"build-bouncer/internal/shell"
+	"github.com/berniemackie97/build-bouncer/internal/config"
+	"github.com/berniemackie97/build-bouncer/internal/shell"
 	"gopkg.in/yaml.v3"
 )
 

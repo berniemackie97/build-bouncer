@@ -7,10 +7,10 @@ import (
 	"runtime"
 	"strings"
 
-	"build-bouncer/internal/cli"
-	"build-bouncer/internal/config"
-	"build-bouncer/internal/runner"
-	"build-bouncer/internal/shell"
+	"github.com/berniemackie97/build-bouncer/internal/cli"
+	"github.com/berniemackie97/build-bouncer/internal/config"
+	"github.com/berniemackie97/build-bouncer/internal/runner"
+	"github.com/berniemackie97/build-bouncer/internal/shell"
 )
 
 func newDoctorCommand() cli.Command {

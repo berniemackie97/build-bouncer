@@ -6,9 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
-	"build-bouncer/internal/config"
+	"github.com/berniemackie97/build-bouncer/internal/config"
 )
 
 type insultPack struct {
@@ -32,243 +33,348 @@ type insultState struct {
 	Recent  []string `json:"recent"`
 }
 
-func PickInsult(root string, ins config.Insults, rep Report) string {
-	packPath := filepath.Join(root, filepath.FromSlash(ins.File))
-	pack, err := loadInsultPack(packPath)
-	if err != nil || len(pack.Templates) == 0 {
-		return formatInsult(ins.Mode, "Push blocked. Failed: "+strings.Join(rep.Failures, ", "))
+// One RNG, seeded once. We lock because rand.Rand is not concurrency safe.
+var (
+	randomMutex     sync.Mutex
+	randomGenerator = rand.New(rand.NewSource(time.Now().UnixNano()))
+)
+
+func nextRandomIntn(upperBoundExclusive int) int {
+	if upperBoundExclusive <= 0 {
+		return 0
+	}
+	randomMutex.Lock()
+	randomValue := randomGenerator.Intn(upperBoundExclusive)
+	randomMutex.Unlock()
+	return randomValue
+}
+
+// PickInsult loads the pack, filters templates based on failures, then picks a weighted insult.
+// If anything about the pack is busted, we fall back to a plain message.
+// The goal here is never crash the run even if the insults are messed up.
+func PickInsult(root string, insults config.Insults, report Report) string {
+	insultPackPath := filepath.Join(root, filepath.FromSlash(insults.File))
+	packData, packErr := loadInsultPack(insultPackPath)
+	if packErr != nil || len(packData.Templates) == 0 {
+		return formatInsult(insults.Mode, fallbackFailureSummary(report))
 	}
 
-	if pack.MaxHistory <= 0 {
-		pack.MaxHistory = 40
+	if packData.MaxHistory <= 0 {
+		packData.MaxHistory = 40
 	}
-	if pack.DefaultCooldown < 0 {
-		pack.DefaultCooldown = 0
+	if packData.DefaultCooldown < 0 {
+		packData.DefaultCooldown = 0
 	}
 
-	category := categoryFromFailures(rep.Failures)
+	category := categoryFromFailures(report.Failures)
 
-	locale := strings.TrimSpace(ins.Locale)
+	locale := strings.TrimSpace(insults.Locale)
 	if locale == "" {
 		locale = "en"
 	}
+	localeLanguage := baseLocale(locale)
 
 	statePath := resolveInsultStatePath(root)
-	st := loadInsultState(statePath)
+	state := loadInsultState(statePath)
 
-	check := pickFailingCheck(rep.Failures)
-	detail := extractDetail(category, rep, check)
-	if strings.TrimSpace(detail) == "" {
-		detail = check
+	failingCheck := pickFailingCheck(report.Failures)
+
+	// detail is best effort. If we can find a file:line, use it.
+	// If we cannot, just use the check name to avoid empty placeholder replacements.
+	failureDetail := extractDetail(category, report, failingCheck)
+	if strings.TrimSpace(failureDetail) == "" {
+		failureDetail = failingCheck
 	}
-	trimmedDetail := trimDetail(detail)
+	trimmedFailureDetail := trimDetail(failureDetail)
 
-	candidates := filterTemplates(pack, category, locale, st)
-	if len(candidates) == 0 {
-		candidates = filterTemplates(pack, category, locale, insultState{Version: st.Version})
+	// 1) Normal filtering with cooldown
+	candidateTemplates := filterTemplatesWithLocaleFallback(packData, category, locale, localeLanguage, state)
+
+	// 2) If we filtered ourselves into a corner due to cooldown history, relax it.
+	if len(candidateTemplates) == 0 {
+		candidateTemplates = filterTemplatesWithLocaleFallback(packData, category, locale, localeLanguage, insultState{Version: state.Version})
 	}
-	if len(candidates) == 0 {
-		candidates = filterTemplates(pack, "any", locale, insultState{Version: st.Version})
+	if len(candidateTemplates) == 0 {
+		candidateTemplates = filterTemplatesWithLocaleFallback(packData, "any", locale, localeLanguage, insultState{Version: state.Version})
 	}
-	if len(candidates) == 0 {
-		return formatInsult(ins.Mode, "Push blocked. Failed: "+strings.Join(rep.Failures, ", "))
+	if len(candidateTemplates) == 0 {
+		return formatInsult(insults.Mode, fallbackFailureSummary(report))
 	}
 
-	chosen := weightedPick(candidates)
+	chosenTemplate := weightedPick(candidateTemplates)
 
-	msg := strings.TrimSpace(chosen.Text)
-	msg = strings.ReplaceAll(msg, "{check}", check)
-	msg = strings.ReplaceAll(msg, "{checks}", strings.Join(rep.Failures, ", "))
-	msg = strings.ReplaceAll(msg, "{detail}", trimmedDetail)
-	msg = ensureInsultContext(msg, check, trimmedDetail)
+	// Fill placeholders and make sure the message includes at least some context.
+	message := strings.TrimSpace(chosenTemplate.Text)
+	message = strings.ReplaceAll(message, "{check}", failingCheck)
+	message = strings.ReplaceAll(message, "{checks}", strings.Join(report.Failures, ", "))
+	message = strings.ReplaceAll(message, "{detail}", trimmedFailureDetail)
+	message = ensureInsultContext(message, failingCheck, trimmedFailureDetail)
 
-	if chosen.ID != "" {
-		st.Recent = append([]string{chosen.ID}, st.Recent...)
-		if len(st.Recent) > pack.MaxHistory {
-			st.Recent = st.Recent[:pack.MaxHistory]
+	// Record the template ID so we can enforce cooldown history next run.
+	if chosenTemplate.ID != "" {
+		state.Recent = append([]string{chosenTemplate.ID}, state.Recent...)
+		if len(state.Recent) > packData.MaxHistory {
+			state.Recent = state.Recent[:packData.MaxHistory]
 		}
-		_ = saveInsultState(statePath, st)
+		_ = saveInsultState(statePath, state)
 	}
 
-	return formatInsult(ins.Mode, msg)
+	return formatInsult(insults.Mode, message)
+}
+
+func fallbackFailureSummary(report Report) string {
+	joinedFailures := strings.TrimSpace(strings.Join(report.Failures, ", "))
+	if joinedFailures == "" {
+		return "Push blocked. Failed checks."
+	}
+	return "Push blocked. Failed: " + joinedFailures
 }
 
 func loadInsultPack(path string) (insultPack, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return insultPack{}, err
+	fileBytes, readErr := os.ReadFile(path)
+	if readErr != nil {
+		return insultPack{}, readErr
 	}
-	var p insultPack
-	if err := json.Unmarshal(b, &p); err != nil {
-		return insultPack{}, err
+
+	var packData insultPack
+	if unmarshalErr := json.Unmarshal(fileBytes, &packData); unmarshalErr != nil {
+		return insultPack{}, unmarshalErr
 	}
-	if p.Version <= 0 {
-		p.Version = 1
+
+	if packData.Version <= 0 {
+		packData.Version = 1
 	}
-	return p, nil
+	return packData, nil
 }
 
 func resolveInsultStatePath(root string) string {
-	gitDir := filepath.Join(root, ".git")
-	if st, err := os.Stat(gitDir); err == nil && st.IsDir() {
+	if gitDir, ok := resolveGitDir(root); ok {
 		return filepath.Join(gitDir, "build-bouncer", "insults_state.json")
 	}
 	return filepath.Join(root, config.ConfigDirName, "state", "insults_state.json")
 }
 
 func loadInsultState(path string) insultState {
-	b, err := os.ReadFile(path)
-	if err != nil {
+	fileBytes, readErr := os.ReadFile(path)
+	if readErr != nil {
 		return insultState{Version: 1, Recent: nil}
 	}
-	var st insultState
-	if err := json.Unmarshal(b, &st); err != nil {
+
+	var state insultState
+	if unmarshalErr := json.Unmarshal(fileBytes, &state); unmarshalErr != nil {
 		return insultState{Version: 1, Recent: nil}
 	}
-	if st.Version <= 0 {
-		st.Version = 1
+
+	if state.Version <= 0 {
+		state.Version = 1
 	}
-	return st
+	return state
 }
 
-func saveInsultState(path string, st insultState) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
+// saveInsultState writes a temp file then swaps it in.
+// We try to be safe on Windows too because rename does not overwrite existing files.
+func saveInsultState(path string, state insultState) error {
+	targetDir := filepath.Dir(path)
+	if mkdirErr := os.MkdirAll(targetDir, 0o755); mkdirErr != nil {
+		return mkdirErr
 	}
-	b, err := json.MarshalIndent(st, "", "  ")
-	if err != nil {
-		return err
+
+	jsonBytes, marshalErr := json.MarshalIndent(state, "", "  ")
+	if marshalErr != nil {
+		return marshalErr
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
+
+	tempPath := path + ".tmp"
+	backupPath := path + ".bak"
+
+	_ = os.Remove(tempPath)
+	if writeErr := os.WriteFile(tempPath, jsonBytes, 0o644); writeErr != nil {
+		return writeErr
 	}
-	_ = os.Remove(path)
-	return os.Rename(tmp, path)
+
+	// If there's an existing file, move it out of the way first.
+	// On Windows, rename over existing is not allowed.
+	_ = os.Remove(backupPath)
+	if renameOldErr := os.Rename(path, backupPath); renameOldErr != nil && !os.IsNotExist(renameOldErr) {
+		_ = os.Remove(tempPath)
+		return renameOldErr
+	}
+
+	if promoteErr := os.Rename(tempPath, path); promoteErr != nil {
+		// Best effort restore.
+		_ = os.Remove(tempPath)
+		_ = os.Rename(backupPath, path)
+		return promoteErr
+	}
+
+	_ = os.Remove(backupPath)
+	return nil
 }
 
-func filterTemplates(pack insultPack, category string, locale string, st insultState) []insultTemplate {
-	var out []insultTemplate
-	for _, t := range pack.Templates {
-		t = normalizeTemplate(pack, t)
-		if strings.TrimSpace(t.Text) == "" {
-			continue
-		}
-		if !matchesLocaleInsult(t, locale) {
-			continue
-		}
-		if !matchesCategoryInsult(t, category) {
-			continue
-		}
-		if inCooldownInsult(pack, t, st) {
-			continue
-		}
-		out = append(out, t)
+func baseLocale(locale string) string {
+	locale = strings.TrimSpace(locale)
+	if locale == "" {
+		return ""
 	}
-	return out
+	separatorIndex := strings.IndexAny(locale, "-_")
+	if separatorIndex > 0 {
+		return locale[:separatorIndex]
+	}
+	return locale
 }
 
-func normalizeTemplate(pack insultPack, t insultTemplate) insultTemplate {
-	if t.Weight <= 0 {
-		t.Weight = 1
+func filterTemplatesWithLocaleFallback(
+	packData insultPack,
+	category string,
+	locale string,
+	localeLanguage string,
+	state insultState,
+) []insultTemplate {
+	candidatesExact := filterTemplates(packData, category, locale, state)
+	if len(candidatesExact) > 0 {
+		return candidatesExact
 	}
-	if t.Cooldown == 0 {
-		t.Cooldown = pack.DefaultCooldown
+
+	if localeLanguage != "" && !strings.EqualFold(localeLanguage, locale) {
+		candidatesBase := filterTemplates(packData, category, localeLanguage, state)
+		if len(candidatesBase) > 0 {
+			return candidatesBase
+		}
 	}
-	if t.Cooldown < 0 {
-		t.Cooldown = 0
-	}
-	if len(t.Categories) == 0 {
-		t.Categories = []string{"any"}
-	}
-	return t
+
+	return nil
 }
 
-func matchesCategoryInsult(t insultTemplate, category string) bool {
-	want := strings.ToLower(strings.TrimSpace(category))
-	for _, c := range t.Categories {
-		cc := strings.ToLower(strings.TrimSpace(c))
-		if cc == "any" || cc == "*" {
+func filterTemplates(packData insultPack, category string, locale string, state insultState) []insultTemplate {
+	var filteredTemplates []insultTemplate
+	for _, template := range packData.Templates {
+		normalizedTemplate := normalizeTemplate(packData, template)
+		if strings.TrimSpace(normalizedTemplate.Text) == "" {
+			continue
+		}
+		if !matchesLocaleInsult(normalizedTemplate, locale) {
+			continue
+		}
+		if !matchesCategoryInsult(normalizedTemplate, category) {
+			continue
+		}
+		if inCooldownInsult(packData, normalizedTemplate, state) {
+			continue
+		}
+		filteredTemplates = append(filteredTemplates, normalizedTemplate)
+	}
+	return filteredTemplates
+}
+
+func normalizeTemplate(packData insultPack, template insultTemplate) insultTemplate {
+	if template.Weight <= 0 {
+		template.Weight = 1
+	}
+	if template.Cooldown == 0 {
+		template.Cooldown = packData.DefaultCooldown
+	}
+	if template.Cooldown < 0 {
+		template.Cooldown = 0
+	}
+	if len(template.Categories) == 0 {
+		template.Categories = []string{"any"}
+	}
+	return template
+}
+
+func matchesCategoryInsult(template insultTemplate, category string) bool {
+	desired := strings.ToLower(strings.TrimSpace(category))
+	for _, rawCategory := range template.Categories {
+		templateCategory := strings.ToLower(strings.TrimSpace(rawCategory))
+		if templateCategory == "any" || templateCategory == "*" {
 			return true
 		}
-		if cc == want {
+		if templateCategory == desired {
 			return true
 		}
 	}
 	return false
 }
 
-func matchesLocaleInsult(t insultTemplate, locale string) bool {
-	if len(t.Locales) == 0 {
+func matchesLocaleInsult(template insultTemplate, locale string) bool {
+	if len(template.Locales) == 0 {
 		return true
 	}
-	for _, l := range t.Locales {
-		if strings.EqualFold(strings.TrimSpace(l), locale) {
+	for _, rawLocale := range template.Locales {
+		if strings.EqualFold(strings.TrimSpace(rawLocale), locale) {
 			return true
 		}
 	}
 	return false
 }
 
-func inCooldownInsult(pack insultPack, t insultTemplate, st insultState) bool {
-	if t.ID == "" || t.Cooldown <= 0 {
+func inCooldownInsult(packData insultPack, template insultTemplate, state insultState) bool {
+	if template.ID == "" || template.Cooldown <= 0 {
 		return false
 	}
-	limit := t.Cooldown
-	if limit > len(st.Recent) {
-		limit = len(st.Recent)
-	}
-	for i := 0; i < limit; i++ {
-		if st.Recent[i] == t.ID {
+
+	cooldownLimit := min(template.Cooldown, len(state.Recent))
+
+	for recentIndex := range cooldownLimit {
+		if state.Recent[recentIndex] == template.ID {
 			return true
 		}
 	}
 	return false
 }
 
-func weightedPick(candidates []insultTemplate) insultTemplate {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	total := 0
-	for _, c := range candidates {
-		total += c.Weight
+func weightedPick(candidateTemplates []insultTemplate) insultTemplate {
+	// Assumes candidateTemplates is non empty.
+	totalWeight := 0
+	for _, candidate := range candidateTemplates {
+		totalWeight += candidate.Weight
 	}
-	if total <= 0 {
-		return candidates[r.Intn(len(candidates))]
+
+	// Defensive fallback. With normalization, totalWeight should always be > 0.
+	if totalWeight <= 0 {
+		return candidateTemplates[nextRandomIntn(len(candidateTemplates))]
 	}
-	n := r.Intn(total)
-	acc := 0
-	for _, c := range candidates {
-		acc += c.Weight
-		if n < acc {
-			return c
+
+	chosenWeightIndex := nextRandomIntn(totalWeight)
+	weightAccumulator := 0
+
+	for _, candidate := range candidateTemplates {
+		weightAccumulator += candidate.Weight
+		if chosenWeightIndex < weightAccumulator {
+			return candidate
 		}
 	}
-	return candidates[len(candidates)-1]
+
+	return candidateTemplates[len(candidateTemplates)-1]
 }
 
 func categoryFromFailures(failures []string) string {
-	for _, f := range failures {
-		s := strings.ToLower(f)
-		if strings.Contains(s, "test") || strings.Contains(s, "spec") {
+	for _, failureName := range failures {
+		lowerFailure := strings.ToLower(failureName)
+		if strings.Contains(lowerFailure, "test") || strings.Contains(lowerFailure, "spec") {
 			return "tests"
 		}
 	}
-	for _, f := range failures {
-		s := strings.ToLower(f)
-		if strings.Contains(s, "build") || strings.Contains(s, "compile") {
+	for _, failureName := range failures {
+		lowerFailure := strings.ToLower(failureName)
+		if strings.Contains(lowerFailure, "build") || strings.Contains(lowerFailure, "compile") {
 			return "build"
 		}
 	}
-	for _, f := range failures {
-		s := strings.ToLower(f)
-		if strings.Contains(s, "lint") || strings.Contains(s, "vet") || strings.Contains(s, "format") || strings.Contains(s, "fmt") {
+	for _, failureName := range failures {
+		lowerFailure := strings.ToLower(failureName)
+		if strings.Contains(lowerFailure, "lint") ||
+			strings.Contains(lowerFailure, "vet") ||
+			strings.Contains(lowerFailure, "format") ||
+			strings.Contains(lowerFailure, "fmt") {
 			return "lint"
 		}
 	}
-	for _, f := range failures {
-		s := strings.ToLower(f)
-		if strings.Contains(s, "ci") || strings.Contains(s, "workflow") || strings.Contains(s, "actions") {
+	for _, failureName := range failures {
+		lowerFailure := strings.ToLower(failureName)
+		if strings.Contains(lowerFailure, "ci") ||
+			strings.Contains(lowerFailure, "workflow") ||
+			strings.Contains(lowerFailure, "actions") {
 			return "ci"
 		}
 	}
@@ -279,144 +385,148 @@ func pickFailingCheck(failures []string) string {
 	if len(failures) == 0 {
 		return "something"
 	}
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	return failures[r.Intn(len(failures))]
+	return failures[nextRandomIntn(len(failures))]
 }
 
-func extractDetail(category string, rep Report, preferredCheck string) string {
-	if out := rep.FailureTails[preferredCheck]; strings.TrimSpace(out) != "" {
-		if d := extractDetailFromOutput(category, out); d != "" {
-			return d
+// extractDetail tries to pull one useful human hint from failure output.
+// Think file:line, failing test name, etc. It is intentionally best effort.
+func extractDetail(category string, report Report, preferredCheck string) string {
+	if outputText := report.FailureTails[preferredCheck]; strings.TrimSpace(outputText) != "" {
+		if extracted := extractDetailFromOutput(category, outputText); extracted != "" {
+			return extracted
 		}
 	}
-	for _, out := range rep.FailureTails {
-		if d := extractDetailFromOutput(category, out); d != "" {
-			return d
+	for _, outputText := range report.FailureTails {
+		if extracted := extractDetailFromOutput(category, outputText); extracted != "" {
+			return extracted
 		}
 	}
-	if headline := strings.TrimSpace(rep.FailureHeadlines[preferredCheck]); headline != "" {
-		if d := extractLocationFromOutput(headline); d != "" {
-			return d
+	if headlineText := strings.TrimSpace(report.FailureHeadlines[preferredCheck]); headlineText != "" {
+		if extracted := extractLocationFromOutput(headlineText); extracted != "" {
+			return extracted
 		}
 	}
-	for _, headline := range rep.FailureHeadlines {
-		if d := extractLocationFromOutput(headline); d != "" {
-			return d
+	for _, headlineText := range report.FailureHeadlines {
+		if extracted := extractLocationFromOutput(headlineText); extracted != "" {
+			return extracted
 		}
 	}
 	return ""
 }
 
-func extractDetailFromOutput(category string, out string) string {
-	out = strings.ReplaceAll(out, "\r\n", "\n")
+func extractDetailFromOutput(category string, outputText string) string {
+	normalized := strings.ReplaceAll(outputText, "\r\n", "\n")
 
-	if loc := extractLocationFromOutput(out); loc != "" {
-		return loc
+	if location := extractLocationFromOutput(normalized); location != "" {
+		return location
 	}
 
 	if category == "tests" {
-		if m := reGoTestFail.FindStringSubmatch(out); len(m) == 2 {
-			return m[1]
+		if matchGroups := reGoTestFail.FindStringSubmatch(normalized); len(matchGroups) == 2 {
+			return matchGroups[1]
 		}
-		if m := reDotnetFail.FindStringSubmatch(out); len(m) == 2 {
-			return m[1]
+		if matchGroups := reDotnetFail.FindStringSubmatch(normalized); len(matchGroups) == 2 {
+			return matchGroups[1]
 		}
-		if m := rePytestFail.FindStringSubmatch(out); len(m) == 2 {
-			return m[1]
+		if matchGroups := rePytestFail.FindStringSubmatch(normalized); len(matchGroups) == 2 {
+			return matchGroups[1]
 		}
-		if m := reJestFail.FindStringSubmatch(out); len(m) == 2 {
-			return strings.TrimSpace(m[1])
+		if matchGroups := reJestFail.FindStringSubmatch(normalized); len(matchGroups) == 2 {
+			return strings.TrimSpace(matchGroups[1])
 		}
 	}
 
 	return ""
 }
 
-func extractLocationFromOutput(out string) string {
-	if m := reTscError.FindStringSubmatch(out); len(m) == 5 {
-		return formatLocation(m[1], m[2], m[3])
+func extractLocationFromOutput(outputText string) string {
+	if matchGroups := reTscError.FindStringSubmatch(outputText); len(matchGroups) == 5 {
+		return formatLocation(matchGroups[1], matchGroups[2], matchGroups[3])
 	}
-	if m := reDotnetBuildError.FindStringSubmatch(out); len(m) == 5 {
-		return formatLocation(m[1], m[2], m[3])
+	if matchGroups := reDotnetBuildError.FindStringSubmatch(outputText); len(matchGroups) == 5 {
+		return formatLocation(matchGroups[1], matchGroups[2], matchGroups[3])
 	}
-	if m := reMavenError.FindStringSubmatch(out); len(m) == 5 {
-		return formatLocation(m[1], m[2], m[3])
+	if matchGroups := reMavenError.FindStringSubmatch(outputText); len(matchGroups) == 5 {
+		return formatLocation(matchGroups[1], matchGroups[2], matchGroups[3])
 	}
-	if m := reRuffIssue.FindStringSubmatch(out); len(m) == 6 {
-		return formatLocation(m[1], m[2], m[3])
+	if matchGroups := reRuffIssue.FindStringSubmatch(outputText); len(matchGroups) == 6 {
+		return formatLocation(matchGroups[1], matchGroups[2], matchGroups[3])
 	}
-	if m := reGccError.FindStringSubmatch(out); len(m) == 5 {
-		return formatLocation(m[1], m[2], m[3])
+	if matchGroups := reGccError.FindStringSubmatch(outputText); len(matchGroups) == 5 {
+		return formatLocation(matchGroups[1], matchGroups[2], matchGroups[3])
 	}
-	if m := reRustLocation.FindStringSubmatch(out); len(m) == 4 {
-		return formatLocation(m[1], m[2], m[3])
+	if matchGroups := reRustLocation.FindStringSubmatch(outputText); len(matchGroups) == 4 {
+		return formatLocation(matchGroups[1], matchGroups[2], matchGroups[3])
 	}
-	if m := reFileLineCol.FindStringSubmatch(out); len(m) == 5 {
-		return formatLocation(m[1], m[2], m[3])
+	if matchGroups := reFileLineCol.FindStringSubmatch(outputText); len(matchGroups) == 5 {
+		return formatLocation(matchGroups[1], matchGroups[2], matchGroups[3])
 	}
-	if m := reFileLine.FindStringSubmatch(out); len(m) == 4 {
-		return formatLocation(m[1], m[2], "")
+	if matchGroups := reFileLine.FindStringSubmatch(outputText); len(matchGroups) == 4 {
+		return formatLocation(matchGroups[1], matchGroups[2], "")
 	}
-	if m := reBlackFormat.FindStringSubmatch(out); len(m) == 2 {
-		return strings.TrimSpace(m[1])
+	if matchGroups := reBlackFormat.FindStringSubmatch(outputText); len(matchGroups) == 2 {
+		return strings.TrimSpace(matchGroups[1])
 	}
-	if loc := eslintLocation(out); loc != "" {
-		return loc
+	if location := eslintLocation(outputText); location != "" {
+		return location
 	}
 	return ""
 }
 
-func formatLocation(file string, line string, col string) string {
+func formatLocation(file string, line string, column string) string {
 	file = strings.TrimSpace(file)
 	line = strings.TrimSpace(line)
-	col = strings.TrimSpace(col)
+	column = strings.TrimSpace(column)
 	if file == "" || line == "" {
 		return ""
 	}
-	if col != "" {
-		return file + ":" + line + ":" + col
+	if column != "" {
+		return file + ":" + line + ":" + column
 	}
 	return file + ":" + line
 }
 
-func eslintLocation(out string) string {
-	lines := strings.Split(out, "\n")
-	for i := 0; i < len(lines); i++ {
-		line := strings.TrimSpace(lines[i])
-		if line == "" {
+func eslintLocation(outputText string) string {
+	lines := strings.Split(outputText, "\n")
+	for lineIndex := 0; lineIndex < len(lines); lineIndex++ {
+		currentLine := strings.TrimSpace(lines[lineIndex])
+		if currentLine == "" {
 			continue
 		}
-		if !reEslintFile.MatchString(line) {
+		if !reEslintFile.MatchString(currentLine) {
 			continue
 		}
-		for j := i + 1; j < len(lines) && j <= i+6; j++ {
-			next := strings.TrimSpace(lines[j])
-			if next == "" {
+		for lookaheadIndex := lineIndex + 1; lookaheadIndex < len(lines) && lookaheadIndex <= lineIndex+6; lookaheadIndex++ {
+			nextLine := strings.TrimSpace(lines[lookaheadIndex])
+			if nextLine == "" {
 				continue
 			}
-			if m := reEslintIssue.FindStringSubmatch(next); len(m) == 3 {
-				return line + ":" + m[1]
+			if matchGroups := reEslintIssue.FindStringSubmatch(nextLine); len(matchGroups) == 3 {
+				return currentLine + ":" + matchGroups[1]
 			}
 		}
 	}
 	return ""
 }
 
-func ensureInsultContext(msg string, check string, detail string) string {
-	msg = strings.TrimSpace(msg)
-	if msg == "" {
-		return msg
+// ensureInsultContext makes sure the insult still points at something real.
+// Templates can be funny, but the user should still know what failed.
+func ensureInsultContext(message string, check string, detail string) string {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return message
 	}
-	hasCheck := containsInsensitive(msg, check)
-	hasDetail := containsInsensitive(msg, detail)
+
+	hasCheck := containsInsensitive(message, check)
+	hasDetail := containsInsensitive(message, detail)
 
 	switch {
 	case hasCheck && hasDetail:
-		return msg
+		return message
 	case hasCheck && detail != "":
-		return msg + " (" + detail + ")"
+		return message + " (" + detail + ")"
 	case hasDetail && check != "":
-		return msg + " (" + check + ")"
+		return message + " (" + check + ")"
 	default:
 		context := check
 		if detail != "" && detail != check {
@@ -427,9 +537,9 @@ func ensureInsultContext(msg string, check string, detail string) string {
 			}
 		}
 		if strings.TrimSpace(context) == "" {
-			return msg
+			return message
 		}
-		return msg + " (" + context + ")"
+		return message + " (" + context + ")"
 	}
 }
 
@@ -442,50 +552,54 @@ func containsInsensitive(haystack string, needle string) bool {
 	return strings.Contains(haystack, needle)
 }
 
-func trimDetail(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return s
+func trimDetail(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return text
 	}
-	const max = 80
-	if len(s) > max {
-		return s[:max-3] + "..."
+
+	const maxRunes = 80
+	runes := []rune(text)
+	if len(runes) > maxRunes {
+		// Leave room for ...
+		return string(runes[:maxRunes-3]) + "..."
 	}
-	return s
+	return text
 }
 
-func formatInsult(mode string, msg string) string {
-	msg = strings.TrimSpace(msg)
-	if msg == "" {
+func formatInsult(mode string, message string) string {
+	message = strings.TrimSpace(message)
+	if message == "" {
 		return ""
 	}
-	m := strings.ToLower(strings.TrimSpace(mode))
-	switch m {
+
+	modeKey := strings.ToLower(strings.TrimSpace(mode))
+	switch modeKey {
 	case "polite":
-		if hasPrefixInsensitive(msg, []string{"please", "sorry", "apologies"}) {
-			return msg
+		if hasPrefixInsensitive(message, []string{"please", "sorry", "apologies"}) {
+			return message
 		}
-		return "Please address the failing checks before pushing. " + msg
+		return "Please address the failing checks before pushing. " + message
 	case "snarky":
-		if hasPrefixInsensitive(msg, []string{"no", "nope", "denied", "blocked", "push blocked", "not today"}) {
-			return msg
+		if hasPrefixInsensitive(message, []string{"no", "nope", "denied", "blocked", "push blocked", "not today"}) {
+			return message
 		}
-		return "Yeah, no. " + msg
+		return "Yeah, no. " + message
 	case "nuclear":
-		return strings.ToUpper("ABSOLUTELY NOT. " + msg)
+		return strings.ToUpper("ABSOLUTELY NOT. " + message)
 	default:
-		return msg
+		return message
 	}
 }
 
-func hasPrefixInsensitive(msg string, prefixes []string) bool {
-	msg = strings.ToLower(strings.TrimSpace(msg))
-	for _, prefix := range prefixes {
-		p := strings.ToLower(strings.TrimSpace(prefix))
-		if p == "" {
+func hasPrefixInsensitive(message string, prefixes []string) bool {
+	message = strings.ToLower(strings.TrimSpace(message))
+	for _, rawPrefix := range prefixes {
+		prefix := strings.ToLower(strings.TrimSpace(rawPrefix))
+		if prefix == "" {
 			continue
 		}
-		if strings.HasPrefix(msg, p) {
+		if strings.HasPrefix(message, prefix) {
 			return true
 		}
 	}

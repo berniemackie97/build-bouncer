@@ -7,71 +7,245 @@ import (
 
 const headlineMaxLen = 140
 
+// eslint prints a file path line and then a handful of issue lines.
+// We only scan a short window to avoid grabbing unrelated content.
+const eslintLookaheadLines = 6
+
+type headlineRule struct {
+	name      string
+	extractor func(output string) (string, bool)
+}
+
+var headlineRules = []headlineRule{
+	{
+		name: "go test fail",
+		extractor: func(output string) (string, bool) {
+			match := reGoTestFail.FindStringSubmatch(output)
+			if len(match) != 2 {
+				return "", false
+			}
+			return "Test failed: " + match[1], true
+		},
+	},
+	{
+		name: "go test timeout",
+		extractor: func(output string) (string, bool) {
+			match := reGoTestTimeout.FindStringSubmatch(output)
+			if len(match) != 2 {
+				return "", false
+			}
+			return "Go test timeout after " + strings.TrimSpace(match[1]), true
+		},
+	},
+	{
+		name: "pytest fail",
+		extractor: func(output string) (string, bool) {
+			match := rePytestFail.FindStringSubmatch(output)
+			if len(match) != 2 {
+				return "", false
+			}
+			return "Pytest failed: " + strings.TrimSpace(match[1]), true
+		},
+	},
+	{
+		name: "jest fail",
+		extractor: func(output string) (string, bool) {
+			match := reJestFail.FindStringSubmatch(output)
+			if len(match) != 2 {
+				return "", false
+			}
+			return "Jest failed: " + strings.TrimSpace(match[1]), true
+		},
+	},
+	{
+		name: "go test package fail",
+		extractor: func(output string) (string, bool) {
+			match := reGoTestPkg.FindStringSubmatch(output)
+			if len(match) != 2 {
+				return "", false
+			}
+			return "Package failed: " + match[1], true
+		},
+	},
+	{
+		name: "dotnet fail",
+		extractor: func(output string) (string, bool) {
+			match := reDotnetFail.FindStringSubmatch(output)
+			if len(match) != 2 {
+				return "", false
+			}
+			return ".NET failed: " + strings.TrimSpace(match[1]), true
+		},
+	},
+	{
+		name: "tsc error",
+		extractor: func(output string) (string, bool) {
+			match := reTscError.FindStringSubmatch(output)
+			if len(match) != 5 {
+				return "", false
+			}
+			return fmt.Sprintf("%s:%s: %s", strings.TrimSpace(match[1]), match[2], strings.TrimSpace(match[4])), true
+		},
+	},
+	{
+		name: "dotnet build error",
+		extractor: func(output string) (string, bool) {
+			match := reDotnetBuildError.FindStringSubmatch(output)
+			if len(match) != 5 {
+				return "", false
+			}
+			return fmt.Sprintf("%s:%s: %s", strings.TrimSpace(match[1]), match[2], strings.TrimSpace(match[4])), true
+		},
+	},
+	{
+		name: "maven error",
+		extractor: func(output string) (string, bool) {
+			match := reMavenError.FindStringSubmatch(output)
+			if len(match) != 5 {
+				return "", false
+			}
+			return fmt.Sprintf("%s:%s: %s", strings.TrimSpace(match[1]), match[2], strings.TrimSpace(match[4])), true
+		},
+	},
+	{
+		name: "gcc error",
+		extractor: func(output string) (string, bool) {
+			match := reGccError.FindStringSubmatch(output)
+			if len(match) != 5 {
+				return "", false
+			}
+			return fmt.Sprintf("%s:%s: %s", strings.TrimSpace(match[1]), match[2], strings.TrimSpace(match[4])), true
+		},
+	},
+	{
+		name: "rust error",
+		extractor: func(output string) (string, bool) {
+			match := reRustError.FindStringSubmatch(output)
+			if len(match) != 2 {
+				return "", false
+			}
+			return "Rust error: " + strings.TrimSpace(match[1]), true
+		},
+	},
+	{
+		name: "black would reformat",
+		extractor: func(output string) (string, bool) {
+			match := reBlackFormat.FindStringSubmatch(output)
+			if len(match) != 2 {
+				return "", false
+			}
+			return "Black would reformat: " + strings.TrimSpace(match[1]), true
+		},
+	},
+	{
+		name: "terraform error",
+		extractor: func(output string) (string, bool) {
+			match := reTerraformErr.FindStringSubmatch(output)
+			if len(match) != 2 {
+				return "", false
+			}
+			return "Terraform error: " + strings.TrimSpace(match[1]), true
+		},
+	},
+	{
+		name: "eslint headline",
+		extractor: func(output string) (string, bool) {
+			headline := eslintHeadline(output)
+			if strings.TrimSpace(headline) == "" {
+				return "", false
+			}
+			return headline, true
+		},
+	},
+	{
+		name: "ruff issue",
+		extractor: func(output string) (string, bool) {
+			match := reRuffIssue.FindStringSubmatch(output)
+			if len(match) != 6 {
+				return "", false
+			}
+			return fmt.Sprintf(
+				"%s:%s:%s: %s %s",
+				strings.TrimSpace(match[1]),
+				match[2],
+				match[3],
+				strings.TrimSpace(match[4]),
+				strings.TrimSpace(match[5]),
+			), true
+		},
+	},
+	{
+		name: "npm missing script",
+		extractor: func(output string) (string, bool) {
+			match := reNpmMissingScript.FindStringSubmatch(output)
+			if len(match) != 2 {
+				return "", false
+			}
+			return "npm missing script: " + strings.TrimSpace(match[1]), true
+		},
+	},
+	{
+		name: "file:line:col style issue",
+		extractor: func(output string) (string, bool) {
+			match := reFileLineCol.FindStringSubmatch(output)
+			if len(match) != 5 {
+				return "", false
+			}
+			return fmt.Sprintf("%s:%s: %s", strings.TrimSpace(match[1]), match[2], strings.TrimSpace(match[4])), true
+		},
+	},
+	{
+		name: "file:line style issue",
+		extractor: func(output string) (string, bool) {
+			match := reFileLine.FindStringSubmatch(output)
+			if len(match) != 4 {
+				return "", false
+			}
+			return fmt.Sprintf("%s:%s: %s", strings.TrimSpace(match[1]), match[2], strings.TrimSpace(match[3])), true
+		},
+	},
+	{
+		name: "first error: style issue",
+		extractor: func(output string) (string, bool) {
+			match := reFirstError.FindStringSubmatch(output)
+			if len(match) != 2 {
+				return "", false
+			}
+			return strings.TrimSpace(match[1]), true
+		},
+	},
+	{
+		name: "jest bullet",
+		extractor: func(output string) (string, bool) {
+			match := reJestBullet.FindStringSubmatch(output)
+			if len(match) != 2 {
+				return "", false
+			}
+			return strings.TrimSpace(match[1]), true
+		},
+	},
+}
+
 func ExtractHeadline(checkName string, output string) string {
-	out := strings.ReplaceAll(output, "\r\n", "\n")
-	if strings.TrimSpace(out) == "" {
+	normalizedOutput := normalizeOutputNewlines(output)
+	trimmedOutput := strings.TrimSpace(normalizedOutput)
+	if trimmedOutput == "" {
 		return ""
 	}
 
-	if m := reGoTestFail.FindStringSubmatch(out); len(m) == 2 {
-		return trimHeadline("Test failed: " + m[1])
-	}
-	if m := reGoTestTimeout.FindStringSubmatch(out); len(m) == 2 {
-		return trimHeadline("Go test timeout after " + strings.TrimSpace(m[1]))
-	}
-	if m := rePytestFail.FindStringSubmatch(out); len(m) == 2 {
-		return trimHeadline("Pytest failed: " + strings.TrimSpace(m[1]))
-	}
-	if m := reJestFail.FindStringSubmatch(out); len(m) == 2 {
-		return trimHeadline("Jest failed: " + strings.TrimSpace(m[1]))
-	}
-	if m := reGoTestPkg.FindStringSubmatch(out); len(m) == 2 {
-		return trimHeadline("Package failed: " + m[1])
-	}
-	if m := reDotnetFail.FindStringSubmatch(out); len(m) == 2 {
-		return trimHeadline(".NET failed: " + strings.TrimSpace(m[1]))
-	}
-	if m := reTscError.FindStringSubmatch(out); len(m) == 5 {
-		return trimHeadline(fmt.Sprintf("%s:%s: %s", strings.TrimSpace(m[1]), m[2], strings.TrimSpace(m[4])))
-	}
-	if m := reDotnetBuildError.FindStringSubmatch(out); len(m) == 5 {
-		return trimHeadline(fmt.Sprintf("%s:%s: %s", strings.TrimSpace(m[1]), m[2], strings.TrimSpace(m[4])))
-	}
-	if m := reMavenError.FindStringSubmatch(out); len(m) == 5 {
-		return trimHeadline(fmt.Sprintf("%s:%s: %s", strings.TrimSpace(m[1]), m[2], strings.TrimSpace(m[4])))
-	}
-	if m := reGccError.FindStringSubmatch(out); len(m) == 5 {
-		return trimHeadline(fmt.Sprintf("%s:%s: %s", strings.TrimSpace(m[1]), m[2], strings.TrimSpace(m[4])))
-	}
-	if m := reRustError.FindStringSubmatch(out); len(m) == 2 {
-		return trimHeadline("Rust error: " + strings.TrimSpace(m[1]))
-	}
-	if m := reBlackFormat.FindStringSubmatch(out); len(m) == 2 {
-		return trimHeadline("Black would reformat: " + strings.TrimSpace(m[1]))
-	}
-	if m := reTerraformErr.FindStringSubmatch(out); len(m) == 2 {
-		return trimHeadline("Terraform error: " + strings.TrimSpace(m[1]))
-	}
-	if headline := eslintHeadline(out); headline != "" {
+	for _, rule := range headlineRules {
+		headline, ok := rule.extractor(trimmedOutput)
+		if !ok {
+			continue
+		}
 		return trimHeadline(headline)
 	}
-	if m := reRuffIssue.FindStringSubmatch(out); len(m) == 6 {
-		return trimHeadline(fmt.Sprintf("%s:%s:%s: %s %s", strings.TrimSpace(m[1]), m[2], m[3], strings.TrimSpace(m[4]), strings.TrimSpace(m[5])))
-	}
-	if m := reNpmMissingScript.FindStringSubmatch(out); len(m) == 2 {
-		return trimHeadline("npm missing script: " + strings.TrimSpace(m[1]))
-	}
-	if m := reFileLineCol.FindStringSubmatch(out); len(m) == 5 {
-		return trimHeadline(fmt.Sprintf("%s:%s: %s", strings.TrimSpace(m[1]), m[2], strings.TrimSpace(m[4])))
-	}
-	if m := reFileLine.FindStringSubmatch(out); len(m) == 4 {
-		return trimHeadline(fmt.Sprintf("%s:%s: %s", strings.TrimSpace(m[1]), m[2], strings.TrimSpace(m[3])))
-	}
-	if m := reFirstError.FindStringSubmatch(out); len(m) == 2 {
-		return trimHeadline(strings.TrimSpace(m[1]))
-	}
-	if m := reJestBullet.FindStringSubmatch(out); len(m) == 2 {
-		return trimHeadline(strings.TrimSpace(m[1]))
+
+	// Enterprise-friendly deterministic fallback: if we couldn't parse anything useful,
+	// at least return a stable headline tied to the failing check.
+	trimmedName := strings.TrimSpace(checkName)
+	if trimmedName != "" {
+		return trimHeadline("Failed: " + trimmedName)
 	}
 
 	return ""
@@ -79,21 +253,28 @@ func ExtractHeadline(checkName string, output string) string {
 
 func eslintHeadline(out string) string {
 	lines := strings.Split(out, "\n")
-	for i := 0; i < len(lines); i++ {
-		line := strings.TrimSpace(lines[i])
-		if line == "" {
+	for fileLineIndex := range lines {
+		fileLine := strings.TrimSpace(lines[fileLineIndex])
+		if fileLine == "" {
 			continue
 		}
-		if !reEslintFile.MatchString(line) {
+		if !reEslintFile.MatchString(fileLine) {
 			continue
 		}
-		for j := i + 1; j < len(lines) && j <= i+6; j++ {
-			next := strings.TrimSpace(lines[j])
-			if next == "" {
+
+		lookaheadLimit := fileLineIndex + eslintLookaheadLines
+		if lookaheadLimit >= len(lines) {
+			lookaheadLimit = len(lines) - 1
+		}
+
+		for issueLineIndex := fileLineIndex + 1; issueLineIndex <= lookaheadLimit; issueLineIndex++ {
+			issueLine := strings.TrimSpace(lines[issueLineIndex])
+			if issueLine == "" {
 				continue
 			}
-			if m := reEslintIssue.FindStringSubmatch(next); len(m) == 3 {
-				return fmt.Sprintf("%s:%s: %s", line, m[1], strings.TrimSpace(m[2]))
+			match := reEslintIssue.FindStringSubmatch(issueLine)
+			if len(match) == 3 {
+				return fmt.Sprintf("%s:%s: %s", fileLine, match[1], strings.TrimSpace(match[2]))
 			}
 		}
 	}
@@ -101,9 +282,24 @@ func eslintHeadline(out string) string {
 }
 
 func trimHeadline(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) <= headlineMaxLen {
-		return s
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return ""
 	}
-	return s[:headlineMaxLen-3] + "..."
+
+	// Rune-safe truncation (don’t split UTF-8).
+	runes := []rune(trimmed)
+	if len(runes) <= headlineMaxLen {
+		return trimmed
+	}
+	if headlineMaxLen <= 3 {
+		return string(runes[:headlineMaxLen])
+	}
+	return string(runes[:headlineMaxLen-3]) + "..."
+}
+
+func normalizeOutputNewlines(output string) string {
+	normalized := strings.ReplaceAll(output, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	return normalized
 }

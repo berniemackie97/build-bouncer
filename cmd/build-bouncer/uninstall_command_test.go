@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"build-bouncer/internal/cli"
+	"github.com/berniemackie97/build-bouncer/internal/cli"
 )
 
 func TestUninstallRemovesArtifacts(t *testing.T) {

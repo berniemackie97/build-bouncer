@@ -7,18 +7,23 @@ import (
 	"strings"
 	"testing"
 
-	"build-bouncer/internal/config"
+	"github.com/berniemackie97/build-bouncer/internal/config"
 )
+
+// These tests keep the insult system honest.
+// We want predictable structure even when the content is chaotic.
 
 func TestCategoryFromFailuresPrefersTests(t *testing.T) {
 	got := categoryFromFailures([]string{"lint", "tests"})
 	if got != "tests" {
 		t.Fatalf("expected tests category, got %q", got)
 	}
+
 	got = categoryFromFailures([]string{"build-it"})
 	if got != "build" {
 		t.Fatalf("expected build category, got %q", got)
 	}
+
 	got = categoryFromFailures([]string{"ci-step"})
 	if got != "ci" {
 		t.Fatalf("expected ci category, got %q", got)
@@ -27,6 +32,7 @@ func TestCategoryFromFailuresPrefersTests(t *testing.T) {
 
 func TestPickInsultUsesTemplateAndDetail(t *testing.T) {
 	root := t.TempDir()
+
 	pack := insultPack{
 		Version:         1,
 		MaxHistory:      10,
@@ -40,10 +46,12 @@ func TestPickInsultUsesTemplateAndDetail(t *testing.T) {
 			},
 		},
 	}
+
 	b, err := json.MarshalIndent(pack, "", "  ")
 	if err != nil {
 		t.Fatalf("marshal pack: %v", err)
 	}
+
 	packPath := filepath.Join(root, "pack.json")
 	if err := os.WriteFile(packPath, b, 0o644); err != nil {
 		t.Fatalf("write pack: %v", err)

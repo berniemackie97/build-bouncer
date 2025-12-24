@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	assettemplates "build-bouncer/assets/templates"
+	assettemplates "github.com/berniemackie97/build-bouncer/assets/templates"
 )
 
 type configTemplate struct {
