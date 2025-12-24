@@ -29,9 +29,16 @@ type App struct {
 }
 
 func NewApp(name string, version string, stdout io.Writer, stderr io.Writer, usageExitCode int) *App {
+	if stdout == nil {
+		stdout = io.Discard
+	}
+	if stderr == nil {
+		stderr = io.Discard
+	}
+
 	return &App{
-		name:          name,
-		version:       version,
+		name:          strings.TrimSpace(name),
+		version:       strings.TrimSpace(version),
 		usageExitCode: usageExitCode,
 		commands:      map[string]Command{},
 		ctx: Context{
@@ -42,10 +49,12 @@ func NewApp(name string, version string, stdout io.Writer, stderr io.Writer, usa
 }
 
 func (a *App) Register(cmd Command) {
-	if strings.TrimSpace(cmd.Name) == "" {
+	cmdName := strings.TrimSpace(cmd.Name)
+	if cmdName == "" {
 		return
 	}
-	a.commands[cmd.Name] = cmd
+	cmd.Name = cmdName
+	a.commands[cmdName] = cmd
 }
 
 func (a *App) Run(args []string) int {
@@ -54,18 +63,25 @@ func (a *App) Run(args []string) int {
 		return a.usageExitCode
 	}
 
-	switch args[0] {
-	case "-h", "--help", "help":
+	first := strings.TrimSpace(args[0])
+	switch first {
+	case "-h", "--help":
+		a.printHelp()
+		return 0
+	case "help":
+		if len(args) >= 2 {
+			return a.printHelpFor(args[1])
+		}
 		a.printHelp()
 		return 0
 	case "version", "--version", "-v":
-		fmt.Fprintf(a.ctx.Stdout, "%s %s\n", a.name, a.version)
+		_, _ = fmt.Fprintf(a.ctx.Stdout, "%s %s\n", a.name, a.version)
 		return 0
 	}
 
-	cmd, ok := a.commands[args[0]]
+	cmd, ok := a.commands[first]
 	if !ok {
-		fmt.Fprintf(a.ctx.Stderr, "Unknown command: %s\n\n", args[0])
+		_, _ = fmt.Fprintf(a.ctx.Stderr, "Unknown command: %s\n\n", first)
 		a.printHelp()
 		return a.usageExitCode
 	}
@@ -74,12 +90,12 @@ func (a *App) Run(args []string) int {
 }
 
 func (a *App) printHelp() {
-	fmt.Fprintf(a.ctx.Stdout, "%s %s\n\n", a.name, a.version)
-	fmt.Fprintf(a.ctx.Stdout, "Usage:\n")
-	fmt.Fprintf(a.ctx.Stdout, "  %s <command> [options]\n\n", a.name)
-	fmt.Fprintf(a.ctx.Stdout, "Commands:\n")
+	_, _ = fmt.Fprintf(a.ctx.Stdout, "%s %s\n\n", a.name, a.version)
+	_, _ = fmt.Fprintf(a.ctx.Stdout, "Usage:\n")
+	_, _ = fmt.Fprintf(a.ctx.Stdout, "  %s <command> [options]\n\n", a.name)
+	_, _ = fmt.Fprintf(a.ctx.Stdout, "Commands:\n")
 
-	var names []string
+	names := make([]string, 0, len(a.commands))
 	for name := range a.commands {
 		names = append(names, name)
 	}
@@ -91,14 +107,48 @@ func (a *App) printHelp() {
 		if usage == "" {
 			usage = cmd.Name
 		}
-		fmt.Fprintf(a.ctx.Stdout, "  %-18s %s\n", usage, cmd.Summary)
+		_, _ = fmt.Fprintf(a.ctx.Stdout, "  %-18s %s\n", usage, cmd.Summary)
 	}
 
-	fmt.Fprintf(a.ctx.Stdout, "\nHelp:\n  %s help\n", a.name)
+	_, _ = fmt.Fprintf(a.ctx.Stdout, "\nHelp:\n")
+	_, _ = fmt.Fprintf(a.ctx.Stdout, "  %s help\n", a.name)
+	_, _ = fmt.Fprintf(a.ctx.Stdout, "  %s help <command>\n", a.name)
+}
+
+func (a *App) printHelpFor(commandName string) int {
+	name := strings.TrimSpace(commandName)
+	if name == "" {
+		a.printHelp()
+		return 0
+	}
+
+	cmd, ok := a.commands[name]
+	if !ok {
+		_, _ = fmt.Fprintf(a.ctx.Stderr, "Unknown command: %s\n\n", name)
+		a.printHelp()
+		return a.usageExitCode
+	}
+
+	usage := strings.TrimSpace(cmd.Usage)
+	if usage == "" {
+		usage = cmd.Name
+	}
+
+	_, _ = fmt.Fprintf(a.ctx.Stdout, "%s %s\n\n", a.name, a.version)
+	_, _ = fmt.Fprintf(a.ctx.Stdout, "Usage:\n")
+	_, _ = fmt.Fprintf(a.ctx.Stdout, "  %s %s\n\n", a.name, usage)
+	if strings.TrimSpace(cmd.Summary) != "" {
+		_, _ = fmt.Fprintf(a.ctx.Stdout, "%s\n", strings.TrimSpace(cmd.Summary))
+	}
+	return 0
 }
 
 func NewFlagSet(ctx Context, name string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
-	fs.SetOutput(ctx.Stderr)
+	if ctx.Stderr != nil {
+		fs.SetOutput(ctx.Stderr)
+	} else {
+		fs.SetOutput(io.Discard)
+	}
 	return fs
 }

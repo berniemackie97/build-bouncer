@@ -1,3 +1,8 @@
+// Package config defines the build-bouncer configuration model, parsing, validation,
+// defaults, and path helpers.
+//
+// This package is intentionally small and dependency-light. It should be safe to call
+// from CLI entrypoints and hooks without surprising side effects.
 package config
 
 import (
@@ -30,14 +35,22 @@ func DefaultAssetsPath(root string) string {
 	return filepath.Join(root, ConfigDirName, DefaultAssetsDir)
 }
 
+// FindConfigInRoot returns the config path to use and whether it already exists.
+// Preference order:
+//  1. .buildbouncer/config.yaml
+//  2. .buildbouncer.yaml (legacy)
 func FindConfigInRoot(root string) (string, bool) {
-	if pathExists(DefaultConfigPath(root)) {
-		return DefaultConfigPath(root), true
+	defaultPath := DefaultConfigPath(root)
+	if pathExists(defaultPath) {
+		return defaultPath, true
 	}
-	if pathExists(LegacyConfigPath(root)) {
-		return LegacyConfigPath(root), true
+
+	legacyPath := LegacyConfigPath(root)
+	if pathExists(legacyPath) {
+		return legacyPath, true
 	}
-	return DefaultConfigPath(root), false
+
+	return defaultPath, false
 }
 
 func pathExists(path string) bool {
