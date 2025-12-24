@@ -48,9 +48,8 @@ func validateAndDefault(cfg *Config) error {
 			return fmt.Errorf("config: checks[%d] missing run", i)
 		}
 
-		// Note: runner supports shellSpec with optional prefix args (e.g. `cmd /D`,
-		// `"C:\Program Files\PowerShell\7\pwsh.exe" -NoProfile`), so validation must allow that,
-		// while still rejecting obviously broken / unsafe input (newlines, NUL, unterminated quotes, etc).
+		// Config is user-authored: keep shell strict and predictable.
+		// shell must be ONLY the executable name/path (no args).
 		if err := validateShellSpec(c.Shell); err != nil {
 			return fmt.Errorf("config: checks[%d] shell: %w", i, err)
 		}
@@ -116,23 +115,52 @@ func validateShellSpec(shellSpec string) error {
 		return nil
 	}
 
-	// Config is user-authored: be strict here. Runner code can be more tolerant at runtime,
-	// but config should fail fast on clearly broken input.
+	// No multiline / control chars in config.
 	if strings.ContainsAny(s, "\x00\r\n\t") {
 		return errors.New("must be a single line (no NUL/newlines/tabs)")
 	}
 
-	exe, _, err := cutFirstTokenStrict(s)
-	if err != nil {
-		return err
-	}
-	if strings.TrimSpace(exe) == "" {
-		return errors.New("must include an executable name or path")
-	}
-	if strings.HasPrefix(exe, "-") {
-		return errors.New("executable must not start with '-'")
+	// If the user literally included quotes inside the YAML value, parse strictly.
+	if strings.HasPrefix(s, `"`) || strings.HasPrefix(s, `'`) {
+		exe, rest, err := cutFirstTokenStrict(s)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(exe) == "" {
+			return errors.New("must include an executable name or path")
+		}
+		if strings.HasPrefix(exe, "-") {
+			return errors.New("executable must not start with '-'")
+		}
+		if strings.TrimSpace(rest) != "" {
+			return errors.New("must not include arguments (use only the shell executable)")
+		}
+		return nil
 	}
 
+	// Unquoted case:
+	// YAML quoting doesn't preserve quotes in the resulting Go string, so Windows paths with spaces
+	// look like: C:\Program Files\Git\bin\bash.exe
+	//
+	// We allow that *only* when it clearly looks like a path to an executable (contains a path separator
+	// and a clean extension). Otherwise spaces imply arguments, which we reject.
+	if strings.Contains(s, " ") {
+		hasSep := strings.ContainsAny(s, `/\`)
+		ext := filepath.Ext(s)
+		looksLikePathToExe := hasSep && ext != "" && !strings.ContainsAny(ext, " \t\r\n")
+		if looksLikePathToExe {
+			if strings.HasPrefix(s, "-") {
+				return errors.New("executable must not start with '-'")
+			}
+			return nil
+		}
+		return errors.New("must not include arguments (use only the shell executable)")
+	}
+
+	// Simple token.
+	if strings.HasPrefix(s, "-") {
+		return errors.New("executable must not start with '-'")
+	}
 	return nil
 }
 
