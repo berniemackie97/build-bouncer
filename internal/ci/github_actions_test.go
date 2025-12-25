@@ -310,3 +310,113 @@ jobs:
 		t.Fatalf("expected go test check, got %q", checks[0].Run)
 	}
 }
+
+func TestNormalizeWorkingDirectory(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "empty string",
+			input: "",
+			want:  "",
+		},
+		{
+			name:  "github.workspace with forward slash",
+			input: "${{github.workspace}}/build",
+			want:  "build",
+		},
+		{
+			name:  "github.workspace with backslash",
+			input: "${{github.workspace}}\\build",
+			want:  "build",
+		},
+		{
+			name:  "github.workspace with spaces and forward slash",
+			input: "${{ github.workspace }}/build",
+			want:  "build",
+		},
+		{
+			name:  "github.workspace with spaces and backslash",
+			input: "${{ github.workspace }}\\build",
+			want:  "build",
+		},
+		{
+			name:  "github.workspace only",
+			input: "${{github.workspace}}",
+			want:  "",
+		},
+		{
+			name:  "github.workspace with spaces only",
+			input: "${{ github.workspace }}",
+			want:  "",
+		},
+		{
+			name:  "normal path without template",
+			input: "build",
+			want:  "build",
+		},
+		{
+			name:  "nested path",
+			input: "${{github.workspace}}/foo/bar/baz",
+			want:  "foo/bar/baz",
+		},
+		{
+			name:  "just slash",
+			input: "/",
+			want:  "",
+		},
+		{
+			name:  "just backslash",
+			input: "\\",
+			want:  "",
+		},
+		{
+			name:  "whitespace",
+			input: "   ",
+			want:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeWorkingDirectory(tt.input)
+			if got != tt.want {
+				t.Errorf("normalizeWorkingDirectory(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestChecksFromGitHubActionsWithWorkspaceTemplate(t *testing.T) {
+	root := t.TempDir()
+	workflowDir := filepath.Join(root, ".github", "workflows")
+	if err := os.MkdirAll(workflowDir, 0o755); err != nil {
+		t.Fatalf("create workflows dir: %v", err)
+	}
+
+	content := `
+jobs:
+  build:
+    steps:
+      - name: Run tests
+        run: ctest -C Release --output-on-failure --verbose
+        working-directory: ${{github.workspace}}/build
+`
+	path := filepath.Join(workflowDir, "workspace.yml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write workflow: %v", err)
+	}
+
+	checks, err := ChecksFromGitHubActions(root)
+	if err != nil {
+		t.Fatalf("ChecksFromGitHubActions error: %v", err)
+	}
+	if len(checks) != 1 {
+		t.Fatalf("expected 1 check, got %d", len(checks))
+	}
+	if checks[0].Cwd != "build" {
+		t.Fatalf("expected cwd to be 'build', got %q", checks[0].Cwd)
+	}
+}

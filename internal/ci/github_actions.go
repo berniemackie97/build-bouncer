@@ -116,6 +116,11 @@ func ChecksFromGitHubActions(root string) ([]config.Check, error) {
 		checks = append(checks, fileChecks...)
 	}
 
+	// Normalize checks to remove GitHub Actions template variables
+	for i := range checks {
+		checks[i].Cwd = normalizeWorkingDirectory(checks[i].Cwd)
+	}
+
 	return checks, nil
 }
 
@@ -630,4 +635,40 @@ func osFromValue(value string) string {
 	default:
 		return ""
 	}
+}
+
+// normalizeWorkingDirectory removes GitHub Actions template variables from working directory paths.
+// For example, "${{github.workspace}}/build" becomes "build".
+func normalizeWorkingDirectory(cwd string) string {
+	if strings.TrimSpace(cwd) == "" {
+		return ""
+	}
+
+	// Remove ${{github.workspace}} prefix and normalize path separators
+	normalized := strings.TrimSpace(cwd)
+
+	// Match various forms of the github.workspace variable
+	replacements := []string{
+		"${{github.workspace}}/",
+		"${{github.workspace}}\\",
+		"${{ github.workspace }}/",
+		"${{ github.workspace }}\\",
+		"${{github.workspace}}",
+		"${{ github.workspace }}",
+	}
+
+	for _, prefix := range replacements {
+		if strings.HasPrefix(normalized, prefix) {
+			normalized = strings.TrimPrefix(normalized, prefix)
+			break
+		}
+	}
+
+	// If the path is now empty or is just a separator, return empty
+	normalized = strings.TrimSpace(normalized)
+	if normalized == "/" || normalized == "\\" || normalized == "" {
+		return ""
+	}
+
+	return normalized
 }
