@@ -50,23 +50,20 @@ func FormatPrompt(stderr io.Writer, report runner.Report, protectionLevel string
 
 	switch protectionLevel {
 	case "strict":
-		fmt.Fprintln(stderr, tui.Warning("  Strict mode: Override not allowed in interactive mode"))
-		fmt.Fprintln(stderr, tui.Dim("  Use: build-bouncer check --force-push"))
+		fmt.Fprintln(stderr, tui.Warning("  Strict mode: No overrides allowed"))
+		fmt.Fprintln(stderr, tui.Dim("  Fix the issues above to proceed"))
 
 	case "lax":
-		fmt.Fprintln(stderr, tui.Info("  Lax mode: Only critical failures block pushes"))
+		fmt.Fprintln(stderr, tui.Info("  Lax mode: Critical failures only"))
 		if !hasCriticalFailures(report) {
 			fmt.Fprintln(stderr, tui.Success("  No critical failures detected"))
 		}
 
 	case "moderate":
-		fmt.Fprintln(stderr, tui.Info("  Moderate mode: Tests and CI checks are enforced"))
+		fmt.Fprintln(stderr, tui.Info("  Moderate mode: Tests and CI enforced"))
+		fmt.Fprintln(stderr, tui.Dim("  Tip: Use 'git push -o force' to skip checks"))
 	}
 
-	fmt.Fprintln(stderr, "")
-	fmt.Fprintln(stderr, tui.Dim("  To skip checks next time:"))
-	fmt.Fprintln(stderr, tui.Arrow("git push -o force"))
-	fmt.Fprintln(stderr, tui.Arrow("BUILDBOUNCER_SKIP=1 git push"))
 	fmt.Fprintln(stderr, "")
 	fmt.Fprintln(stderr, tui.Dim("  ───────────────────────────────────────────────────────────"))
 	fmt.Fprintln(stderr, "")

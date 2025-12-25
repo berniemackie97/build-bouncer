@@ -14,6 +14,7 @@ import (
 	"github.com/berniemackie97/build-bouncer/internal/hooks"
 	"github.com/berniemackie97/build-bouncer/internal/prompt"
 	"github.com/berniemackie97/build-bouncer/internal/runner"
+	"github.com/berniemackie97/build-bouncer/internal/tui"
 	"github.com/berniemackie97/build-bouncer/internal/ui"
 
 	"github.com/berniemackie97/build-bouncer/internal/banter"
@@ -70,7 +71,7 @@ func runSetup(force bool, noCopy bool, ci bool, templateID string, ctx cli.Conte
 				return code
 			}
 		} else {
-			fmt.Fprintln(ctx.Stdout, "Config exists:", cfgPath)
+			fmt.Fprintln(ctx.Stdout, tui.Check("Config exists: "+cfgPath))
 		}
 	} else {
 		if templateID == "" {
@@ -88,10 +89,10 @@ func runSetup(force bool, noCopy bool, ci bool, templateID string, ctx cli.Conte
 		Force:    force,
 	}
 	if err := hooks.InstallPrePushHook(opts); err != nil {
-		fmt.Fprintln(ctx.Stderr, "setup:", err)
+		fmt.Fprintln(ctx.Stderr, tui.Error("setup: "+err.Error()))
 		return exitUsage
 	}
-	fmt.Fprintln(ctx.Stdout, "Installed git pre-push hook.")
+	fmt.Fprintln(ctx.Stdout, tui.Success("✓ Installed git pre-push hook"))
 
 	checkArgs := []string{}
 	if ci {
@@ -208,9 +209,10 @@ func runInit(force bool, templateID string, ctx cli.Context) int {
 	}
 
 	fmt.Fprintln(ctx.Stdout, "Created:", cfgPath)
-	fmt.Fprintln(ctx.Stdout, "Ensured:", insultsPath)
-	fmt.Fprintln(ctx.Stdout, "Ensured:", banterPath)
-	fmt.Fprintln(ctx.Stdout, "Next: build-bouncer hook install")
+	fmt.Fprintln(ctx.Stdout, tui.Check("Insults: "+insultsPath))
+	fmt.Fprintln(ctx.Stdout, tui.Check("Banter: "+banterPath))
+	fmt.Fprintln(ctx.Stdout, "")
+	fmt.Fprintln(ctx.Stdout, tui.Info("Next: build-bouncer hook install"))
 	return exitOK
 }
 
@@ -338,27 +340,27 @@ func runCheck(args []string, ctx cli.Context) int {
 
 		if *verbose || *ci {
 			fmt.Fprintln(ctx.Stderr, "")
-			fmt.Fprintln(ctx.Stderr, "Blocked. Failed checks:")
+			fmt.Fprintln(ctx.Stderr, tui.Section("Failed Checks"))
 			for _, f := range rep.Failures {
-				fmt.Fprintf(ctx.Stderr, "  - %s\n", f)
+				fmt.Fprintln(ctx.Stderr, tui.Cross(f))
 			}
 			if len(rep.Canceled) > 0 {
 				fmt.Fprintln(ctx.Stderr, "")
-				fmt.Fprintln(ctx.Stderr, "Canceled checks:")
+				fmt.Fprintln(ctx.Stderr, tui.Section("Canceled Checks"))
 				for _, c := range rep.Canceled {
-					fmt.Fprintf(ctx.Stderr, "  - %s\n", c)
+					fmt.Fprintln(ctx.Stderr, tui.Bullet(c))
 				}
 			}
 			if len(rep.Skipped) > 0 {
 				fmt.Fprintln(ctx.Stderr, "")
-				fmt.Fprintln(ctx.Stderr, "Skipped checks:")
+				fmt.Fprintln(ctx.Stderr, tui.Section("Skipped Checks"))
 				for _, s := range rep.Skipped {
 					reason := strings.TrimSpace(rep.SkipReasons[s])
 					if reason == "" {
-						fmt.Fprintf(ctx.Stderr, "  - %s\n", s)
+						fmt.Fprintln(ctx.Stderr, tui.Bullet(s))
 						continue
 					}
-					fmt.Fprintf(ctx.Stderr, "  - %s (%s)\n", s, reason)
+					fmt.Fprintf(ctx.Stderr, "%s %s\n", tui.Bullet(s), tui.Dim("("+reason+")"))
 				}
 			}
 		}
@@ -371,20 +373,37 @@ func runCheck(args []string, ctx cli.Context) int {
 				}
 				if reason != "" {
 					fmt.Fprintln(ctx.Stderr, "")
-					fmt.Fprintf(ctx.Stderr, "-- %s (why)\n", f)
-					fmt.Fprintln(ctx.Stderr, reason)
+					fmt.Fprintln(ctx.Stderr, tui.Bold("  "+f))
+					fmt.Fprintln(ctx.Stderr, tui.Dim("  ───────────────────────────────────────────"))
+					lines := strings.Split(reason, "\n")
+					for _, line := range lines {
+						fmt.Fprintln(ctx.Stderr, "  "+line)
+					}
 				}
 				if *tail > 0 {
 					tailText := runner.TailLines(rep.FailureTails[f], *tail)
 					if strings.TrimSpace(tailText) != "" {
 						fmt.Fprintln(ctx.Stderr, "")
-						fmt.Fprintf(ctx.Stderr, "-- %s (tail)\n", f)
-						fmt.Fprintln(ctx.Stderr, tailText)
+						fmt.Fprintln(ctx.Stderr, tui.Dim("  Last "+fmt.Sprint(*tail)+" lines:"))
+						lines := strings.Split(tailText, "\n")
+						for _, line := range lines {
+							fmt.Fprintln(ctx.Stderr, tui.Dim("  "+line))
+						}
 					}
 				}
 				if p := rep.LogFiles[f]; strings.TrimSpace(p) != "" {
-					fmt.Fprintf(ctx.Stderr, "\nLog: %s\n", p)
+					fmt.Fprintln(ctx.Stderr, "")
+					fmt.Fprintln(ctx.Stderr, tui.Arrow("Full log: "+p))
 				}
+			}
+		}
+
+		// Show formatted failure summary for non-verbose, non-CI mode
+		if !*verbose && !*ci {
+			fmt.Fprintln(ctx.Stderr, "")
+			fmt.Fprintln(ctx.Stderr, tui.Section("Failed Checks"))
+			for _, f := range rep.Failures {
+				fmt.Fprintln(ctx.Stderr, tui.Cross(f))
 			}
 		}
 
@@ -416,11 +435,7 @@ func runCheck(args []string, ctx cli.Context) int {
 
 			if result.Override {
 				fmt.Fprintln(ctx.Stdout, "")
-				if *hook {
-					fmt.Fprintln(ctx.Stdout, "Override accepted. Allowing push to proceed.")
-				} else {
-					fmt.Fprintln(ctx.Stdout, "Override accepted.")
-				}
+				fmt.Fprintln(ctx.Stdout, tui.Success("✓ Override accepted - Push proceeding"))
 				return exitOK
 			}
 		}
@@ -437,18 +452,19 @@ func runCheck(args []string, ctx cli.Context) int {
 
 	if (*verbose || *ci) && len(rep.Skipped) > 0 {
 		fmt.Fprintln(ctx.Stdout, "")
-		fmt.Fprintln(ctx.Stdout, "Skipped checks:")
+		fmt.Fprintln(ctx.Stdout, tui.Section("Skipped Checks"))
 		for _, s := range rep.Skipped {
 			reason := strings.TrimSpace(rep.SkipReasons[s])
 			if reason == "" {
-				fmt.Fprintf(ctx.Stdout, "  - %s\n", s)
+				fmt.Fprintln(ctx.Stdout, tui.Bullet(s))
 				continue
 			}
-			fmt.Fprintf(ctx.Stdout, "  - %s (%s)\n", s, reason)
+			fmt.Fprintf(ctx.Stdout, "%s %s\n", tui.Bullet(s), tui.Dim("("+reason+")"))
 		}
 	}
 
-	fmt.Fprintln(ctx.Stdout, "All checks passed.")
+	fmt.Fprintln(ctx.Stdout, "")
+	fmt.Fprintln(ctx.Stdout, tui.Success("✓ All checks passed"))
 	return exitOK
 }
 
@@ -487,7 +503,7 @@ func runHook(args []string, ctx cli.Context) int {
 			return exitUsage
 		}
 
-		fmt.Fprintln(ctx.Stdout, "Installed git pre-push hook.")
+		fmt.Fprintln(ctx.Stdout, tui.Success("✓ Installed git pre-push hook"))
 		return exitOK
 
 	case "status":
@@ -520,7 +536,7 @@ func runHook(args []string, ctx cli.Context) int {
 			return exitUsage
 		}
 
-		fmt.Fprintln(ctx.Stdout, "Uninstalled git pre-push hook (and cleaned up hook binaries when possible).")
+		fmt.Fprintln(ctx.Stdout, tui.Success("✓ Uninstalled git pre-push hook"))
 		return exitOK
 
 	default:

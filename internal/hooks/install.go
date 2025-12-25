@@ -107,11 +107,6 @@ fi
 # Detect git push flags and pass them to build-bouncer
 bb_args="check --hook"
 
-# Check for BUILDBOUNCER_SKIP environment variable
-if [ -n "${BUILDBOUNCER_SKIP:-}" ]; then
-  bb_args="$bb_args --force-push"
-fi
-
 # Check GIT_PUSH_OPTION_COUNT for push options (git 2.10+)
 if [ -n "${GIT_PUSH_OPTION_COUNT:-}" ] && [ "${GIT_PUSH_OPTION_COUNT}" -gt 0 ]; then
   i=0
