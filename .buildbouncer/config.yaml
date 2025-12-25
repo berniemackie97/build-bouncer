@@ -1,28 +1,22 @@
 version: 1
 meta:
     template:
-        id: cpp
+        id: go
     inputs:
-        template.id: cpp
+        template.id: go
 checks:
-    - id: template:cpp:6bbc87a099e5
-      source: template:cpp
-      name: configure
-      run: cmake -S . -B build
-      shell: cmd
-      requires: cmake
-    - id: template:cpp:1e7940fe2631
-      source: template:cpp
-      name: build
-      run: cmake --build build
-      shell: cmd
-      requires: cmake
-    - id: template:cpp:a604181cd805
-      source: template:cpp
+    - id: template:go:f6336331e13a
+      source: template:go
       name: tests
-      run: ctest --test-dir build
+      run: go test ./...
       shell: cmd
-      requires: ctest
+      requires: go
+    - id: template:go:c77a8162c912
+      source: template:go
+      name: lint
+      run: go vet ./...
+      shell: cmd
+      requires: go
     - id: ci:ci:6bfddfb7806e
       source: ci:ci
       name: ci:ci:test-matrix.os:set-up-go
