@@ -12,6 +12,7 @@ import (
 
 	"github.com/berniemackie97/build-bouncer/internal/git"
 	"github.com/berniemackie97/build-bouncer/internal/hooks"
+	"github.com/berniemackie97/build-bouncer/internal/prompt"
 	"github.com/berniemackie97/build-bouncer/internal/runner"
 	"github.com/berniemackie97/build-bouncer/internal/ui"
 
@@ -331,6 +332,10 @@ func runCheck(args []string, ctx cli.Context) int {
 	}
 
 	if len(rep.Failures) > 0 {
+		// Determine if we should block based on protection level
+		protectionLevel := cfg.Protection.ProtectionLevel()
+		shouldBlock := prompt.ShouldBlock(rep, protectionLevel)
+
 		if *verbose || *ci {
 			fmt.Fprintln(ctx.Stderr, "")
 			fmt.Fprintln(ctx.Stderr, "Blocked. Failed checks:")
@@ -389,6 +394,34 @@ func runCheck(args []string, ctx cli.Context) int {
 			if insult != "" {
 				fmt.Fprintln(ctx.Stderr, "")
 				fmt.Fprintln(ctx.Stderr, insult)
+			}
+		}
+
+		// If lax mode and no critical failures, allow push
+		if !shouldBlock {
+			fmt.Fprintln(ctx.Stdout, "")
+			fmt.Fprintln(ctx.Stdout, "Lax mode: No critical failures detected. Allowing push.")
+			return exitOK
+		}
+
+		// Interactive override prompt (only in hook mode during git push)
+		// Skip prompt in CI mode, manual mode, or if terminal is not available
+		if *hook && !*ci && cfg.Protection.IsInteractive() && ui.IsTerminal(os.Stdin) {
+			result, err := prompt.AskOverride(os.Stdin, ctx.Stdout, ctx.Stderr, rep, protectionLevel)
+			if err != nil {
+				fmt.Fprintln(ctx.Stderr, "")
+				fmt.Fprintln(ctx.Stderr, "Error reading input:", err)
+				return exitRunFailed
+			}
+
+			if result.Override {
+				fmt.Fprintln(ctx.Stdout, "")
+				if *hook {
+					fmt.Fprintln(ctx.Stdout, "Override accepted. Allowing push to proceed.")
+				} else {
+					fmt.Fprintln(ctx.Stdout, "Override accepted.")
+				}
+				return exitOK
 			}
 		}
 

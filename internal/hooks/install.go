@@ -107,6 +107,11 @@ fi
 # Detect git push flags and pass them to build-bouncer
 bb_args="check --hook"
 
+# Check for BUILDBOUNCER_SKIP environment variable
+if [ -n "${BUILDBOUNCER_SKIP:-}" ]; then
+  bb_args="$bb_args --force-push"
+fi
+
 # Check GIT_PUSH_OPTION_COUNT for push options (git 2.10+)
 if [ -n "${GIT_PUSH_OPTION_COUNT:-}" ] && [ "${GIT_PUSH_OPTION_COUNT}" -gt 0 ]; then
   i=0
@@ -140,7 +145,18 @@ if ! echo "$bb_args" | grep -q -- "--verbose" && ! echo "$bb_args" | grep -q -- 
   esac
 fi
 
-eval "$bb $bb_args"
+# For interactive prompts to work in Git Bash on Windows, we need to explicitly use the terminal
+if [ -t 0 ]; then
+  # stdin is already a terminal
+  eval "$bb $bb_args"
+else
+  # stdin is not a terminal (common in hooks), redirect from tty
+  if [ -e /dev/tty ]; then
+    eval "$bb $bb_args" < /dev/tty
+  else
+    eval "$bb $bb_args"
+  fi
+fi
 `
 	return body
 }

@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const spinnerTickDuration = 120 * time.Millisecond
+const spinnerTickDuration = 100 * time.Millisecond
 
 type Spinner struct {
 	outputWriter       io.Writer
@@ -30,9 +30,12 @@ func NewSpinner(writer io.Writer) *Spinner {
 		writer = io.Discard
 	}
 
+	// Modern Unicode spinner frames
+	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
 	return &Spinner{
 		outputWriter:  writer,
-		frameSequence: []string{"|", "/", "-", "\\"},
+		frameSequence: frames,
 		stopSignal:    make(chan struct{}),
 		doneSignal:    make(chan struct{}),
 	}

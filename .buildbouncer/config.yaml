@@ -61,6 +61,9 @@ checks:
       shell: pwsh
       os: windows
       requires: go
+protection:
+    level: moderate
+    interactive: true
 insults:
     mode: snarky
     file: .buildbouncer/assets/insults/default.json

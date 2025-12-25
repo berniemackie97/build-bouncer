@@ -8,6 +8,10 @@ checks:
   - name: "tests"
     run: "ctest --test-dir build"
 
+protection:
+  level: "moderate"  # lax | moderate | strict
+  interactive: true
+
 insults:
   mode: "snarky"
   file: ".buildbouncer/assets/insults/default.json"
