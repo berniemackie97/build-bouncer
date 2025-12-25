@@ -14,6 +14,7 @@ import (
 
 type InstallOptions struct {
 	CopySelf bool
+	Force    bool
 }
 
 func InstallPrePushHook(opts InstallOptions) error {
@@ -25,6 +26,18 @@ func InstallPrePushHook(opts InstallOptions) error {
 	hooksDir := filepath.Join(root, ".git", "hooks")
 	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 		return err
+	}
+
+	hookPath := filepath.Join(hooksDir, "pre-push")
+
+	// Check if hook exists and is not ours
+	if !opts.Force {
+		if b, readErr := os.ReadFile(hookPath); readErr == nil {
+			isOurs := strings.Contains(string(b), prePushMarker)
+			if !isOurs {
+				return fmt.Errorf("pre-push hook exists but was not installed by build-bouncer (use --force to overwrite)")
+			}
+		}
 	}
 
 	var copied bool
@@ -51,7 +64,6 @@ func InstallPrePushHook(opts InstallOptions) error {
 		copied = true
 	}
 
-	hookPath := filepath.Join(hooksDir, "pre-push")
 	hookBody := renderPrePushHook(copied)
 	if err := os.WriteFile(hookPath, []byte(hookBody), 0o755); err != nil {
 		return err
@@ -198,33 +210,6 @@ func renameWithRetries(from string, to string) error {
 
 		lastErr = os.Rename(from, to)
 		if lastErr == nil {
-			return nil
-		}
-		time.Sleep(delay)
-	}
-	return lastErr
-}
-
-func removeFileWithRetries(path string) error {
-	if strings.TrimSpace(path) == "" {
-		return nil
-	}
-	// Non-Windows: quick attempt is fine.
-	if runtime.GOOS != "windows" {
-		err := os.Remove(path)
-		if err == nil || os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-
-	const attempts = 12
-	const delay = 15 * time.Millisecond
-
-	var lastErr error
-	for range attempts {
-		lastErr = os.Remove(path)
-		if lastErr == nil || os.IsNotExist(lastErr) {
 			return nil
 		}
 		time.Sleep(delay)

@@ -82,7 +82,10 @@ func runSetup(force bool, noCopy bool, ci bool, templateID string, ctx cli.Conte
 		}
 	}
 
-	opts := hooks.InstallOptions{CopySelf: !noCopy}
+	opts := hooks.InstallOptions{
+		CopySelf: !noCopy,
+		Force:    force,
+	}
 	if err := hooks.InstallPrePushHook(opts); err != nil {
 		fmt.Fprintln(ctx.Stderr, "setup:", err)
 		return exitUsage
@@ -419,7 +422,7 @@ func runCheck(args []string, ctx cli.Context) int {
 func newHookCommand() cli.Command {
 	return cli.Command{
 		Name:    "hook",
-		Usage:   "hook <install|status|uninstall> [options]",
+		Usage:   "hook <install|status|uninstall> [--force] [--no-copy]",
 		Summary: "Manage the git pre-push hook.",
 		Run: func(ctx cli.Context, args []string) int {
 			return runHook(args, ctx)
@@ -437,11 +440,15 @@ func runHook(args []string, ctx cli.Context) int {
 	case "install":
 		fs := cli.NewFlagSet(ctx, "hook install")
 		noCopy := fs.Bool("no-copy", false, "do not copy the build-bouncer binary into .git/hooks/bin")
+		force := fs.Bool("force", false, "overwrite existing hook even if not installed by build-bouncer")
 		if err := fs.Parse(args[1:]); err != nil {
 			return exitUsage
 		}
 
-		opts := hooks.InstallOptions{CopySelf: !*noCopy}
+		opts := hooks.InstallOptions{
+			CopySelf: !*noCopy,
+			Force:    *force,
+		}
 		if err := hooks.InstallPrePushHook(opts); err != nil {
 			fmt.Fprintln(ctx.Stderr, "hook install:", err)
 			return exitUsage
