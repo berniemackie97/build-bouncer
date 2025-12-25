@@ -6,7 +6,7 @@ import (
 	"github.com/berniemackie97/build-bouncer/internal/git"
 )
 
-const prePushMarker = "# build-bouncer pre-push hook v1"
+const prePushMarker = "# build-bouncer pre-push hook v"
 
 func repoHooksDir() (repoRoot string, hooksDir string, err error) {
 	root, err := git.FindRepoRoot()

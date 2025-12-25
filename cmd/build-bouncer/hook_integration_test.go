@@ -53,7 +53,7 @@ func TestHookSubcommandsInstallStatusUninstall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read hook: %v", err)
 	}
-	if !strings.Contains(string(hookBytes), "# build-bouncer pre-push hook v1") {
+	if !strings.Contains(string(hookBytes), "# build-bouncer pre-push hook v") {
 		t.Fatalf("expected hook marker, got: %q", string(hookBytes))
 	}
 

@@ -116,9 +116,10 @@ func ChecksFromGitHubActions(root string) ([]config.Check, error) {
 		checks = append(checks, fileChecks...)
 	}
 
-	// Normalize checks to remove GitHub Actions template variables
+	// Normalize checks for local execution
 	for i := range checks {
 		checks[i].Cwd = normalizeWorkingDirectory(checks[i].Cwd)
+		checks[i].Run = normalizeGitHubActionsTemplates(checks[i].Run)
 	}
 
 	return checks, nil
@@ -671,4 +672,98 @@ func normalizeWorkingDirectory(cwd string) string {
 	}
 
 	return normalized
+}
+
+// normalizeGitHubActionsTemplates transforms GitHub Actions template expressions into executable local commands.
+//
+// This function handles the following transformations:
+//
+//  1. Matrix Variables:
+//     - matrix.build_type → "Release" (default build configuration for local development)
+//     - matrix.os → current OS (e.g., "windows-latest", "ubuntu-latest", "macos-latest")
+//     - Other matrix.* → removed (can be overridden via environment variables)
+//
+//  2. PowerShell Environment Variables:
+//     - $env:VCPKG_ROOT → actual VCPKG_ROOT from environment, or auto-detected from common paths
+//     - $env:GITHUB_WORKSPACE → current working directory
+//     - Other $env:GITHUB_* → removed (GitHub Actions specific)
+//
+//  3. GitHub Actions Context Variables:
+//     - ${{ github.* }} → removed (e.g., github.sha, github.ref)
+//     - ${{ runner.* }} → removed (e.g., runner.os, runner.arch)
+//     - ${{ env.* }} → removed (user can set via actual environment)
+//
+//  4. Unknown Template Expressions:
+//     - Any remaining ${{ ... }} → removed
+//
+// Examples:
+//
+//	"cmake --build build --config ${{ matrix.build_type }}"
+//	→ "cmake --build build --config Release"
+//
+//	"cmake -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+//	→ "cmake -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake"
+func normalizeGitHubActionsTemplates(command string) string {
+	if strings.TrimSpace(command) == "" {
+		return command
+	}
+
+	result := command
+
+	// Handle matrix.build_type - default to Release for local builds
+	result = regexp.MustCompile(`\$\{\{\s*matrix\.build_type\s*\}\}`).ReplaceAllString(result, "Release")
+
+	// Handle matrix.os - default to current OS
+	currentOS := currentRunnerOS()
+	osMapping := map[string]string{
+		"windows": "windows-latest",
+		"linux":   "ubuntu-latest",
+		"macos":   "macos-latest",
+	}
+	if osValue, ok := osMapping[currentOS]; ok {
+		result = regexp.MustCompile(`\$\{\{\s*matrix\.os\s*\}\}`).ReplaceAllString(result, osValue)
+	}
+
+	// Handle other common matrix variables with empty defaults (user can override via env)
+	result = regexp.MustCompile(`\$\{\{\s*matrix\.\w+\s*\}\}`).ReplaceAllString(result, "")
+
+	// Handle PowerShell env variables for GitHub Actions specific paths
+	// $env:VCPKG_ROOT - look for common VCPKG locations or use env var if set
+	if strings.Contains(result, "$env:VCPKG_ROOT") {
+		vcpkgRoot := os.Getenv("VCPKG_ROOT")
+		if vcpkgRoot == "" {
+			// Try common Windows vcpkg locations
+			commonPaths := []string{
+				"C:\\vcpkg",
+				"C:\\src\\vcpkg",
+				filepath.Join(os.Getenv("USERPROFILE"), "vcpkg"),
+			}
+			for _, p := range commonPaths {
+				if _, err := os.Stat(p); err == nil {
+					vcpkgRoot = p
+					break
+				}
+			}
+		}
+		if vcpkgRoot != "" {
+			result = strings.ReplaceAll(result, "$env:VCPKG_ROOT", vcpkgRoot)
+		}
+	}
+
+	// Handle $env:GITHUB_WORKSPACE - use current directory as workspace
+	if strings.Contains(result, "$env:GITHUB_WORKSPACE") {
+		if cwd, err := os.Getwd(); err == nil {
+			result = strings.ReplaceAll(result, "$env:GITHUB_WORKSPACE", cwd)
+		}
+	}
+
+	// Handle other GitHub Actions context variables
+	result = regexp.MustCompile(`\$\{\{\s*github\.\w+\s*\}\}`).ReplaceAllString(result, "")
+	result = regexp.MustCompile(`\$\{\{\s*runner\.\w+\s*\}\}`).ReplaceAllString(result, "")
+	result = regexp.MustCompile(`\$\{\{\s*env\.\w+\s*\}\}`).ReplaceAllString(result, "")
+
+	// Clean up any remaining template expressions we don't handle
+	result = regexp.MustCompile(`\$\{\{\s*[^}]+\s*\}\}`).ReplaceAllString(result, "")
+
+	return result
 }

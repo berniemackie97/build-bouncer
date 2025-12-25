@@ -63,7 +63,7 @@ func InstallPrePushHook(opts InstallOptions) error {
 
 func renderPrePushHook(hasCopiedBinary bool) string {
 	body := `#!/bin/sh
-# build-bouncer pre-push hook v1
+# build-bouncer pre-push hook v2
 set -eu
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
@@ -92,7 +92,43 @@ if [ -z "$bb" ]; then
   fi
 fi
 
-"$bb" check --hook
+# Detect git push flags and pass them to build-bouncer
+bb_args="check --hook"
+
+# Check GIT_PUSH_OPTION_COUNT for push options (git 2.10+)
+if [ -n "${GIT_PUSH_OPTION_COUNT:-}" ] && [ "${GIT_PUSH_OPTION_COUNT}" -gt 0 ]; then
+  i=0
+  while [ "$i" -lt "${GIT_PUSH_OPTION_COUNT}" ]; do
+    opt_var="GIT_PUSH_OPTION_${i}"
+    eval "opt_val=\$${opt_var}"
+    case "$opt_val" in
+      verbose)
+        bb_args="$bb_args --verbose"
+        ;;
+      force)
+        bb_args="$bb_args --force-push"
+        ;;
+    esac
+    i=$((i + 1))
+  done
+fi
+
+# Fallback: parse command line from ps (less reliable but works for older git)
+if ! echo "$bb_args" | grep -q -- "--verbose" && ! echo "$bb_args" | grep -q -- "--force-push"; then
+  git_push_cmd="$(ps -o args= -p $PPID 2>/dev/null || true)"
+  case "$git_push_cmd" in
+    *--verbose*|*-v*)
+      bb_args="$bb_args --verbose"
+      ;;
+  esac
+  case "$git_push_cmd" in
+    *--force*|*-f*)
+      bb_args="$bb_args --force-push"
+      ;;
+  esac
+fi
+
+eval "$bb $bb_args"
 `
 	return body
 }

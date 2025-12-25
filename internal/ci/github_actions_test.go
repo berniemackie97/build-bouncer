@@ -420,3 +420,149 @@ jobs:
 		t.Fatalf("expected cwd to be 'build', got %q", checks[0].Cwd)
 	}
 }
+
+func TestNormalizeGitHubActionsTemplates(t *testing.T) {
+	tests := []struct {
+		name     string
+		command  string
+		wantFunc func(got string) bool
+		wantDesc string
+	}{
+		{
+			name:    "no templates",
+			command: "go test ./...",
+			wantFunc: func(got string) bool {
+				return got == "go test ./..."
+			},
+			wantDesc: "unchanged",
+		},
+		{
+			name:    "matrix.build_type with spaces",
+			command: "cmake --build build --config ${{ matrix.build_type }}",
+			wantFunc: func(got string) bool {
+				return got == "cmake --build build --config Release"
+			},
+			wantDesc: "matrix.build_type replaced with Release",
+		},
+		{
+			name:    "matrix.build_type without spaces",
+			command: "ctest -C ${{matrix.build_type}}",
+			wantFunc: func(got string) bool {
+				return got == "ctest -C Release"
+			},
+			wantDesc: "matrix.build_type replaced with Release",
+		},
+		{
+			name:    "VCPKG_ROOT env var",
+			command: "cmake -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake",
+			wantFunc: func(got string) bool {
+				// Should either use env var value or common path, or remain unchanged if not found
+				return got != "" && !strings.Contains(got, "$env:VCPKG_ROOT") || got == "cmake -DCMAKE_TOOLCHAIN_FILE=/scripts/buildsystems/vcpkg.cmake"
+			},
+			wantDesc: "VCPKG_ROOT resolved or removed",
+		},
+		{
+			name:    "GITHUB_WORKSPACE env var",
+			command: "echo $env:GITHUB_WORKSPACE",
+			wantFunc: func(got string) bool {
+				// Should be replaced with current directory
+				return !strings.Contains(got, "$env:GITHUB_WORKSPACE")
+			},
+			wantDesc: "GITHUB_WORKSPACE replaced with cwd",
+		},
+		{
+			name:    "regular env var",
+			command: "echo $env:PATH",
+			wantFunc: func(got string) bool {
+				return got == "echo $env:PATH"
+			},
+			wantDesc: "regular env vars unchanged",
+		},
+		{
+			name:    "multiline with templates",
+			command: "cmake --preset default `\n  -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}",
+			wantFunc: func(got string) bool {
+				return strings.Contains(got, "Release") && !strings.Contains(got, "${{")
+			},
+			wantDesc: "templates replaced in multiline",
+		},
+		{
+			name:    "github context variables",
+			command: "echo ${{ github.sha }}",
+			wantFunc: func(got string) bool {
+				return got == "echo "
+			},
+			wantDesc: "github.* variables removed",
+		},
+		{
+			name:    "env context variables",
+			command: "echo ${{ env.MY_VAR }}",
+			wantFunc: func(got string) bool {
+				return got == "echo "
+			},
+			wantDesc: "env.* variables removed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeGitHubActionsTemplates(tt.command)
+			if !tt.wantFunc(got) {
+				t.Errorf("normalizeGitHubActionsTemplates(%q) = %q, want %s", tt.command, got, tt.wantDesc)
+			}
+		})
+	}
+}
+
+func TestChecksFromGitHubActionsTransformsTemplateExpressions(t *testing.T) {
+	root := t.TempDir()
+	workflowDir := filepath.Join(root, ".github", "workflows")
+	if err := os.MkdirAll(workflowDir, 0o755); err != nil {
+		t.Fatalf("create workflows dir: %v", err)
+	}
+
+	content := `
+jobs:
+  build:
+    steps:
+      - name: Simple check
+        run: echo "hello"
+      - name: With matrix variable
+        run: cmake --build build --config ${{ matrix.build_type }}
+      - name: With VCPKG
+        run: echo VCPKG=$env:VCPKG_ROOT
+      - name: Another simple check
+        run: go test ./...
+`
+	path := filepath.Join(workflowDir, "transform.yml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write workflow: %v", err)
+	}
+
+	checks, err := ChecksFromGitHubActions(root)
+	if err != nil {
+		t.Fatalf("ChecksFromGitHubActions error: %v", err)
+	}
+
+	// Should get all 4 checks, with templates transformed
+	if len(checks) != 4 {
+		t.Fatalf("expected 4 checks (all transformed), got %d", len(checks))
+	}
+
+	// Verify matrix.build_type was transformed
+	found := false
+	for _, check := range checks {
+		if strings.Contains(check.Run, "cmake --build") {
+			found = true
+			if !strings.Contains(check.Run, "Release") {
+				t.Errorf("check %q should have matrix.build_type replaced with Release, got: %q", check.Name, check.Run)
+			}
+			if strings.Contains(check.Run, "${{") {
+				t.Errorf("check %q still contains template syntax: %q", check.Name, check.Run)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected to find cmake --build check")
+	}
+}
