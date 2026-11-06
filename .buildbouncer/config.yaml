@@ -5,61 +5,145 @@ meta:
     inputs:
         template.id: go
 checks:
-    - id: template:go:f6336331e13a
+    - id: template:go:bbe1a8f4b2bc
       source: template:go
       name: tests
       run: go test ./...
-      shell: cmd
       requires: go
-    - id: template:go:c77a8162c912
+    - id: template:go:e44fa91e16d0
       source: template:go
       name: lint
       run: go vet ./...
-      shell: cmd
       requires: go
-    - id: ci:ci:6bfddfb7806e
+    - id: ci:ci:4c98b7f5dc34
       source: ci:ci
-      name: ci:ci:test-matrix.os:set-up-go
-      run: go version
-      shell: pwsh
-      os: windows
-      requires: go
-    - id: ci:ci:e176ca0308f8
-      source: ci:ci
-      name: ci:ci:test-matrix.os:go-env
+      name: ci:ci:test-matrix.os:linux:go-env
       run: go env
-      shell: pwsh
-      os: windows
+      shell: bash
+      os: linux
       requires: go
-    - id: ci:ci:7ff8c5bb4cd6
+    - id: ci:ci:c4652dffdf3e
       source: ci:ci
-      name: ci:ci:test-matrix.os:verify-gofmt
-      run: |-
-        set -euo pipefail
-        files=$(find . -name '*.go' -type f)
-        if [ -n "$files" ]; then
-          bad=$(gofmt -l $files)
+      name: ci:ci:test-matrix.os:linux:verify-gofmt
+      run: |
+          set -euo pipefail
+          bad=$(gofmt -l .)
           if [ -n "$bad" ]; then
             echo "gofmt needed on:"
             echo "$bad"
             exit 1
           fi
-        fi
+      shell: bash
+      os: linux
+    - id: ci:ci:27aaca99cfa1
+      source: ci:ci
+      name: ci:ci:test-matrix.os:linux:verify-module-checksums
+      run: go mod verify
+      shell: bash
+      os: linux
+      requires: go
+    - id: ci:ci:ab8b9276ed05
+      source: ci:ci
+      name: ci:ci:test-matrix.os:linux:go-vet
+      run: go vet ./...
+      shell: bash
+      os: linux
+      requires: go
+    - id: ci:ci:47813f61d556
+      source: ci:ci
+      name: ci:ci:test-matrix.os:linux:go-test
+      run: go test ./...
+      shell: bash
+      os: linux
+      requires: go
+    - id: ci:ci:ec935e7aa473
+      source: ci:ci
+      name: ci:ci:test-matrix.os:windows:go-env
+      run: go env
+      shell: pwsh
+      os: windows
+      requires: go
+    - id: ci:ci:f5a6bb4d6d8b
+      source: ci:ci
+      name: ci:ci:test-matrix.os:windows:verify-gofmt
+      run: |
+          set -euo pipefail
+          bad=$(gofmt -l .)
+          if [ -n "$bad" ]; then
+            echo "gofmt needed on:"
+            echo "$bad"
+            exit 1
+          fi
       shell: bash
       os: windows
-    - id: ci:ci:2513e181be1a
+    - id: ci:ci:49a575144d9d
       source: ci:ci
-      name: ci:ci:test-matrix.os:go-vet
+      name: ci:ci:test-matrix.os:windows:verify-module-checksums
+      run: go mod verify
+      shell: pwsh
+      os: windows
+      requires: go
+    - id: ci:ci:5eb9ddcc5f57
+      source: ci:ci
+      name: ci:ci:test-matrix.os:windows:go-vet
       run: go vet ./...
       shell: pwsh
       os: windows
       requires: go
-    - id: ci:ci:24a3818b78d7
+    - id: ci:ci:7d4859113cdf
       source: ci:ci
-      name: ci:ci:test-matrix.os:go-test
+      name: ci:ci:test-matrix.os:windows:go-test
       run: go test ./...
       shell: pwsh
       os: windows
+      requires: go
+    - id: ci:ci:fb793d2df3ae
+      source: ci:ci
+      name: ci:ci:test-matrix.os:macos:go-env
+      run: go env
+      shell: bash
+      os: macos
+      requires: go
+    - id: ci:ci:3525e481bce6
+      source: ci:ci
+      name: ci:ci:test-matrix.os:macos:verify-gofmt
+      run: |
+          set -euo pipefail
+          bad=$(gofmt -l .)
+          if [ -n "$bad" ]; then
+            echo "gofmt needed on:"
+            echo "$bad"
+            exit 1
+          fi
+      shell: bash
+      os: macos
+    - id: ci:ci:4696a58644cf
+      source: ci:ci
+      name: ci:ci:test-matrix.os:macos:verify-module-checksums
+      run: go mod verify
+      shell: bash
+      os: macos
+      requires: go
+    - id: ci:ci:0b80ce7f68b4
+      source: ci:ci
+      name: ci:ci:test-matrix.os:macos:go-vet
+      run: go vet ./...
+      shell: bash
+      os: macos
+      requires: go
+    - id: ci:ci:f5e672656517
+      source: ci:ci
+      name: ci:ci:test-matrix.os:macos:go-test
+      run: go test ./...
+      shell: bash
+      os: macos
+      requires: go
+    - id: ci:ci:81aa61a98427
+      source: ci:ci
+      name: ci:ci:race-ubuntu-latest:linux:go-test--race
+      run: go test -race ./...
+      shell: bash
+      os: linux
       requires: go
 protection:
     level: moderate
