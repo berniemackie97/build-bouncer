@@ -299,12 +299,19 @@ func resolveExecutableAt(repoRoot, executable string) string {
 	return executable
 }
 
+func isWSLLauncher(executable string) bool {
+	switch strings.ToLower(shell.BaseName(executable)) {
+	case "wsl", "wsl.exe":
+		return true
+	case "bash", "bash.exe":
+		return detectShellFlavorPath(executable) == pathFlavorWSL
+	default:
+		return false
+	}
+}
+
 func validateWSLEnvironment(executable string, overrides map[string]string) error {
-	if runtime.GOOS == "windows" && len(overrides) > 0 &&
-		(strings.EqualFold(shell.BaseName(executable), "wsl.exe") ||
-			strings.EqualFold(shell.BaseName(executable), "wsl") ||
-			(strings.EqualFold(shell.BaseName(executable), "bash.exe") &&
-				detectShellFlavorPath(executable) == pathFlavorWSL)) {
+	if runtime.GOOS == "windows" && len(overrides) > 0 && isWSLLauncher(executable) {
 		return errors.New("WSL shell does not support check env overrides; configure environment inside the Linux command")
 	}
 	return nil
@@ -317,7 +324,7 @@ func adjustEnvForShell(shell string, env []string) []string {
 		return env
 	}
 
-	if detectShellFlavorPath(shell) == pathFlavorWSL {
+	if isWSLLauncher(shell) {
 		return env
 	}
 
