@@ -205,6 +205,21 @@ func TestResolveCommand_Order(t *testing.T) {
 	})
 }
 
+func TestDirectPowerShellInvocationPreservesExecutablePath(t *testing.T) {
+	spec := "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -NoProfile -Command \"Write-Host ok\""
+	name, args, ok := parseDirectPowerShellInvocation(spec, "pwsh")
+	if !ok || name != "C:\\Program Files\\PowerShell\\7\\pwsh.exe" ||
+		!slices.Equal(args, []string{"-NoProfile", "-Command", "Write-Host ok"}) {
+		t.Fatalf("direct invocation changed explicit path: %q, %q, %t", name, args, ok)
+	}
+}
+
+func TestInvalidExplicitShellDoesNotFallBack(t *testing.T) {
+	if _, _, err := resolveCommand("bash -lc", "echo ok", "sh"); err == nil {
+		t.Fatal("invalid explicit shell must not fall back to sh")
+	}
+}
+
 func TestConfiguredShellPathWithSpacesExecutes(t *testing.T) {
 	var source, targetName, script string
 	if runtime.GOOS == "windows" {

@@ -54,7 +54,7 @@ func validateAndDefault(cfg *Config) error {
 
 		// Config is user-authored: keep shell strict and predictable.
 		// shell must be ONLY the executable name/path (no args).
-		if err := validateShellSpec(c.Shell); err != nil {
+		if _, err := shell.ParseExecutable(c.Shell); err != nil {
 			return fmt.Errorf("config: checks[%d] shell: %w", i, err)
 		}
 
@@ -132,11 +132,6 @@ func validateAndDefault(cfg *Config) error {
 	}
 
 	return nil
-}
-
-func validateShellSpec(spec string) error {
-	_, err := shell.ParseExecutable(spec)
-	return err
 }
 
 func validateEnvOverrides(env map[string]string) error {
