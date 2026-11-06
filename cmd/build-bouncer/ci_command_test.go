@@ -232,3 +232,65 @@ func TestCISyncRejectedExpressionDoesNotModifyConfig(t *testing.T) {
 		t.Fatalf("rejected workflow damaged existing configuration: %v", err)
 	}
 }
+
+func TestCISyncPreservesAllMatrixVariants(t *testing.T) {
+	repo := withTempRepo(t)
+	path := config.DefaultConfigPath(repo)
+	if err := config.Save(path, &config.Config{Checks: []config.Check{{Name: "local", Run: "echo local"}}}); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(repo, ".github", "workflows")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	workflow := `name: Build
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Test
+        run: go test ./...
+`
+	if err := os.WriteFile(filepath.Join(dir, "test.yml"), []byte(workflow), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	ctx := cli.Context{Stdout: &stdout, Stderr: &stderr}
+	if code := runCISync(ctx); code != exitOK {
+		t.Fatalf("CI sync failed: %d %s", code, stderr.String())
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Checks) != 4 {
+		t.Fatalf("expected custom check and three platform variants, got %+v", cfg.Checks)
+	}
+	wantShell := map[string]string{"linux": "bash", "windows": "pwsh", "macos": "bash"}
+	seen := make(map[string]bool)
+	for _, check := range cfg.Checks[1:] {
+		if len(check.OS) != 1 || check.Shell != wantShell[check.OS[0]] || seen[check.OS[0]] || check.ID == "" {
+			t.Fatalf("invalid platform-specific check: %+v", check)
+		}
+		seen[check.OS[0]] = true
+	}
+	if len(seen) != 3 {
+		t.Fatalf("missing platforms after synchronization: %v", seen)
+	}
+	first, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runCISync(ctx); code != exitOK {
+		t.Fatalf("repeat sync failed: %d %s", code, stderr.String())
+	}
+	second, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(first, second) {
+		t.Fatalf("CI sync was not idempotent: %v", err)
+	}
+}

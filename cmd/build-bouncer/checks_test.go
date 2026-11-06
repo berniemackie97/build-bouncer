@@ -56,3 +56,20 @@ func TestGeneratedCheckIDsIncludeMissingToolPolicy(t *testing.T) {
 		t.Fatal("checks with different missing-tool policies must have distinct IDs")
 	}
 }
+ 
+func TestMergeChecksPreservesDistinctPlatforms(t *testing.T) {
+	first := config.Check{Name: "ci:test:linux", Run: "go test ./...", Shell: "bash", OS: config.StringList{"linux"}}
+	second := config.Check{Name: "ci:test:macos", Run: "go test ./...", Shell: "bash", OS: config.StringList{"macos"}}
+	result := mergeChecks(nil, []config.Check{first, second})
+	if len(result.Added) != 2 || len(result.Skipped) != 0 {
+		t.Fatalf("OS-specific checks were merged together: %+v", result)
+	}
+}
+
+func TestGeneratedTemplateShellIsPortable(t *testing.T) {
+	source := []config.Check{{Name: "go tests", Run: "go test ./..."}}
+	generated := stampGeneratedChecks(source, "template:go")
+	if len(generated) != 1 || generated[0].Shell != "" || generated[0].ID == "" {
+		t.Fatalf("generated template check must have no platform-specific default shell: %+v", generated)
+	}
+}
