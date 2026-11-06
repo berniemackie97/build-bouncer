@@ -18,6 +18,12 @@ func validateWorkflowWorkingDirectory(value string) error {
 }
 
 func validateWorkflowJob(name string, job Job) error {
+	if job.Needs != nil || job.Container != nil || job.Services != nil || job.Uses != "" || job.TimeoutMinutes != 0 {
+		return fmt.Errorf("job %q: dependencies, containers, services, reusable workflows and job timeouts are not supported by CI import", name)
+	}
+	if len(job.RunsOn.Values) > 1 {
+		return fmt.Errorf("job %q: multi-label runs-on cannot be represented by a local check", name)
+	}
 	for key := range job.Strategy.Matrix {
 		if key != "os" {
 			return fmt.Errorf("job %q: unsupported matrix dimension %q", name, key)
@@ -52,6 +58,9 @@ func validateWorkflowJob(name string, job Job) error {
 		return fmt.Errorf("job %q: %w", name, err)
 	}
 	for i, step := range job.Steps {
+		if step.TimeoutMinutes != 0 || step.ContinueOnError != nil && *step.ContinueOnError {
+			return fmt.Errorf("job %q step %d: timeouts and continue-on-error are not supported by CI import", name, i+1)
+		}
 		if _, err := conditionMatchesOS(step.If, "linux"); err != nil {
 			return fmt.Errorf("job %q step %d: %w", name, i+1, err)
 		}

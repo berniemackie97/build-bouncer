@@ -22,13 +22,18 @@ type Workflow struct {
 }
 
 type Job struct {
-	Name     string                 `yaml:"name"`
-	Env      map[string]interface{} `yaml:"env"`
-	Defaults Defaults               `yaml:"defaults"`
-	Steps    []Step                 `yaml:"steps"`
-	RunsOn   RunsOn                 `yaml:"runs-on"`
-	If       string                 `yaml:"if"`
-	Strategy Strategy               `yaml:"strategy"`
+	Name           string                 `yaml:"name"`
+	Env            map[string]interface{} `yaml:"env"`
+	Defaults       Defaults               `yaml:"defaults"`
+	Steps          []Step                 `yaml:"steps"`
+	RunsOn         RunsOn                 `yaml:"runs-on"`
+	If             string                 `yaml:"if"`
+	Strategy       Strategy               `yaml:"strategy"`
+	Needs          interface{}            `yaml:"needs"`
+	Container      interface{}            `yaml:"container"`
+	Services       interface{}            `yaml:"services"`
+	Uses           string                 `yaml:"uses"`
+	TimeoutMinutes int                    `yaml:"timeout-minutes"`
 }
 
 type Defaults struct {
@@ -49,6 +54,8 @@ type Step struct {
 	WorkingDirectory string                 `yaml:"working-directory"`
 	If               string                 `yaml:"if"`
 	Shell            string                 `yaml:"shell"`
+	ContinueOnError  *bool                  `yaml:"continue-on-error"`
+	TimeoutMinutes   int                    `yaml:"timeout-minutes"`
 }
 
 type Strategy struct {
