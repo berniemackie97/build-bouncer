@@ -3,7 +3,6 @@ package runner
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
