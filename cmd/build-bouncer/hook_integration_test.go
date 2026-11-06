@@ -358,6 +358,7 @@ func TestHookUsesSharedDirectoryFromLinkedWorktree(t *testing.T) {
 	if err := os.Chdir(worktree); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = os.Chdir(repo) })
 
 	code, _, stderr := runHookCmd([]string{"install", "--no-copy"})
 	if code != exitOK {
