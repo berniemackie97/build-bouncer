@@ -11,14 +11,14 @@ import (
 )
 
 type setupFile struct {
-	path string
-	mode os.FileMode
-	data []byte
+	path    string
+	mode    os.FileMode
+	data    []byte
 	existed bool
 }
 
 type setupSnapshot struct {
-	files []setupFile
+	files       []setupFile
 	createdDirs []string
 }
 

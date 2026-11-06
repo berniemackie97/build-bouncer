@@ -100,4 +100,3 @@ func runSetup(force bool, noCopy bool, ci bool, templateID string, ctx cli.Conte
 	}
 	return runCheck(checkArgs, ctx)
 }
-

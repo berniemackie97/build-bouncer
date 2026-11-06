@@ -154,4 +154,3 @@ func runInit(force bool, templateID string, ctx cli.Context) (code int) {
 	fmt.Fprintln(ctx.Stdout, tui.Info("Next: build-bouncer hook install"))
 	return exitOK
 }
-

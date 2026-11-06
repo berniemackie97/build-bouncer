@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"testing"
 	"strings"
+	"testing"
 
 	"github.com/berniemackie97/build-bouncer/internal/cli"
 )

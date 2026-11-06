@@ -44,8 +44,8 @@ func TestSetupRestoresExistingFilesWhenBinaryCannotBeInstalled(t *testing.T) {
 	banter := filepath.Join(assets, "banter", "default.json")
 	original := map[string][]byte{
 		cfgPath: []byte("custom config"),
-		insult: []byte("custom insults"),
-		banter: []byte("custom banter"),
+		insult:  []byte("custom insults"),
+		banter:  []byte("custom banter"),
 	}
 	for path, content := range original {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
