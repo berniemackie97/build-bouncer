@@ -3,7 +3,6 @@ package ci
 import (
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -58,15 +57,6 @@ type Strategy struct {
 
 type RunsOn struct {
 	Values []string
-}
-
-type toolUsage struct {
-	node   bool
-	goLang bool
-	python bool
-	dotnet bool
-	java   bool
-	ruby   bool
 }
 
 func (r *RunsOn) UnmarshalYAML(value *yaml.Node) error {
@@ -166,7 +156,6 @@ func checksFromWorkflowFile(path string) ([]config.Check, error) {
 		if !jobAppliesToOS(job, currentOS) {
 			continue
 		}
-		usage := detectToolsUsed(job.Steps)
 		jobLabel := labelFromJob(jobKey, job.Name)
 		jobEnv := mergeEnv(workflowEnv, normalizeEnv(job.Env))
 		jobDir := strings.TrimSpace(job.Defaults.Run.WorkingDirectory)
@@ -188,9 +177,6 @@ func checksFromWorkflowFile(path string) ([]config.Check, error) {
 			}
 
 			if strings.TrimSpace(step.Run) == "" {
-				if check := checkFromUsesStep(workflowLabel, jobLabel, jobEnv, jobDir, Defaults{Run: RunDefaults{Shell: defaultShell}}, step, usage, currentOS); check != nil {
-					out = append(out, *check)
-				}
 				continue
 			}
 
@@ -206,7 +192,7 @@ func checksFromWorkflowFile(path string) ([]config.Check, error) {
 			shell := resolveShell(step.Shell, defaultShell, currentOS)
 			out = append(out, config.Check{
 				Name:   name,
-				Run:    strings.TrimSpace(step.Run),
+				Run:    step.Run,
 				Shell:  shell,
 				Cwd:    cwd,
 				Env:    env,
@@ -262,18 +248,6 @@ func labelFromStep(step Step) string {
 	return sanitizeLabel(firstLine)
 }
 
-func labelFromUses(step Step, action string) string {
-	if strings.TrimSpace(step.Name) != "" {
-		return sanitizeLabel(step.Name)
-	}
-	short := actionShortName(action)
-	cache := strings.ToLower(strings.TrimSpace(stepWithString(step, "cache")))
-	if cache != "" {
-		short = short + "-" + cache
-	}
-	return sanitizeLabel(short)
-}
-
 func sanitizeLabel(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	if s == "" {
@@ -327,94 +301,6 @@ func mergeEnv(base map[string]string, override map[string]string) map[string]str
 	return out
 }
 
-func detectToolsUsed(steps []Step) toolUsage {
-	usage := toolUsage{}
-	for _, step := range steps {
-		if strings.TrimSpace(step.Run) == "" {
-			continue
-		}
-		token := commandToken(step.Run)
-		switch token {
-		case "node", "npm", "pnpm", "yarn", "bun":
-			usage.node = true
-		case "go":
-			usage.goLang = true
-		case "python", "python3", "pip", "pip3", "pipenv", "poetry", "pdm", "uv", "rye", "hatch":
-			usage.python = true
-		case "dotnet":
-			usage.dotnet = true
-		case "java", "mvn", "mvnw", "gradle", "gradlew":
-			usage.java = true
-		case "ruby", "bundle", "bundler", "rake":
-			usage.ruby = true
-		}
-	}
-	return usage
-}
-
-func commandToken(run string) string {
-	fields := strings.Fields(run)
-	if len(fields) == 0 {
-		return ""
-	}
-	token := strings.Trim(fields[0], `"'`)
-	token = strings.ReplaceAll(token, "\\", "/")
-	base := path.Base(token)
-	return strings.ToLower(base)
-}
-
-func usesActionNeeded(action string, usage toolUsage) bool {
-	switch action {
-	case "actions/setup-node":
-		return usage.node
-	case "actions/setup-go":
-		return usage.goLang
-	case "actions/setup-python":
-		return usage.python
-	case "actions/setup-dotnet":
-		return usage.dotnet
-	case "actions/setup-java":
-		return usage.java
-	case "actions/setup-ruby", "ruby/setup-ruby":
-		return usage.ruby
-	default:
-		return true
-	}
-}
-
-func checkFromUsesStep(workflowLabel string, jobLabel string, jobEnv map[string]string, jobDir string, defaults Defaults, step Step, usage toolUsage, currentOS string) *config.Check {
-	action := normalizeUsesAction(step.Uses)
-	if action == "" {
-		return nil
-	}
-	if !usesActionNeeded(action, usage) {
-		return nil
-	}
-	run := usesRunCommand(action, step)
-	if strings.TrimSpace(run) == "" {
-		return nil
-	}
-
-	stepEnv := normalizeEnv(step.Env)
-	env := mergeEnv(jobEnv, stepEnv)
-	cwd := strings.TrimSpace(step.WorkingDirectory)
-	if cwd == "" {
-		cwd = jobDir
-	}
-	shell := resolveShell(step.Shell, defaults.Run.Shell, currentOS)
-
-	name := fmt.Sprintf("ci:%s:%s:%s", workflowLabel, jobLabel, labelFromUses(step, action))
-	return &config.Check{
-		Name:   name,
-		Run:    run,
-		Shell:  shell,
-		Cwd:    cwd,
-		Env:    env,
-		OS:     config.StringList{currentOS},
-		Source: "ci:" + workflowLabel,
-	}
-}
-
 func normalizeUsesAction(uses string) string {
 	s := strings.TrimSpace(uses)
 	if s == "" {
@@ -429,51 +315,6 @@ func normalizeUsesAction(uses string) string {
 		return ""
 	}
 	return s
-}
-
-func actionShortName(action string) string {
-	parts := strings.Split(strings.Trim(action, "/"), "/")
-	if len(parts) == 0 {
-		return action
-	}
-	return parts[len(parts)-1]
-}
-
-func usesRunCommand(action string, step Step) string {
-	switch action {
-	case "actions/checkout":
-		return ""
-	case "actions/cache", "actions/cache/restore", "actions/cache/save":
-		return ""
-	case "actions/setup-node":
-		return setupNodeCommand(step)
-	case "actions/setup-go":
-		return "go version"
-	case "actions/setup-python":
-		return "python --version"
-	case "actions/setup-java":
-		return "java -version"
-	case "actions/setup-dotnet":
-		return "dotnet --version"
-	case "actions/setup-ruby", "ruby/setup-ruby":
-		return "ruby --version"
-	default:
-		return ""
-	}
-}
-
-func setupNodeCommand(step Step) string {
-	cache := strings.ToLower(strings.TrimSpace(stepWithString(step, "cache")))
-	switch cache {
-	case "pnpm":
-		return "pnpm --version"
-	case "yarn":
-		return "yarn --version"
-	case "npm":
-		return "npm --version"
-	default:
-		return "node --version"
-	}
 }
 
 func resolveShell(stepShell string, defaultShell string, currentOS string) string {
@@ -496,17 +337,6 @@ func defaultGitHubShell(currentOS string) string {
 	default:
 		return "bash"
 	}
-}
-
-func stepWithString(step Step, key string) string {
-	if step.With == nil {
-		return ""
-	}
-	val, ok := step.With[key]
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(fmt.Sprint(val))
 }
 
 func currentRunnerOS() string {
@@ -609,204 +439,15 @@ func osFromValue(value string) string {
 	}
 }
 
-// normalizeWorkingDirectory removes GitHub Actions template variables from working directory paths.
-// For example, "${{github.workspace}}/build" becomes "build".
 func normalizeWorkingDirectory(cwd string) string {
-	if strings.TrimSpace(cwd) == "" {
-		return ""
-	}
-
-	// Remove ${{github.workspace}} prefix and normalize path separators
-	normalized := strings.TrimSpace(cwd)
-
-	// Match various forms of the github.workspace variable
-	replacements := []string{
-		"${{github.workspace}}/",
-		"${{github.workspace}}\\",
-		"${{ github.workspace }}/",
-		"${{ github.workspace }}\\",
-		"${{github.workspace}}",
-		"${{ github.workspace }}",
-	}
-
-	for _, prefix := range replacements {
-		if strings.HasPrefix(normalized, prefix) {
-			normalized = strings.TrimPrefix(normalized, prefix)
-			break
+	cwd = strings.TrimSpace(cwd)
+	for _, marker := range []string{"${{github.workspace}}", "${{ github.workspace }}"} {
+		if cwd == marker {
+			return ""
+		}
+		if strings.HasPrefix(cwd, marker+"/") || strings.HasPrefix(cwd, marker+"\\") {
+			return cwd[len(marker)+1:]
 		}
 	}
-
-	// If the path is now empty or is just a separator, return empty
-	normalized = strings.TrimSpace(normalized)
-	if normalized == "/" || normalized == "\\" || normalized == "" {
-		return ""
-	}
-
-	return normalized
-}
-
-var simpleOSCondition = regexp.MustCompile(`(?i)^(?:runner|matrix)\.os\s*(==|!=)\s*['"]([^'"]+)['"]$`)
-
-func validateWorkflowJob(name string, job Job) error {
-	for key := range job.Strategy.Matrix {
-		if key != "os" {
-			return fmt.Errorf("job %q: unsupported matrix dimension %q", name, key)
-		}
-	}
-	for _, runTarget := range job.RunsOn.Values {
-		target := strings.TrimSpace(runTarget)
-		if isMatrixOSReference(target) {
-			values := matrixValues(job.Strategy.Matrix, "os")
-			if len(values) == 0 {
-				return fmt.Errorf("job %q: matrix.os has no supported values", name)
-			}
-			for _, value := range values {
-				if !isSupportedRunner(value) {
-					return fmt.Errorf("job %q: unsupported matrix runner %q", name, value)
-				}
-			}
-		} else if !isSupportedRunner(target) {
-			return fmt.Errorf("job %q: unsupported runs-on %q", name, target)
-		}
-	}
-	if _, err := conditionMatchesOS(job.If, "linux"); err != nil {
-		return fmt.Errorf("job %q: %w", name, err)
-	}
-	if err := validateWorkflowEnv(job.Env); err != nil {
-		return fmt.Errorf("job %q: %w", name, err)
-	}
-	if err := rejectActionsExpression(job.Defaults.Run.WorkingDirectory); err != nil {
-		if !isWorkspaceDirectory(job.Defaults.Run.WorkingDirectory) {
-			return fmt.Errorf("job %q working-directory: %w", name, err)
-		}
-	}
-	if err := validateWorkflowShell(job.Defaults.Run.Shell); err != nil {
-		return fmt.Errorf("job %q: %w", name, err)
-	}
-	for i, step := range job.Steps {
-		if _, err := conditionMatchesOS(step.If, "linux"); err != nil {
-			return fmt.Errorf("job %q step %d: %w", name, i+1, err)
-		}
-		if err := rejectActionsExpression(step.Run); err != nil {
-			return fmt.Errorf("job %q step %d run: %w", name, i+1, err)
-		}
-		if err := validateWorkflowEnv(step.Env); err != nil {
-			return fmt.Errorf("job %q step %d: %w", name, i+1, err)
-		}
-		if err := rejectActionsExpression(step.WorkingDirectory); err != nil {
-			if !isWorkspaceDirectory(step.WorkingDirectory) {
-				return fmt.Errorf("job %q step %d working-directory: %w", name, i+1, err)
-			}
-		}
-		if err := validateWorkflowShell(step.Shell); err != nil {
-			return fmt.Errorf("job %q step %d: %w", name, i+1, err)
-		}
-		if step.Run != "" && step.Uses != "" {
-			return fmt.Errorf("job %q step %d: cannot combine run and uses", name, i+1)
-		}
-		for key, val := range step.With {
-			if err := rejectActionsExpression(fmt.Sprint(val)); err != nil {
-				return fmt.Errorf("job %q step %d with.%s: %w", name, i+1, key, err)
-			}
-		}
-		if step.Uses != "" {
-			action := normalizeUsesAction(step.Uses)
-			if action == "" || !supportedAction(action) {
-				return fmt.Errorf("job %q step %d: unsupported action %q", name, i+1, step.Uses)
-			}
-		}
-	}
-	return nil
-}
-
-func isMatrixOSReference(value string) bool {
-	value = strings.TrimSpace(value)
-	if !strings.HasPrefix(value, "${{") || !strings.HasSuffix(value, "}}") {
-		return false
-	}
-	return strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(value, "${{"), "}}")) == "matrix.os"
-}
-
-func isSupportedRunner(value string) bool {
-	value = strings.ToLower(strings.TrimSpace(value))
-	return value == "ubuntu-latest" || value == "windows-latest" || value == "macos-latest" ||
-		strings.HasPrefix(value, "ubuntu-") || strings.HasPrefix(value, "windows-") || strings.HasPrefix(value, "macos-")
-}
-
-func conditionMatchesOS(expr string, targetOS string) (bool, error) {
-	expr = strings.TrimSpace(expr)
-	if strings.HasPrefix(expr, "${{") && strings.HasSuffix(expr, "}}") {
-		expr = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(expr, "${{"), "}}"))
-	}
-	switch expr {
-	case "", "true":
-		return true, nil
-	case "false":
-		return false, nil
-	}
-	matches := simpleOSCondition.FindStringSubmatch(expr)
-	if len(matches) != 3 || !isSupportedRunner(matches[2]) && !isOSName(matches[2]) {
-		return false, fmt.Errorf("unsupported if condition %q", expr)
-	}
-	result := osFromValue(matches[2]) == targetOS
-	if matches[1] == "!=" {
-		return !result, nil
-	}
-	return result, nil
-}
-
-func isOSName(value string) bool {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "windows", "linux", "macos":
-		return true
-	default:
-		return false
-	}
-}
-
-func supportedAction(action string) bool {
-	switch action {
-	case "actions/checkout", "actions/cache", "actions/cache/restore", "actions/cache/save",
-		"actions/setup-node", "actions/setup-go", "actions/setup-python",
-		"actions/setup-dotnet", "actions/setup-java", "actions/setup-ruby", "ruby/setup-ruby":
-		return true
-	default:
-		return false
-	}
-}
-
-func validateWorkflowEnv(env map[string]interface{}) error {
-	for name, raw := range env {
-		if err := rejectActionsExpression(fmt.Sprint(raw)); err != nil {
-			return fmt.Errorf("env %q: %w", name, err)
-		}
-	}
-	return nil
-}
-
-func validateWorkflowShell(value string) error {
-	if value == "" {
-		return nil
-	}
-	if err := rejectActionsExpression(value); err != nil {
-		return fmt.Errorf("shell: %w", err)
-	}
-	switch shell.Normalize(value) {
-	case "bash", "sh", "pwsh", "powershell", "cmd":
-		return nil
-	default:
-		return fmt.Errorf("unsupported workflow shell %q", value)
-	}
-}
-
-func rejectActionsExpression(value string) error {
-	if strings.Contains(value, "${{") || strings.Contains(value, "}}") {
-		return fmt.Errorf("unsupported GitHub Actions expression in %q", value)
-	}
-	return nil
-}
-
-func isWorkspaceDirectory(value string) bool {
-	normalized := normalizeWorkingDirectory(value)
-	return normalized != value && !strings.Contains(normalized, "${{")
+	return cwd
 }
