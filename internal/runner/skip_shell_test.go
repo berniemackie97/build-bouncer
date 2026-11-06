@@ -35,12 +35,12 @@ func TestMissingShellCannotBeMarkedReady(t *testing.T) {
 	if missing := MissingTools(check); len(missing) != 0 {
 		t.Fatalf("shell must not be counted as a missing optional tool: %q", missing)
 	}
-	if reason := SkipReason(check); !strings.Contains(reason, path) {
+	if reason := SkipReason(check); !strings.Contains(reason, filepath.Base(path)) {
 		t.Fatalf("missing executable did not fail readiness: %q", reason)
 	}
 	report, err := RunAllReport(t.TempDir(), &config.Config{Checks: []config.Check{check}}, Options{})
 	if err != nil || len(report.Failures) != 1 || report.Failures[0] != check.Name ||
-		len(report.Skipped) != 0 || !strings.Contains(report.Unavailable[check.Name], path) {
+		len(report.Skipped) != 0 || !strings.Contains(report.Unavailable[check.Name], filepath.Base(path)) {
 		t.Fatalf("missing shell must fail even when optional tools may be skipped: %+v, %v", report, err)
 	}
 }
