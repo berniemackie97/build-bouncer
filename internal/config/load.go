@@ -84,6 +84,9 @@ func validateAndDefault(cfg *Config) error {
 	if cfg.Runner.MaxParallel < 0 {
 		return errors.New("config: runner.maxParallel must be >= 0")
 	}
+	if cfg.Runner.MaxLogBytes < 0 || cfg.Runner.MaxSavedLogs < 0 || cfg.Runner.LogRetentionDays < 0 {
+		return errors.New("config: runner log limits must be >= 0")
+	}
 
 	if strings.TrimSpace(cfg.Insults.Mode) == "" {
 		cfg.Insults.Mode = "snarky"

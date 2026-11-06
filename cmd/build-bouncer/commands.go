@@ -296,8 +296,11 @@ func runCheck(args []string, ctx cli.Context) int {
 		Context:     checkContext,
 		CI:          *ci,
 		Verbose:     *verbose || *ci,
-		LogDir:      *logDir,
-		MaxParallel: cfg.Runner.MaxParallel,
+		LogDir:           *logDir,
+		MaxLogBytes:      cfg.Runner.MaxLogBytes,
+		MaxSavedLogs:     cfg.Runner.MaxSavedLogs,
+		LogRetentionDays: cfg.Runner.LogRetentionDays,
+		MaxParallel:      cfg.Runner.MaxParallel,
 		FailFast:    cfg.Runner.FailFast || *failFast,
 		Progress: func(e runner.ProgressEvent) {
 			if sp == nil {
@@ -399,7 +402,11 @@ func runCheck(args []string, ctx cli.Context) int {
 				}
 				if p := rep.LogFiles[f]; strings.TrimSpace(p) != "" {
 					fmt.Fprintln(ctx.Stderr, "")
-					fmt.Fprintln(ctx.Stderr, tui.Arrow("Full log: "+p))
+					label := "Full log: "
+				if rep.LogTruncated[f] {
+					label = "Full log (truncated): "
+				}
+				fmt.Fprintln(ctx.Stderr, tui.Arrow(label+p))
 				}
 			}
 		}

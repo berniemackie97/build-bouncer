@@ -28,8 +28,11 @@ type Check struct {
 }
 
 type Runner struct {
-	MaxParallel int  `yaml:"maxParallel,omitempty"`
-	FailFast    bool `yaml:"failFast,omitempty"`
+	MaxParallel      int   `yaml:"maxParallel,omitempty"`
+	FailFast         bool  `yaml:"failFast,omitempty"`
+	MaxLogBytes      int64 `yaml:"maxLogBytes,omitempty"`
+	MaxSavedLogs     int   `yaml:"maxSavedLogs,omitempty"`
+	LogRetentionDays int   `yaml:"logRetentionDays,omitempty"`
 }
 
 type Meta struct {
