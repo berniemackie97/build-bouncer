@@ -207,16 +207,16 @@ runner:
 
 func TestCanonicalOSAcceptsSupportedAliases(t *testing.T) {
 	for input, want := range map[string]string{
-		"windows": "windows",
+		"windows":          "windows",
 		" Windows-Latest ": "windows",
-		"windows-2025": "windows",
-		"macos": "macos",
-		"darwin": "macos",
-		"OSX": "macos",
-		"macos-15": "macos",
-		"linux": "linux",
-		"ubuntu": "linux",
-		"Ubuntu-24.04": "linux",
+		"windows-2025":     "windows",
+		"macos":            "macos",
+		"darwin":           "macos",
+		"OSX":              "macos",
+		"macos-15":         "macos",
+		"linux":            "linux",
+		"ubuntu":           "linux",
+		"Ubuntu-24.04":     "linux",
 	} {
 		if got := CanonicalOS(input); got != want {
 			t.Errorf("CanonicalOS(%q) = %q, want %q", input, got, want)
