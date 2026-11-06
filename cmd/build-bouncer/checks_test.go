@@ -38,3 +38,21 @@ func TestStripManualPlaceholder(t *testing.T) {
 		t.Fatalf("expected placeholder to be removed, got %+v", stripped)
 	}
 }
+
+func TestMergeChecksPreservesMissingToolPolicy(t *testing.T) {
+	existing := []config.Check{{Name: "required", Run: "go test ./..."}}
+	additions := []config.Check{{Name: "optional", Run: "go test ./...", AllowMissingTools: true}}
+	merged := mergeChecks(existing, additions)
+	if len(merged.Merged) != 2 || len(merged.Skipped) != 0 {
+		t.Fatalf("different missing-tool policies must not deduplicate: %+v", merged)
+	}
+}
+
+func TestGeneratedCheckIDsIncludeMissingToolPolicy(t *testing.T) {
+	required := config.Check{Name: "tests", Run: "go test ./..."}
+	optional := required
+	optional.AllowMissingTools = true
+	if stableCheckID("template:go", required) == stableCheckID("template:go", optional) {
+		t.Fatal("checks with different missing-tool policies must have distinct IDs")
+	}
+}

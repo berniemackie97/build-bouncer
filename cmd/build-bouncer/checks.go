@@ -65,7 +65,11 @@ func checkContentKey(c config.Check) string {
 	}
 	cwd := strings.TrimSpace(c.Cwd)
 	env := normalizeEnvKey(c.Env)
-	return shell + "\n" + run + "\n" + cwd + "\n" + env
+	key := shell + "\n" + run + "\n" + cwd + "\n" + env
+	if c.AllowMissingTools {
+		key += "\nallowMissingTools"
+	}
+	return key
 }
 
 func normalizeEnvKey(env map[string]string) string {
