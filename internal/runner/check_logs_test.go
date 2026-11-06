@@ -189,3 +189,23 @@ func TestBoundedOutputDoesNotFailPassingCheck(t *testing.T) {
 		t.Fatalf("successful checks should not retain logs: %v %v", entries, err)
 	}
 }
+
+func TestPrepareLogDirDoesNotChangeCustomDirectoryMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX mode bits are not meaningful on Windows")
+	}
+	path := filepath.Join(t.TempDir(), "shared")
+	if err := os.Mkdir(path, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareLogDir(path, false); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o750 {
+		t.Fatalf("custom directory mode changed to %v", info.Mode().Perm())
+	}
+}

@@ -48,6 +48,13 @@ func prepareLogDir(path string, owned bool) error {
 	if err := os.MkdirAll(path, 0o700); err != nil {
 		return err
 	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("log directory %q is not a directory or is a symbolic link", path)
+	}
 	if owned {
 		return os.Chmod(path, 0o700)
 	}
