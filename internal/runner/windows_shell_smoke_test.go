@@ -14,8 +14,8 @@ import (
 
 func TestInstalledWindowsShellsExecuteChecks(t *testing.T) {
 	tests := []struct {
-		name string
-		shell string
+		name    string
+		shell   string
 		command string
 	}{
 		{name: "Command Prompt", shell: "cmd", command: "echo ready"},
