@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 
@@ -154,23 +152,20 @@ func checksFromWorkflowFile(path string) ([]config.Check, error) {
 	}
 
 	workflowLabel := labelFromWorkflow(path, wf.Name)
-	var out []config.Check
-	currentOS := currentRunnerOS()
-
 	jobKeys := make([]string, 0, len(wf.Jobs))
 	for key := range wf.Jobs {
 		jobKeys = append(jobKeys, key)
 	}
 	sort.Strings(jobKeys)
+
 	workflowEnv := normalizeEnv(wf.Env)
+	var checks []config.Check
 	for _, jobKey := range jobKeys {
 		job := wf.Jobs[jobKey]
 		if err := validateWorkflowJob(jobKey, job); err != nil {
 			return nil, err
 		}
-		if !jobAppliesToOS(job, currentOS) {
-			continue
-		}
+		platforms := jobPlatforms(job)
 		jobLabel := labelFromJob(jobKey, job.Name)
 		jobEnv := mergeEnv(workflowEnv, normalizeEnv(job.Env))
 		jobDir := strings.TrimSpace(job.Defaults.Run.WorkingDirectory)
@@ -182,55 +177,48 @@ func checksFromWorkflowFile(path string) ([]config.Check, error) {
 			defaultShell = strings.TrimSpace(wf.Defaults.Run.Shell)
 		}
 
-		for _, step := range job.Steps {
-			if !stepAppliesToOS(step, currentOS) {
+		for _, platform := range platforms {
+			jobAllowed, _ := conditionMatchesOS(job.If, platform)
+			if !jobAllowed {
 				continue
 			}
+			for _, step := range job.Steps {
+				stepAllowed, _ := conditionMatchesOS(step.If, platform)
+				if !stepAllowed || strings.TrimSpace(step.Run) == "" {
+					continue
+				}
 
-			if strings.TrimSpace(step.Run) == "" && strings.TrimSpace(step.Uses) == "" {
-				continue
+				cwd := strings.TrimSpace(step.WorkingDirectory)
+				if cwd == "" {
+					cwd = jobDir
+				}
+				checks = append(checks, config.Check{
+					Name:   fmt.Sprintf("ci:%s:%s:%s:%s", workflowLabel, jobLabel, platform, labelFromStep(step)),
+					Run:    step.Run,
+					Shell:  resolveShell(step.Shell, defaultShell, platform),
+					Cwd:    cwd,
+					Env:    mergeEnv(jobEnv, normalizeEnv(step.Env)),
+					OS:     config.StringList{platform},
+					Source: "ci:" + workflowLabel,
+				})
 			}
-
-			if strings.TrimSpace(step.Run) == "" {
-				continue
-			}
-
-			stepLabel := labelFromStep(step)
-			stepEnv := normalizeEnv(step.Env)
-			env := mergeEnv(jobEnv, stepEnv)
-
-			name := fmt.Sprintf("ci:%s:%s:%s", workflowLabel, jobLabel, stepLabel)
-			cwd := strings.TrimSpace(step.WorkingDirectory)
-			if cwd == "" {
-				cwd = jobDir
-			}
-			shell := resolveShell(step.Shell, defaultShell, currentOS)
-			out = append(out, config.Check{
-				Name:   name,
-				Run:    step.Run,
-				Shell:  shell,
-				Cwd:    cwd,
-				Env:    env,
-				OS:     config.StringList{currentOS},
-				Source: "ci:" + workflowLabel,
-			})
 		}
 	}
 
-	return out, nil
+	return checks, nil
 }
 
-func jobAppliesToOS(job Job, currentOS string) bool {
-	if !runsOnMatches(job.RunsOn, job.Strategy.Matrix, currentOS) {
-		return false
+func jobPlatforms(job Job) []string {
+	target := job.RunsOn.Values[0]
+	if isMatrixOSReference(target) {
+		targets := matrixValues(job.Strategy.Matrix, "os")
+		platforms := make([]string, 0, len(targets))
+		for _, value := range targets {
+			platforms = append(platforms, osFromValue(value))
+		}
+		return platforms
 	}
-	applies, _ := conditionMatchesOS(job.If, currentOS)
-	return applies
-}
-
-func stepAppliesToOS(step Step, currentOS string) bool {
-	applies, _ := conditionMatchesOS(step.If, currentOS)
-	return applies
+	return []string{osFromValue(target)}
 }
 
 func labelFromWorkflow(path string, workflowName string) string {
@@ -352,70 +340,6 @@ func defaultGitHubShell(currentOS string) string {
 	default:
 		return "bash"
 	}
-}
-
-func currentRunnerOS() string {
-	switch runtime.GOOS {
-	case "windows":
-		return "windows"
-	case "darwin":
-		return "macos"
-	default:
-		return "linux"
-	}
-}
-
-func runsOnMatches(runsOn RunsOn, matrix map[string]interface{}, currentOS string) bool {
-	if len(runsOn.Values) == 0 {
-		return true
-	}
-	values, hasUnknown := expandRunsOn(runsOn.Values, matrix)
-	if len(values) == 0 {
-		return hasUnknown
-	}
-
-	known := false
-	for _, v := range values {
-		if os := osFromValue(v); os != "" {
-			known = true
-			if os == currentOS {
-				return true
-			}
-		}
-	}
-
-	if known {
-		return false
-	}
-	return true
-}
-
-func expandRunsOn(values []string, matrix map[string]interface{}) ([]string, bool) {
-	var out []string
-	unknown := false
-	for _, v := range values {
-		key := matrixKeyFromExpr(v)
-		if key == "" {
-			out = append(out, v)
-			continue
-		}
-		vals := matrixValues(matrix, key)
-		if len(vals) == 0 {
-			unknown = true
-			continue
-		}
-		out = append(out, vals...)
-	}
-	return out, unknown
-}
-
-var reMatrixVar = regexp.MustCompile(`(?i)matrix\.([a-z0-9_-]+)`)
-
-func matrixKeyFromExpr(value string) string {
-	if m := reMatrixVar.FindStringSubmatch(value); len(m) == 2 {
-		return m[1]
-	}
-	return ""
 }
 
 func matrixValues(matrix map[string]interface{}, key string) []string {

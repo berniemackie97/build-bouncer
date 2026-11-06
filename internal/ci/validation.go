@@ -21,6 +21,9 @@ func validateWorkflowJob(name string, job Job) error {
 	if job.Needs != nil || job.Container != nil || job.Services != nil || job.Uses != "" || job.TimeoutMinutes != 0 {
 		return fmt.Errorf("job %q: dependencies, containers, services, reusable workflows and job timeouts are not supported by CI import", name)
 	}
+	if len(job.RunsOn.Values) == 0 {
+		return fmt.Errorf("job %q: runs-on is required to determine the target platform", name)
+	}
 	if len(job.RunsOn.Values) > 1 {
 		return fmt.Errorf("job %q: multi-label runs-on cannot be represented by a local check", name)
 	}
@@ -28,6 +31,9 @@ func validateWorkflowJob(name string, job Job) error {
 		if key != "os" {
 			return fmt.Errorf("job %q: unsupported matrix dimension %q", name, key)
 		}
+	}
+	if len(job.Strategy.Matrix) > 0 && !isMatrixOSReference(job.RunsOn.Values[0]) {
+		return fmt.Errorf("job %q: matrix.os must determine runs-on to generate portable checks", name)
 	}
 	for _, runTarget := range job.RunsOn.Values {
 		target := strings.TrimSpace(runTarget)
