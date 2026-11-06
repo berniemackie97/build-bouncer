@@ -7,6 +7,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/berniemackie97/build-bouncer/internal/shell"
 	"unicode"
 )
 
@@ -132,89 +134,9 @@ func validateAndDefault(cfg *Config) error {
 	return nil
 }
 
-func validateShellSpec(shellSpec string) error {
-	s := strings.TrimSpace(shellSpec)
-	if s == "" {
-		return nil
-	}
-
-	// No multiline / control chars in config.
-	if strings.ContainsAny(s, "\x00\r\n\t") {
-		return errors.New("must be a single line (no NUL/newlines/tabs)")
-	}
-
-	// If the user literally included quotes inside the YAML value, parse strictly.
-	if strings.HasPrefix(s, `"`) || strings.HasPrefix(s, `'`) {
-		exe, rest, err := cutFirstTokenStrict(s)
-		if err != nil {
-			return err
-		}
-		if strings.TrimSpace(exe) == "" {
-			return errors.New("must include an executable name or path")
-		}
-		if strings.HasPrefix(exe, "-") {
-			return errors.New("executable must not start with '-'")
-		}
-		if strings.TrimSpace(rest) != "" {
-			return errors.New("must not include arguments (use only the shell executable)")
-		}
-		return nil
-	}
-
-	// Unquoted case:
-	// YAML quoting doesn't preserve quotes in the resulting Go string, so Windows paths with spaces
-	// look like: C:\Program Files\Git\bin\bash.exe
-	//
-	// We allow that *only* when it clearly looks like a path to an executable (contains a path separator
-	// and a clean extension). Otherwise spaces imply arguments, which we reject.
-	if strings.Contains(s, " ") {
-		hasSep := strings.ContainsAny(s, `/\`)
-		ext := filepath.Ext(s)
-		looksLikePathToExe := hasSep && ext != "" && !strings.ContainsAny(ext, " \t\r\n")
-		if looksLikePathToExe {
-			if strings.HasPrefix(s, "-") {
-				return errors.New("executable must not start with '-'")
-			}
-			return nil
-		}
-		return errors.New("must not include arguments (use only the shell executable)")
-	}
-
-	// Simple token.
-	if strings.HasPrefix(s, "-") {
-		return errors.New("executable must not start with '-'")
-	}
-	return nil
-}
-
-// cutFirstTokenStrict returns the first token and the remaining text.
-// It supports quoting for the first token, but requires quotes to be terminated.
-func cutFirstTokenStrict(text string) (string, string, error) {
-	trimmed := strings.TrimSpace(text)
-	if trimmed == "" {
-		return "", "", nil
-	}
-
-	first := trimmed[0]
-	if first == '"' || first == '\'' {
-		quote := first
-		rest := trimmed[1:]
-		closing := strings.IndexByte(rest, quote)
-		if closing == -1 {
-			return "", "", errors.New("unterminated quoted executable path")
-		}
-		token := rest[:closing]
-		remaining := strings.TrimSpace(trimmed[2+closing:])
-		return token, remaining, nil
-	}
-
-	// Unquoted: token is up to first whitespace.
-	for i := 0; i < len(trimmed); i++ {
-		if trimmed[i] == ' ' {
-			return trimmed[:i], strings.TrimSpace(trimmed[i+1:]), nil
-		}
-	}
-	return trimmed, "", nil
+func validateShellSpec(spec string) error {
+	_, err := shell.ParseExecutable(spec)
+	return err
 }
 
 func validateEnvOverrides(env map[string]string) error {

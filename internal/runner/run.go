@@ -498,8 +498,12 @@ func runOne(
 	runContext, cancelRun := context.WithTimeout(parentContext, timeoutDuration)
 	defer cancelRun()
 
-	// Enterprise behavior: no implicit defaults. If shell is not configured, we use OS default.
-	execName, execArgs := resolveCommand(explicitShell, commandText, "")
+	execName, execArgs, err := resolveCommand(explicitShell, commandText, "")
+	if err != nil {
+		_ = finishLog()
+		_ = os.Remove(logPath)
+		return runOutcome{ExitCode: 1}, fmt.Errorf("resolve check shell: %w", err)
+	}
 
 	command := exec.Command(execName, execArgs...) //nolint:gosec // command comes from user config by design
 	command.WaitDelay = processWaitDelay

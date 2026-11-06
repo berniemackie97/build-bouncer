@@ -1,12 +1,16 @@
 package runner
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/berniemackie97/build-bouncer/internal/shell"
 )
 
 // shellCommand is the final fallback when we cannot confidently resolve a specific shell.
@@ -23,78 +27,52 @@ func shellCommand(command string) (string, []string) {
 // 2. Respect direct shell invocation in the command (bash -c "...", powershell -Command "...")
 // 3. Respect fallback shell
 // 4. Fall back to OS default
-func resolveCommand(shell string, command string, fallbackShell string) (string, []string) {
-	if executableName, executableArgs, ok := commandForShell(shell, command); ok {
-		return executableName, executableArgs
+func resolveCommand(shellSpec string, command string, fallbackShell string) (string, []string, error) {
+	if strings.TrimSpace(shellSpec) != "" {
+		return commandForShell(shellSpec, command)
 	}
 
-	if executableName, executableArgs, ok := directShellCommand(command); ok {
-		return preferWindowsShell(executableName), executableArgs
+	if executable, args, ok := directShellCommand(command); ok {
+		return preferWindowsShell(executable), args, nil
 	}
 
-	if executableName, executableArgs, ok := commandForShell(fallbackShell, command); ok {
-		return executableName, executableArgs
+	if strings.TrimSpace(fallbackShell) != "" {
+		return commandForShell(fallbackShell, command)
 	}
 
-	return shellCommand(command)
+	executable, args := shellCommand(command)
+	return executable, args, nil
 }
 
-// commandForShell builds an exec name and args for a configured shell.
-// shellSpec can be just a name, a path, or a quoted path with optional extra args.
-// We treat extra args as prefix args for the shell.
-func commandForShell(shellSpec string, command string) (string, []string, bool) {
-	trimmedShellSpec := strings.TrimSpace(shellSpec)
-	if trimmedShellSpec == "" {
-		return "", nil, false
+func commandForShell(spec string, command string) (string, []string, error) {
+	executable, err := shell.ParseExecutable(spec)
+	if err != nil {
+		return "", nil, fmt.Errorf("shell %q: %w", spec, err)
+	}
+	if executable == "" {
+		return "", nil, errors.New("shell executable is required")
 	}
 
-	shellExecutable, shellPrefixArgs := splitExecutableAndArgs(trimmedShellSpec)
-	if strings.TrimSpace(shellExecutable) == "" {
-		return "", nil, false
-	}
-
-	lowerBaseName := strings.ToLower(filepath.Base(shellExecutable))
-
-	switch lowerBaseName {
+	switch strings.ToLower(shell.BaseName(executable)) {
 	case "bash", "bash.exe":
-		execName := shellExecutable
-		if shellExecutable == lowerBaseName {
-			execName = preferWindowsShell("bash")
+		if !strings.ContainsAny(executable, "/\\") {
+			executable = preferWindowsShell("bash")
 		}
-		args := append([]string{}, shellPrefixArgs...)
-		args = append(args, "-lc", command)
-		return execName, args, true
-
+		return executable, []string{"-lc", command}, nil
 	case "sh", "sh.exe":
-		execName := shellExecutable
-		if shellExecutable == lowerBaseName {
-			execName = preferWindowsShell("sh")
+		if !strings.ContainsAny(executable, "/\\") {
+			executable = preferWindowsShell("sh")
 		}
-		args := append([]string{}, shellPrefixArgs...)
-		args = append(args, "-c", command)
-		return execName, args, true
-
-	case "pwsh", "pwsh.exe":
-		args := append([]string{}, shellPrefixArgs...)
-		args = append(args, "-NoProfile", "-NonInteractive", "-Command", command)
-		return shellExecutable, args, true
-
-	case "powershell", "powershell.exe":
-		args := append([]string{}, shellPrefixArgs...)
-		args = append(args, "-NoProfile", "-NonInteractive", "-Command", command)
-		return shellExecutable, args, true
-
+		return executable, []string{"-c", command}, nil
+	case "pwsh", "pwsh.exe", "powershell", "powershell.exe":
+		return executable, []string{"-NoProfile", "-NonInteractive", "-Command", command}, nil
 	case "cmd", "cmd.exe":
-		// cmd is special. We always use cmd.exe and then append any prefix args before /C.
-		args := append([]string{}, shellPrefixArgs...)
-		args = append(args, "/C", command)
-		return "cmd.exe", args, true
-
+		if !strings.ContainsAny(executable, "/\\") {
+			executable = "cmd.exe"
+		}
+		return executable, []string{"/C", command}, nil
 	default:
-		// Unknown shell runner. We treat it as: <shell> <prefixArgs...> <command>
-		args := append([]string{}, shellPrefixArgs...)
-		args = append(args, command)
-		return shellExecutable, args, true
+		return executable, []string{command}, nil
 	}
 }
 
@@ -137,7 +115,7 @@ func parseDirectShellInvocation(command string, expectedShell string) (string, [
 		return "", nil, false
 	}
 
-	lowerExecutableBase := strings.ToLower(filepath.Base(executableToken))
+	lowerExecutableBase := strings.ToLower(shell.BaseName(executableToken))
 	expectedLower := strings.ToLower(expectedShell)
 
 	// Allow bash, bash.exe, sh, sh.exe, or full paths that end with those.
@@ -160,8 +138,7 @@ func parseDirectShellInvocation(command string, expectedShell string) (string, [
 		return "", nil, false
 	}
 
-	// Tests expect the executable name to be the canonical shell name, not the full path token.
-	return expectedShell, []string{flagToken, script}, true
+	return executableToken, []string{flagToken, script}, true
 }
 
 func parseDirectPowerShellInvocation(command string, expectedShell string) (string, []string, bool) {
@@ -170,7 +147,7 @@ func parseDirectPowerShellInvocation(command string, expectedShell string) (stri
 		return "", nil, false
 	}
 
-	lowerExecutableBase := strings.ToLower(filepath.Base(executableToken))
+	lowerExecutableBase := strings.ToLower(shell.BaseName(executableToken))
 	expectedLower := strings.ToLower(expectedShell)
 
 	if lowerExecutableBase != expectedLower && lowerExecutableBase != expectedLower+".exe" {
@@ -205,7 +182,7 @@ func parseDirectPowerShellInvocation(command string, expectedShell string) (stri
 
 			args := append([]string{}, prefixArgs...)
 			args = append(args, nextToken, scriptText)
-			return expectedShell, args, true
+			return executableToken, args, true
 		}
 
 		prefixArgs = append(prefixArgs, nextToken)
@@ -214,48 +191,6 @@ func parseDirectPowerShellInvocation(command string, expectedShell string) (stri
 			return "", nil, false
 		}
 	}
-}
-
-// splitExecutableAndArgs handles simple shell specs like:
-// pwsh
-// "C:\Program Files\PowerShell\7\pwsh.exe" -NoProfile
-// 'C:\Program Files\PowerShell\7\pwsh.exe' -NoProfile
-func splitExecutableAndArgs(spec string) (string, []string) {
-	trimmed := strings.TrimSpace(spec)
-	if trimmed == "" {
-		return "", nil
-	}
-
-	// If the spec starts with a quote, we treat it as "quoted executable path".
-	// If the quote is unterminated, tests expect we treat the entire string as the executable.
-	first := trimmed[0]
-	if first == '"' || first == '\'' {
-		quote := first
-		rest := trimmed[1:]
-		closing := strings.IndexByte(rest, quote)
-		if closing == -1 {
-			return trimmed, nil
-		}
-
-		executable := rest[:closing]
-		after := strings.TrimSpace(trimmed[closing+2:])
-		if after == "" {
-			return executable, nil
-		}
-
-		// Prefix args are treated as whitespace separated fields.
-		return executable, strings.Fields(after)
-	}
-
-	// Unquoted. First field is executable.
-	fields := strings.Fields(trimmed)
-	if len(fields) == 0 {
-		return "", nil
-	}
-	if len(fields) == 1 {
-		return fields[0], nil
-	}
-	return fields[0], fields[1:]
 }
 
 func cutFirstToken(text string) (string, string) {
