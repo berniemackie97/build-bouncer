@@ -93,3 +93,22 @@ func writeFile(path string, data []byte, mode os.FileMode, createOnly bool) erro
 	}
 	return syncDirectory(dir)
 }
+
+func ReplaceStagedFile(staged, path string) error {
+	mutationMutex.Lock()
+	defer mutationMutex.Unlock()
+	if filepath.Dir(staged) != filepath.Dir(path) {
+		return fmt.Errorf("staged file must be in destination directory")
+	}
+	if info, err := os.Lstat(path); err == nil {
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("refusing to replace non-regular file %q", path)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := replaceFile(staged, path); err != nil {
+		return err
+	}
+	return syncDirectory(filepath.Dir(path))
+}
