@@ -283,6 +283,71 @@ func TestExplicitShellPathIsNeverReplaced(t *testing.T) {
 	}
 }
 
+func TestExplicitWSLShellArguments(t *testing.T) {
+	name, args, err := commandForShell("wsl.exe", "printf '%s' 'two words'")
+	if runtime.GOOS != "windows" {
+		if err == nil {
+			t.Fatal("WSL must not be selected on a non-Windows host")
+		}
+		return
+	}
+	if err != nil || name != "wsl.exe" ||
+		!slices.Equal(args, []string{"--exec", "sh", "-c", "printf '%s' 'two words'"}) {
+		t.Fatalf("unexpected WSL command: %q %q, %v", name, args, err)
+	}
+}
+
+func TestRelativeShellPathResolvesFromRepoRoot(t *testing.T) {
+	var source, name, script string
+	if runtime.GOOS == "windows" {
+		source = os.Getenv("ComSpec")
+		name, script = "cmd.exe", "echo working"
+	} else {
+		var err error
+		source, err = exec.LookPath("sh")
+		if err != nil {
+			t.Fatal(err)
+		}
+		name, script = "sh", "printf working"
+	}
+	root := t.TempDir()
+	relative := filepath.Join("bin with spaces", name)
+	absolute := filepath.Join(root, relative)
+	if err := os.MkdirAll(filepath.Dir(absolute), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	input, err := os.Open(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer input.Close()
+	output, err := os.OpenFile(absolute, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(output, input); err != nil {
+		output.Close()
+		t.Fatal(err)
+	}
+	if err := output.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "work"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Checks: []config.Check{{
+		Name: "relative shell", Shell: "\"" + relative + "\"", Cwd: "work", Run: script,
+	}}}
+	if executable, err := ResolveCheckExecutableAt(root, cfg.Checks[0].Shell, script, nil); err != nil ||
+		!strings.EqualFold(executable, absolute) {
+		t.Fatalf("root-relative shell resolved to %q instead of %q: %v", executable, absolute, err)
+	}
+	report, err := RunAllReport(root, cfg, Options{})
+	if err != nil || len(report.Failures) != 0 || len(report.Unavailable) != 0 || len(report.Skipped) != 0 {
+		t.Fatalf("root-relative shell did not execute: %+v, %v", report, err)
+	}
+}
+
 func TestUnavailableShellHasNoFallback(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "missing-shell")
 	if _, err := ResolveCheckExecutable(path, "echo ok"); err == nil ||

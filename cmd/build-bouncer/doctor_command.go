@@ -40,6 +40,9 @@ func runDoctor(cfgPath string, ctx cli.Context) int {
 		}
 	} else {
 		cfgDir = filepath.Dir(cfgPath)
+		if filepath.Base(cfgDir) == config.ConfigDirName {
+			cfgDir = filepath.Dir(cfgDir)
+		}
 	}
 
 	cfg, err := config.Load(cfgPath)
@@ -65,10 +68,10 @@ func runDoctor(cfgPath string, ctx cli.Context) int {
 		}
 		fmt.Fprintln(ctx.Stdout, "  run:", check.Run)
 		fmt.Fprintln(ctx.Stdout, "  shell:", resolvedShell(check))
-		skipReason := runner.SkipReason(check)
+		skipReason := runner.SkipReasonAt(cfgDir, check)
 		applies, _ := runner.CheckAppliesToOS(check)
 		if applies {
-			executable, err := runner.ResolveCheckExecutable(check.Shell, check.Run)
+			executable, err := runner.ResolveCheckExecutableAt(cfgDir, check.Shell, check.Run, check.Env)
 			if err != nil {
 				fmt.Fprintln(ctx.Stdout, "  shell error:", err)
 				unavailableShell = true

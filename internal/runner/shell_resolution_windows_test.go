@@ -86,3 +86,16 @@ func TestWindowsGenericBashCanFindGitOutsidePATH(t *testing.T) {
 		t.Fatalf("expected Git Bash location %q, got %q: %v", gitBash, got, err)
 	}
 }
+
+func TestExplicitWSLLauncherKeepsWindowsPATH(t *testing.T) {
+	for _, executable := range []string{`C:\Windows\System32\wsl.exe`, `C:\Windows\System32\bash.exe`} {
+		env := []string{`PATH=C:\Windows\System32;C:\Program Files\Git\bin`}
+		got := adjustEnvForShell(executable, append([]string(nil), env...))
+		if len(got) != 1 || got[0] != env[0] {
+			t.Fatalf("WSL executable %q changed Windows PATH: %q", executable, got)
+		}
+		if err := validateWSLEnvironment(executable, map[string]string{"TOKEN": "example"}); err == nil {
+			t.Fatalf("WSL launcher %q silently accepted an environment override", executable)
+		}
+	}
+}

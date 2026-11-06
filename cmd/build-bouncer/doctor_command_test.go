@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -30,6 +31,31 @@ func TestDoctorReportsExecutableAndMissingShell(t *testing.T) {
 		!strings.Contains(stdout.String(), "executable:") || !strings.Contains(stdout.String(), "unavailable") ||
 		strings.Contains(stdout.String(), "skip:") {
 		t.Fatalf("doctor did not report shell selection and failure: exit=%d, out=%q, err=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestDoctorResolvesShellRelativeToRepository(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, config.ConfigDirName, config.ConfigFileName)
+	exe := "sh"
+	if runtime.GOOS == "windows" {
+		exe = "cmd.exe"
+	}
+	absolute := filepath.Join(root, "tools", exe)
+	if err := os.MkdirAll(filepath.Dir(absolute), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(absolute, []byte("test executable"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Checks: []config.Check{{Name: "relative", Run: "echo ok", Shell: filepath.Join("tools", exe)}}}
+	if err := config.Save(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	if code := runDoctor(configPath, cli.Context{Stdout: &out, Stderr: &errOut}); code != exitOK ||
+		!strings.Contains(out.String(), absolute) {
+		t.Fatalf("doctor did not resolve shell from repository: code=%d out=%q err=%q", code, out.String(), errOut.String())
 	}
 }
 
