@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -302,6 +303,9 @@ func saveState(path string, st State) error {
 		return err
 	}
 	if err := os.Rename(tmp.Name(), path); err != nil {
+		if runtime.GOOS != "windows" {
+			return err
+		}
 		if _, statErr := os.Stat(path); statErr != nil {
 			return err
 		}
