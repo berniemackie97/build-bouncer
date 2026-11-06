@@ -43,7 +43,10 @@ type Picker struct {
 	pack      Pack
 	state     State
 	statePath string
+	pending   map[string][]string
 }
+
+var stateFlushMutex sync.Mutex
 
 func Load(root string, cfg Config) (*Picker, error) {
 	p := &Picker{
@@ -109,10 +112,53 @@ func (p *Picker) Pick(entryType string) string {
 		if len(p.state.Recent[entryType]) > p.pack.MaxHistory {
 			p.state.Recent[entryType] = p.state.Recent[entryType][:p.pack.MaxHistory]
 		}
-		_ = saveState(p.statePath, p.state)
+		if p.pending == nil {
+			p.pending = make(map[string][]string)
+		}
+		p.pending[entryType] = append([]string{chosen.ID}, p.pending[entryType]...)
+		if len(p.pending[entryType]) > p.pack.MaxHistory {
+			p.pending[entryType] = p.pending[entryType][:p.pack.MaxHistory]
+		}
 	}
 
 	return text
+}
+
+func (p *Picker) Flush() error {
+	p.mu.Lock()
+	pending := p.pending
+	p.pending = nil
+	p.mu.Unlock()
+	if len(pending) == 0 {
+		return nil
+	}
+
+	stateFlushMutex.Lock()
+	state := loadState(p.statePath)
+	for entryType, selected := range pending {
+		history := append(append([]string{}, selected...), state.Recent[entryType]...)
+		if len(history) > p.pack.MaxHistory {
+			history = history[:p.pack.MaxHistory]
+		}
+		state.Recent[entryType] = history
+	}
+	err := saveState(p.statePath, state)
+	stateFlushMutex.Unlock()
+
+	if err != nil {
+		p.mu.Lock()
+		if p.pending == nil {
+			p.pending = make(map[string][]string)
+		}
+		for entryType, selected := range pending {
+			p.pending[entryType] = append(p.pending[entryType], selected...)
+			if len(p.pending[entryType]) > p.pack.MaxHistory {
+				p.pending[entryType] = p.pending[entryType][:p.pack.MaxHistory]
+			}
+		}
+		p.mu.Unlock()
+	}
+	return err
 }
 
 func (p *Picker) filter(entryType string, enforceCooldown bool) []Entry {
@@ -239,10 +285,30 @@ func saveState(path string, st State) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	tmp, err := os.CreateTemp(dir, ".banter-state-*.tmp")
+	if err != nil {
 		return err
 	}
-	_ = os.Remove(path)
-	return os.Rename(tmp, path)
+	defer os.Remove(tmp.Name())
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(b); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		if _, statErr := os.Stat(path); statErr != nil {
+			return err
+		}
+		if removeErr := os.Remove(path); removeErr != nil {
+			return err
+		}
+		return os.Rename(tmp.Name(), path)
+	}
+	return nil
 }
