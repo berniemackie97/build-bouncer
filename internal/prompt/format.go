@@ -61,7 +61,6 @@ func FormatPrompt(stderr io.Writer, report runner.Report, protectionLevel string
 
 	case "moderate":
 		fmt.Fprintln(stderr, tui.Info("  Moderate mode: Tests and CI enforced"))
-		fmt.Fprintln(stderr, tui.Dim("  Tip: Use 'git push -o force' to skip checks"))
 	}
 
 	fmt.Fprintln(stderr, "")

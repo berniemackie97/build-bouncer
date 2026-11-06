@@ -219,7 +219,7 @@ func runInit(force bool, templateID string, ctx cli.Context) int {
 func newCheckCommand() cli.Command {
 	return cli.Command{
 		Name:    "check",
-		Usage:   "check [--ci] [--verbose] [--hook] [--log-dir DIR] [--tail N] [--parallel N] [--fail-fast] [--force-push]",
+		Usage:   "check [--ci] [--verbose] [--hook] [--log-dir DIR] [--tail N] [--parallel N] [--fail-fast]",
 		Summary: "Run configured checks.",
 		Run: func(ctx cli.Context, args []string) int {
 			return runCheck(args, ctx)
@@ -236,17 +236,8 @@ func runCheck(args []string, ctx cli.Context) int {
 	tail := fs.Int("tail", 0, "extra tail lines per failed check (verbose only)")
 	parallel := fs.Int("parallel", 0, "max concurrent checks (default: 1 or config)")
 	failFast := fs.Bool("fail-fast", false, "cancel remaining checks on first failure")
-	forcePush := fs.Bool("force-push", false, "bypass all checks and allow push (from git push --force)")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
-	}
-
-	// If force-push is enabled, skip all checks and return success
-	if *forcePush {
-		if *verbose {
-			fmt.Fprintln(ctx.Stdout, "Force push enabled - skipping all checks.")
-		}
-		return exitOK
 	}
 
 	cfgPath, cfgDir, err := config.FindConfigFromCwd()
@@ -336,7 +327,7 @@ func runCheck(args []string, ctx cli.Context) int {
 	if len(rep.Failures) > 0 {
 		// Determine if we should block based on protection level
 		protectionLevel := cfg.Protection.ProtectionLevel()
-		shouldBlock := prompt.ShouldBlock(rep, protectionLevel)
+		shouldBlock := *ci || prompt.ShouldBlock(rep, protectionLevel)
 
 		if *verbose || *ci {
 			fmt.Fprintln(ctx.Stderr, "")

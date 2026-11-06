@@ -269,7 +269,7 @@ func TestHookUninstallCleansUpTempFiles(t *testing.T) {
 	}
 }
 
-func TestHookReinstallUpdatesVersion(t *testing.T) {
+func TestHookReinstallRemovesPushBypass(t *testing.T) {
 	repo := withTempRepo(t)
 
 	// Install v1 hook
@@ -284,7 +284,7 @@ func TestHookReinstallUpdatesVersion(t *testing.T) {
 		t.Fatalf("write old hook: %v", err)
 	}
 
-	// Reinstall should update to v2
+	// Reinstall updates the hook contract
 	code, _, stderr := runHookCmd([]string{"install"})
 	if code != exitOK {
 		t.Fatalf("reinstall exit=%d stderr=%q", code, stderr)
@@ -295,13 +295,12 @@ func TestHookReinstallUpdatesVersion(t *testing.T) {
 		t.Fatalf("read hook: %v", err)
 	}
 
-	// Should contain v2 marker
-	if !strings.Contains(string(hookBytes), "# build-bouncer pre-push hook v2") {
-		t.Fatalf("expected v2 hook, got: %q", string(hookBytes))
+	if !strings.Contains(string(hookBytes), "# build-bouncer pre-push hook v3") {
+		t.Fatalf("expected v3 hook, got: %q", string(hookBytes))
 	}
-
-	// Should contain new flag detection code
-	if !strings.Contains(string(hookBytes), "GIT_PUSH_OPTION_COUNT") {
-		t.Fatalf("expected v2 features, got: %q", string(hookBytes))
+	for _, forbidden := range []string{"--force-push", "GIT_PUSH_OPTION_COUNT", "ps -o args=", "eval "} {
+		if strings.Contains(string(hookBytes), forbidden) {
+			t.Fatalf("unexpected bypass-related hook content %q", forbidden)
+		}
 	}
 }

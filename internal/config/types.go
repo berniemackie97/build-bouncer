@@ -13,15 +13,15 @@ type Config struct {
 }
 
 type Check struct {
-	ID        string            `yaml:"id,omitempty"`
-	Source    string            `yaml:"source,omitempty"`
-	Name      string            `yaml:"name"`
-	Run       string            `yaml:"run"`
-	Shell     string            `yaml:"shell,omitempty"`
-	Cwd       string            `yaml:"cwd,omitempty"`
-	Env       map[string]string `yaml:"env,omitempty"`
-	OS        StringList        `yaml:"os,omitempty"`
-	Platforms StringList        `yaml:"platforms,omitempty"`
+	ID                string            `yaml:"id,omitempty"`
+	Source            string            `yaml:"source,omitempty"`
+	Name              string            `yaml:"name"`
+	Run               string            `yaml:"run"`
+	Shell             string            `yaml:"shell,omitempty"`
+	Cwd               string            `yaml:"cwd,omitempty"`
+	Env               map[string]string `yaml:"env,omitempty"`
+	OS                StringList        `yaml:"os,omitempty"`
+	Platforms         StringList        `yaml:"platforms,omitempty"`
 	Requires          StringList        `yaml:"requires,omitempty"`
 	AllowMissingTools bool              `yaml:"allowMissingTools,omitempty"`
 	Timeout           time.Duration     `yaml:"timeout,omitempty"`
@@ -53,30 +53,12 @@ type Banter struct {
 	Locale  string `yaml:"locale"` // en
 }
 
-// Protection defines the enforcement level for build-bouncer checks.
-//
-// Levels (from least to most strict):
-//   - lax: Only blocks on build/compilation errors (critical failures)
-//   - moderate: Blocks on build errors, test failures, and CI checks (default)
-//   - strict: Blocks on any check failure, no override prompts in hook mode
-//
-// Interactive mode (manual `build-bouncer check` command):
-//   - lax/moderate: Shows interactive prompt allowing override on failures
-//   - strict: No interactive override, must use --force-push flag
-//
-// Hook mode (git pre-push):
-//   - lax: Only blocks on critical build failures
-//   - moderate: Blocks on tests/CI, allows override via BUILDBOUNCER_SKIP=1
-//   - strict: Blocks on any failure, no prompts, requires --force-push flag
+// Protection controls failure enforcement and interactive hook overrides.
 type Protection struct {
-	// Level determines how strictly checks are enforced: lax, moderate, strict
 	Level string `yaml:"level,omitempty"`
 
-	// Interactive enables override prompts in non-hook mode (default: true for lax/moderate, false for strict)
 	Interactive *bool `yaml:"interactive,omitempty"`
 
-	// CriticalPatterns are regex patterns to identify critical failures (build errors, compilation failures)
-	// Used by 'lax' mode to determine if a failure is severe enough to block
 	CriticalPatterns []string `yaml:"criticalPatterns,omitempty"`
 }
 
@@ -93,6 +75,5 @@ func (p Protection) IsInteractive() bool {
 	if p.Interactive != nil {
 		return *p.Interactive
 	}
-	// Default: interactive for lax/moderate, non-interactive for strict
 	return p.ProtectionLevel() != "strict"
 }
