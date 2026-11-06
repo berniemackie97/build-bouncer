@@ -179,3 +179,28 @@ checks:
 		t.Fatal("explicit missing-tool policy not loaded")
 	}
 }
+
+func TestRunnerLogLimitsLoad(t *testing.T) {
+	cfg, err := Parse([]byte(`version: 1
+checks:
+  - name: test
+    run: echo ok
+runner:
+  maxLogBytes: 4194304
+  maxSavedLogs: 12
+  logRetentionDays: 14
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Runner.MaxLogBytes != 4194304 || cfg.Runner.MaxSavedLogs != 12 || cfg.Runner.LogRetentionDays != 14 {
+		t.Fatalf("incorrect log limits: %+v", cfg.Runner)
+	}
+
+	for _, field := range []string{"maxLogBytes", "maxSavedLogs", "logRetentionDays"} {
+		input := "version: 1\nchecks:\n  - name: test\n    run: echo ok\nrunner:\n  " + field + ": -1\n"
+		if _, err := Parse([]byte(input)); err == nil {
+			t.Fatalf("negative %s accepted", field)
+		}
+	}
+}

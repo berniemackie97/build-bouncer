@@ -34,13 +34,16 @@ type ProgressEvent struct {
 }
 
 type Options struct {
-	Context     context.Context
-	CI          bool
-	Verbose     bool
-	LogDir      string
-	MaxParallel int
-	FailFast    bool
-	Progress    func(e ProgressEvent)
+	Context          context.Context
+	CI               bool
+	Verbose          bool
+	LogDir           string
+	MaxLogBytes      int64
+	MaxSavedLogs     int
+	LogRetentionDays int
+	MaxParallel      int
+	FailFast         bool
+	Progress         func(e ProgressEvent)
 }
 
 type Report struct {
@@ -52,6 +55,7 @@ type Report struct {
 	Skipped          []string
 	SkipReasons      map[string]string // checkName -> reason
 	LogFiles         map[string]string // checkName -> full log (only on failure)
+	LogTruncated     map[string]bool
 }
 
 type limitedBuffer struct {
@@ -60,14 +64,15 @@ type limitedBuffer struct {
 }
 
 type runOutcome struct {
-	ExitCode int
-	Tail     string
-	LogPath  string
-	TimedOut bool
-	Timeout  time.Duration
-	Canceled bool
-	Skipped  bool
-	Reason   string
+	ExitCode  int
+	Tail      string
+	LogPath   string
+	Truncated bool
+	TimedOut  bool
+	Timeout   time.Duration
+	Canceled  bool
+	Skipped   bool
+	Reason    string
 }
 
 type checkJob struct {
@@ -119,6 +124,7 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 		FailureHeadlines: map[string]string{},
 		Unavailable:      map[string]string{},
 		LogFiles:         map[string]string{},
+		LogTruncated:     map[string]bool{},
 		SkipReasons:      map[string]string{},
 	}
 
@@ -136,6 +142,24 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 	}
 	if maxParallel > totalChecks {
 		maxParallel = totalChecks
+	}
+
+	limits, err := resolveLogLimits(options)
+	if err != nil {
+		return report, err
+	}
+	options.MaxLogBytes = limits.maxBytes
+	options.MaxSavedLogs = limits.keep
+	options.LogRetentionDays = limits.days
+	logDirectory := options.LogDir
+	if strings.TrimSpace(logDirectory) == "" {
+		logDirectory = resolveDefaultLogDir(repoRoot)
+	}
+	if err := prepareLogDir(logDirectory, strings.TrimSpace(options.LogDir) == ""); err != nil {
+		return report, err
+	}
+	if err := pruneCheckLogs(logDirectory, limits, time.Now()); err != nil {
+		return report, err
 	}
 
 	parentContext := options.Context
@@ -340,6 +364,9 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 			if strings.TrimSpace(result.outcome.LogPath) != "" {
 				report.LogFiles[result.name] = result.outcome.LogPath
 			}
+			if result.outcome.Truncated {
+				report.LogTruncated[result.name] = true
+			}
 
 			if result.outcome.Reason != "" {
 				report.Unavailable[result.name] = result.outcome.Reason
@@ -382,6 +409,17 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 		return checkOrder[report.Skipped[leftIndex]] < checkOrder[report.Skipped[rightIndex]]
 	})
 
+	if err := pruneCheckLogs(logDirectory, limits, time.Now()); err != nil {
+		return report, err
+	}
+	for name, path := range report.LogFiles {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			delete(report.LogFiles, name)
+		} else if err != nil {
+			return report, err
+		}
+	}
+
 	if firstFatalError != nil {
 		return Report{}, firstFatalError
 	}
@@ -417,38 +455,41 @@ func runOne(
 		return runOutcome{ExitCode: 1}, fmt.Errorf("check %q timeout %s exceeds limit %s", checkName, timeoutDuration, maxCheckTimeout)
 	}
 
+	limits, err := resolveLogLimits(options)
+	if err != nil {
+		return runOutcome{ExitCode: 1}, err
+	}
 	tailBuffer := newLimitedBuffer(128 * 1024)
 
 	logDirectory := strings.TrimSpace(options.LogDir)
 	if logDirectory == "" {
 		logDirectory = resolveDefaultLogDir(repoRoot)
 	}
-	if err := os.MkdirAll(logDirectory, 0o755); err != nil {
+	if err := prepareLogDir(logDirectory, strings.TrimSpace(options.LogDir) == ""); err != nil {
 		return runOutcome{ExitCode: 1}, err
 	}
 
-	logFileName := fmt.Sprintf(
-		"%s_%02d_%s.log",
+	logFile, err := os.CreateTemp(logDirectory, fmt.Sprintf(
+		"build-bouncer-%s-%02d-%s-*.log",
 		time.Now().Format("20060102_150405"),
 		checkIndex,
 		sanitize(checkName),
-	)
-	logPath := filepath.Join(logDirectory, logFileName)
-
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	))
 	if err != nil {
 		return runOutcome{ExitCode: 1}, err
 	}
-
-	// Important on Windows: you cannot delete the file while it is still open.
-	// We close explicitly on every return path.
-	closeLogFile := func() {
-		_ = logFile.Close()
-	}
-
-	outputWriter := io.MultiWriter(logFile, tailBuffer)
+	logPath := logFile.Name()
+	diskWriter := &boundedLogWriter{writer: logFile, limit: limits.maxBytes}
+	outputWriter := io.MultiWriter(tailBuffer, diskWriter)
 	if options.Verbose {
-		outputWriter = io.MultiWriter(os.Stdout, logFile, tailBuffer)
+		outputWriter = io.MultiWriter(tailBuffer, diskWriter, os.Stdout)
+	}
+	finishLog := func() error {
+		closeErr := logFile.Close()
+		if diskWriter.err != nil {
+			return diskWriter.err
+		}
+		return closeErr
 	}
 
 	runContext, cancelRun := context.WithTimeout(parentContext, timeoutDuration)
@@ -468,7 +509,7 @@ func runOne(
 
 	process, err := startCheckProcess(command)
 	if err != nil {
-		closeLogFile()
+		_ = finishLog()
 		_ = os.Remove(logPath)
 		return runOutcome{ExitCode: 1}, err
 	}
@@ -482,12 +523,15 @@ func runOne(
 		process.terminate()
 		<-waitDone
 
-		closeLogFile()
-
+		logErr := finishLog()
 		outcome := runOutcome{
-			ExitCode: 1,
-			Tail:     tailBuffer.String(),
-			LogPath:  logPath,
+			ExitCode:  1,
+			Tail:      tailBuffer.String(),
+			LogPath:   logPath,
+			Truncated: diskWriter.truncated,
+		}
+		if logErr != nil {
+			return outcome, fmt.Errorf("write check log: %w", logErr)
 		}
 
 		if runContext.Err() == context.DeadlineExceeded {
@@ -500,41 +544,40 @@ func runOne(
 		return outcome, nil
 
 	case waitErr := <-waitDone:
+		if logErr := finishLog(); logErr != nil {
+			return runOutcome{ExitCode: 1, Tail: tailBuffer.String(), LogPath: logPath, Truncated: diskWriter.truncated}, fmt.Errorf("write check log: %w", logErr)
+		}
 		if waitErr == nil {
-			closeLogFile()
-
 			if err := removeFileWithRetries(logPath); err != nil {
-				// This should be rare, but if we promised success logs are removed,
-				// failing to remove it is a real error.
-				return runOutcome{ExitCode: 0, Tail: tailBuffer.String()}, err
+				return runOutcome{ExitCode: 1, Tail: tailBuffer.String(), LogPath: logPath}, fmt.Errorf("remove successful check log: %w", err)
 			}
-
 			return runOutcome{ExitCode: 0, Tail: tailBuffer.String()}, nil
 		}
 
-		closeLogFile()
-
 		if errors.Is(waitErr, exec.ErrWaitDelay) {
 			return runOutcome{
-				ExitCode: 1,
-				Tail:     tailBuffer.String(),
-				LogPath:  logPath,
-				Reason:   "output pipes stayed open after the command exited",
+				ExitCode:  1,
+				Tail:      tailBuffer.String(),
+				LogPath:   logPath,
+				Truncated: diskWriter.truncated,
+				Reason:    "output pipes stayed open after the command exited",
 			}, nil
 		}
 
 		if exitErr, ok := waitErr.(*exec.ExitError); ok {
 			return runOutcome{
-				ExitCode: exitErr.ExitCode(),
-				Tail:     tailBuffer.String(),
-				LogPath:  logPath,
+				ExitCode:  exitErr.ExitCode(),
+				Tail:      tailBuffer.String(),
+				LogPath:   logPath,
+				Truncated: diskWriter.truncated,
 			}, nil
 		}
 
 		return runOutcome{
-			ExitCode: 1,
-			Tail:     tailBuffer.String(),
-			LogPath:  logPath,
+			ExitCode:  1,
+			Tail:      tailBuffer.String(),
+			LogPath:   logPath,
+			Truncated: diskWriter.truncated,
 		}, waitErr
 	}
 }

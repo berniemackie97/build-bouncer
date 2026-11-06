@@ -319,7 +319,20 @@ Set `banter.enabled: false` to disable banter lines (spinner falls back to neutr
 By default:
 - `.git/build-bouncer/logs/*.log`
 
-Logs are only kept for failed checks. Successful checks delete their temp log.
+Successful checks delete their logs. Failed checks retain up to 4 MiB per log by default; larger output is drained but the saved log is marked as truncated, and the last 128 KiB is available for diagnostics. On Unix, files are created with owner-only permissions (0600) and the default log directory is restricted to the owner (0700). Windows access is governed by filesystem ACLs, so keep logs under a user-private directory. Custom log directories retain their existing permissions; symbolic links as log directories are refused.
+
+Before and after each run, BuildBouncer deletes its own logs older than 7 days and keeps no more than 20 remaining logs. When more checks fail than the retention count allows, the oldest saved logs are removed; the failure summaries and output tails remain available. Other files in the log directory are untouched. Logs can contain credentials emitted by your tools; avoid printing secrets. Existing logs from earlier versions may need manual permission changes or cleanup.
+
+Optional `runner` settings in `.buildbouncer/config.yaml`:
+
+```yaml
+runner:
+  maxLogBytes: 4194304
+  maxSavedLogs: 20
+  logRetentionDays: 7
+```
+
+Values of 0 use the defaults. Limits: 64 MiB per log, 100 retained logs, and 365 retention days. All failed checks remain blocking even when their logs are truncated.
 
 ### "Quiet mode is too quiet"
 Use:
