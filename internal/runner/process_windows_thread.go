@@ -53,7 +53,7 @@ func resumeProcessMainThread(pid uint32) error {
 			defer syscall.CloseHandle(syscall.Handle(handle))
 
 			previousCount, _, callErr := resumeThread.Call(handle)
-			if previousCount == ^uintptr(0) {
+			if uint32(previousCount) == ^uint32(0) {
 				return fmt.Errorf("resume process thread: %w", callErr)
 			}
 			if previousCount != 1 {
