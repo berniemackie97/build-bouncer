@@ -53,7 +53,7 @@ func TestWSLExecutesLinuxScriptWhenDistributionIsInitialized(t *testing.T) {
 	defer cancel()
 	output, err := exec.CommandContext(ctx, launcher, "--exec", "sh", "-c", "printf ready").CombinedOutput()
 	if err != nil {
-		t.Skipf("WSL default distribution is not ready: %v (%s)", err, strings.TrimSpace(string(output)))
+		t.Skipf("WSL default distribution is not ready: %v", err)
 	}
 	if !strings.Contains(string(output), "ready") {
 		t.Fatalf("WSL probe did not run Linux shell: %q", output)
