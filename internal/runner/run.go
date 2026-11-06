@@ -227,8 +227,8 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 			emitProgress(ProgressEvent{
 				Stage:    "end",
 				Index:    job.index + 1,
-				Total: totalChecks,
-				Check: checkName,
+				Total:    totalChecks,
+				Check:    checkName,
 				ExitCode: outcome.ExitCode,
 			})
 
