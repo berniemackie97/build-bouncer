@@ -252,7 +252,7 @@ Each check:
   - `allowMissingTools`: opt-in to skipping a check when its required tools are unavailable; a run with no executed checks still fails
   - `timeout`: per-check timeout (example: `30s`, `2m`); defaults to `30m` and cannot exceed `2h`
 
-`shell` must be just the executable name or path (no arguments). Use `run` for the actual command.
+`shell` must name a single executable, not an executable plus arguments. Quote paths containing spaces; unquoted Windows executable paths ending in `.exe` are also accepted. An explicitly selected path is preserved, not replaced by a different executable on `PATH`. If the executable is missing or cannot start, the check fails without falling back to another shell.
 
 If `shell` is omitted, build-bouncer uses the OS default (`cmd` on Windows, `sh` on macOS/Linux).
 Generated checks include explicit shells based on CI defaults or script type; for manual checks, set `shell` if you need `bash` or `pwsh`.

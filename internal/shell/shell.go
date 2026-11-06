@@ -2,7 +2,6 @@
 package shell
 
 import (
-	"path"
 	"slices"
 	"strings"
 )
@@ -89,17 +88,13 @@ func DefaultForOS(goos string) string {
 	}
 }
 
-// Normalize tries to normalize common shell names and paths into a stable executable name.
-// If it does not recognize the input, it returns the trimmed string as is.
+// Normalize canonicalizes known shell names and preserves explicit executable paths.
 func Normalize(shell string) string {
-	trimmedShell := strings.TrimSpace(shell)
-	if trimmedShell == "" {
-		return ""
+	trimmed := strings.TrimSpace(shell)
+	if trimmed == "" || strings.ContainsAny(trimmed, "/\\") {
+		return trimmed
 	}
-
-	lowerBaseName := strings.ToLower(path.Base(strings.ReplaceAll(trimmedShell, "\\", "/")))
-
-	switch lowerBaseName {
+	switch strings.ToLower(trimmed) {
 	case "bash", "bash.exe":
 		return "bash"
 	case "sh", "sh.exe":
@@ -111,7 +106,7 @@ func Normalize(shell string) string {
 	case "cmd", "cmd.exe":
 		return "cmd"
 	default:
-		return trimmedShell
+		return trimmed
 	}
 }
 

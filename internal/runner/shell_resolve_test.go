@@ -1,6 +1,9 @@
 package runner
 
 import (
+	"io"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -20,45 +23,6 @@ func TestShellCommand(t *testing.T) {
 
 	if name != "sh" || !slices.Equal(args, []string{"-c", "echo hi"}) {
 		t.Fatalf("shellCommand() = (%q, %v), want (%q, %v)", name, args, "sh", []string{"-c", "echo hi"})
-	}
-}
-
-func TestSplitExecutableAndArgs(t *testing.T) {
-	tests := []struct {
-		name     string
-		spec     string
-		wantExe  string
-		wantArgs []string
-	}{
-		{name: "empty", spec: "", wantExe: "", wantArgs: nil},
-		{name: "single word", spec: "pwsh", wantExe: "pwsh", wantArgs: nil},
-		{
-			name:     "quoted path with args",
-			spec:     `"C:\Program Files\PowerShell\7\pwsh.exe" -NoProfile -NoLogo`,
-			wantExe:  `C:\Program Files\PowerShell\7\pwsh.exe`,
-			wantArgs: []string{"-NoProfile", "-NoLogo"},
-		},
-		{
-			name:     "quoted path no args",
-			spec:     `"C:\Path With Space\sh.exe"`,
-			wantExe:  `C:\Path With Space\sh.exe`,
-			wantArgs: nil,
-		},
-		{
-			name:     "unterminated quote is treated as exe",
-			spec:     `"C:\Nope`,
-			wantExe:  `"C:\Nope`,
-			wantArgs: nil,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gotExe, gotArgs := splitExecutableAndArgs(tt.spec)
-			if gotExe != tt.wantExe || !slices.Equal(gotArgs, tt.wantArgs) {
-				t.Fatalf("splitExecutableAndArgs(%q) = (%q, %v), want (%q, %v)", tt.spec, gotExe, gotArgs, tt.wantExe, tt.wantArgs)
-			}
-		})
 	}
 }
 
@@ -125,7 +89,7 @@ func TestParseDirectShellInvocation(t *testing.T) {
 		if !ok {
 			t.Fatal("expected ok")
 		}
-		if name != "bash" || !slices.Equal(args, []string{"-c", "echo hi"}) {
+		if name != "/usr/bin/bash" || !slices.Equal(args, []string{"-c", "echo hi"}) {
 			t.Fatalf("got (%q, %v), want (%q, %v)", name, args, "bash", []string{"-c", "echo hi"})
 		}
 	})
@@ -146,63 +110,46 @@ func TestParseDirectShellInvocation(t *testing.T) {
 }
 
 func TestCommandForShell(t *testing.T) {
-	t.Run("pwsh builds standard args", func(t *testing.T) {
-		name, args, ok := commandForShell("pwsh", "Get-ChildItem")
-		if !ok {
-			t.Fatal("expected ok")
+	tests := []struct {
+		name       string
+		spec       string
+		command    string
+		executable string
+		args       []string
+	}{
+		{name: "powershell", spec: "pwsh", command: "Get-ChildItem", executable: "pwsh",
+			args: []string{"-NoProfile", "-NonInteractive", "-Command", "Get-ChildItem"}},
+		{name: "POSIX path", spec: "/usr/bin/bash", command: "make test", executable: "/usr/bin/bash",
+			args: []string{"-lc", "make test"}},
+		{name: "Windows path with spaces", spec: "C:\\Program Files\\Git\\bin\\bash.exe", command: "make test",
+			executable: "C:\\Program Files\\Git\\bin\\bash.exe", args: []string{"-lc", "make test"}},
+		{name: "quoted Windows path", spec: "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\"",
+			command: "Write-Host ok", executable: "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+			args: []string{"-NoProfile", "-NonInteractive", "-Command", "Write-Host ok"}},
+		{name: "custom executable", spec: "custom-shell", command: "run",
+			executable: "custom-shell", args: []string{"run"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			name, args, err := commandForShell(tc.spec, tc.command)
+			if err != nil || name != tc.executable || !slices.Equal(args, tc.args) {
+				t.Fatalf("commandForShell(%q) = %q, %q, %v; want %q, %q", tc.spec, name, args, err, tc.executable, tc.args)
+			}
+		})
+	}
+	for _, spec := range []string{"bash -lc", "cmd /D", "\"C:\\Program Files\\Git\\bin\\bash.exe\" -lc", "\"C:\\Unterminated"} {
+		if _, _, err := commandForShell(spec, "echo test"); err == nil {
+			t.Fatalf("accepted shell arguments or malformed spec %q", spec)
 		}
-
-		wantName := "pwsh"
-		wantArgs := []string{"-NoProfile", "-NonInteractive", "-Command", "Get-ChildItem"}
-
-		if name != wantName || !slices.Equal(args, wantArgs) {
-			t.Fatalf("got (%q, %v), want (%q, %v)", name, args, wantName, wantArgs)
-		}
-	})
-
-	t.Run("bash path avoids preferWindowsShell lookups", func(t *testing.T) {
-		name, args, ok := commandForShell("/usr/bin/bash", "make test")
-		if !ok {
-			t.Fatal("expected ok")
-		}
-		wantName := "/usr/bin/bash"
-		wantArgs := []string{"-lc", "make test"}
-
-		if name != wantName || !slices.Equal(args, wantArgs) {
-			t.Fatalf("got (%q, %v), want (%q, %v)", name, args, wantName, wantArgs)
-		}
-	})
-
-	t.Run("cmd always returns cmd.exe and puts prefix args before /C", func(t *testing.T) {
-		name, args, ok := commandForShell(`cmd /D`, "dir")
-		if !ok {
-			t.Fatal("expected ok")
-		}
-		wantName := "cmd.exe"
-		wantArgs := []string{"/D", "/C", "dir"}
-
-		if name != wantName || !slices.Equal(args, wantArgs) {
-			t.Fatalf("got (%q, %v), want (%q, %v)", name, args, wantName, wantArgs)
-		}
-	})
-
-	t.Run("unknown shell treats command as final arg", func(t *testing.T) {
-		name, args, ok := commandForShell(`weirdshell -x -y`, "do thing")
-		if !ok {
-			t.Fatal("expected ok")
-		}
-		wantName := "weirdshell"
-		wantArgs := []string{"-x", "-y", "do thing"}
-
-		if name != wantName || !slices.Equal(args, wantArgs) {
-			t.Fatalf("got (%q, %v), want (%q, %v)", name, args, wantName, wantArgs)
-		}
-	})
+	}
 }
 
 func TestResolveCommand_Order(t *testing.T) {
 	t.Run("explicit shell wins", func(t *testing.T) {
-		name, args := resolveCommand("pwsh", "Write-Host ok", "")
+		name, args, err := resolveCommand("pwsh", "Write-Host ok", "")
+		if err != nil {
+			t.Fatal(err)
+		}
 		if name != "pwsh" {
 			t.Fatalf("expected pwsh, got %q", name)
 		}
@@ -212,7 +159,10 @@ func TestResolveCommand_Order(t *testing.T) {
 	})
 
 	t.Run("direct shell invocation is recognized when shell is empty", func(t *testing.T) {
-		name, args := resolveCommand("", `bash -lc "echo hi"`, "")
+		name, args, err := resolveCommand("", `bash -lc "echo hi"`, "")
+		if err != nil {
+			t.Fatal(err)
+		}
 		base := strings.ToLower(filepath.Base(name))
 		if base != "bash" && base != "bash.exe" {
 			t.Fatalf("expected bash executable, got %q", name)
@@ -223,7 +173,10 @@ func TestResolveCommand_Order(t *testing.T) {
 	})
 
 	t.Run("fallback shell is used when command is not a direct invocation", func(t *testing.T) {
-		name, args := resolveCommand("", "echo hi", "cmd")
+		name, args, err := resolveCommand("", "echo hi", "cmd")
+		if err != nil {
+			t.Fatal(err)
+		}
 		if name != "cmd.exe" {
 			t.Fatalf("expected cmd.exe, got %q", name)
 		}
@@ -233,15 +186,82 @@ func TestResolveCommand_Order(t *testing.T) {
 	})
 
 	t.Run("OS default fallback when nothing else applies", func(t *testing.T) {
-		name, args := resolveCommand("", "echo hi", "")
+		name, args, err := resolveCommand("", "echo hi", "")
 		if runtime.GOOS == "windows" {
+			if err != nil {
+				t.Fatal(err)
+			}
 			if name != "cmd.exe" || !slices.Equal(args, []string{"/C", "echo hi"}) {
 				t.Fatalf("got (%q, %v), want (cmd.exe, [/C echo hi])", name, args)
 			}
 			return
 		}
+		if err != nil {
+			t.Fatal(err)
+		}
 		if name != "sh" || !slices.Equal(args, []string{"-c", "echo hi"}) {
 			t.Fatalf("got (%q, %v), want (sh, [-c echo hi])", name, args)
 		}
 	})
+}
+
+func TestDirectPowerShellInvocationPreservesExecutablePath(t *testing.T) {
+	spec := "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -NoProfile -Command \"Write-Host ok\""
+	name, args, ok := parseDirectPowerShellInvocation(spec, "pwsh")
+	if !ok || name != "C:\\Program Files\\PowerShell\\7\\pwsh.exe" ||
+		!slices.Equal(args, []string{"-NoProfile", "-Command", "Write-Host ok"}) {
+		t.Fatalf("direct invocation changed explicit path: %q, %q, %t", name, args, ok)
+	}
+}
+
+func TestInvalidExplicitShellDoesNotFallBack(t *testing.T) {
+	if _, _, err := resolveCommand("bash -lc", "echo ok", "sh"); err == nil {
+		t.Fatal("invalid explicit shell must not fall back to sh")
+	}
+}
+
+func TestConfiguredShellPathWithSpacesExecutes(t *testing.T) {
+	var source, targetName, script string
+	if runtime.GOOS == "windows" {
+		source = os.Getenv("ComSpec")
+		targetName = "cmd.exe"
+		script = "echo working"
+	} else {
+		var err error
+		source, err = exec.LookPath("sh")
+		if err != nil {
+			t.Fatal(err)
+		}
+		targetName = "sh"
+		script = "printf working"
+	}
+	directory := filepath.Join(t.TempDir(), "shell binaries with spaces")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(directory, targetName)
+	input, err := os.Open(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer input.Close()
+	output, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(output, input); err != nil {
+		output.Close()
+		t.Fatal(err)
+	}
+	if err := output.Close(); err != nil {
+		t.Fatal(err)
+	}
+	executable, args, err := resolveCommand("\""+target+"\"", script, "")
+	if err != nil || executable != target {
+		t.Fatalf("shell executable changed: %q != %q: %v", executable, target, err)
+	}
+	result, err := exec.Command(executable, args...).CombinedOutput()
+	if err != nil || strings.TrimSpace(string(result)) != "working" {
+		t.Fatalf("execute shell with spaces: %s %v", result, err)
+	}
 }
