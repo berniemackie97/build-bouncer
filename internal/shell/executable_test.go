@@ -44,13 +44,13 @@ func TestParseExecutable(t *testing.T) {
 }
 
 func TestBaseNameAcrossPlatforms(t *testing.T) {
-	for spec, expected := range map[string]string{
-		"C:\\Tools\\bin\\bash.exe": "bash.exe",
-		"/usr/local/bin/pwsh":       "pwsh",
-		"cmd.exe":                   "cmd.exe",
+	for _, tc := range []struct{ spec, want string }{
+		{spec: "C:\\Tools\\bin\\bash.exe", want: "bash.exe"},
+		{spec: "/usr/local/bin/pwsh", want: "pwsh"},
+		{spec: "cmd.exe", want: "cmd.exe"},
 	} {
-		if got := BaseName(spec); got != expected {
-			t.Fatalf("BaseName(%q) = %q, want %q", spec, got, expected)
+		if got := BaseName(tc.spec); got != tc.want {
+			t.Fatalf("BaseName(%q) = %q, want %q", tc.spec, got, tc.want)
 		}
 	}
 }
