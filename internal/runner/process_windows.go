@@ -81,10 +81,10 @@ func startCheckProcess(command *exec.Cmd) (*checkProcess, error) {
 		return nil, err
 	}
 
-	handle, err := syscall.OpenProcess(processAssignAccess, false, uint32(command.Process.Pid))
+	processHandle, err := syscall.OpenProcess(processAssignAccess, false, uint32(command.Process.Pid))
 	if err == nil {
-		ok, _, callErr = assignProcessToJobObject.Call(uintptr(job), uintptr(handle))
-		_ = syscall.CloseHandle(handle)
+		ok, _, callErr = assignProcessToJobObject.Call(uintptr(job), uintptr(processHandle))
+		_ = syscall.CloseHandle(processHandle)
 		if ok == 0 {
 			err = fmt.Errorf("assign process to job: %w", callErr)
 		}
