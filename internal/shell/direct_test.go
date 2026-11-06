@@ -7,12 +7,12 @@ import (
 
 func TestParseDirectInvocation(t *testing.T) {
 	tests := []struct {
-		name string
-		input string
+		name       string
+		input      string
 		executable string
-		args []string
-		matched bool
-		fails bool
+		args       []string
+		matched    bool
+		fails      bool
 	}{
 		{name: "bash quoted script", input: "bash -lc \"echo hello\"", executable: "bash", args: []string{"-lc", "echo hello"}, matched: true},
 		{name: "quoted executable with spaces", input: "\"C:\\Program Files\\Git\\bin\\bash.exe\" -c 'echo hi'", executable: "C:\\Program Files\\Git\\bin\\bash.exe", args: []string{"-c", "echo hi"}, matched: true},
