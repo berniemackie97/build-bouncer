@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/berniemackie97/build-bouncer/internal/storage"
 	assettemplates "github.com/berniemackie97/build-bouncer/assets/templates"
+	"github.com/berniemackie97/build-bouncer/internal/storage"
 )
 
 type configTemplate struct {

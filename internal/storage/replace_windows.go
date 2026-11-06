@@ -23,7 +23,7 @@ func replaceFile(from, to string) error {
 	ok, _, callErr := moveFileEx.Call(
 		uintptr(unsafe.Pointer(source)),
 		uintptr(unsafe.Pointer(target)),
-		moveFileReplaceExisting | moveFileWriteThrough,
+		moveFileReplaceExisting|moveFileWriteThrough,
 	)
 	if ok == 0 {
 		return callErr
