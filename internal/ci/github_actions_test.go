@@ -417,4 +417,3 @@ jobs:
 		t.Fatalf("expected cwd to be 'build', got %q", checks[0].Cwd)
 	}
 }
-
