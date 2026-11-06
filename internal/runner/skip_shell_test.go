@@ -54,10 +54,10 @@ func TestRequiredExecutableResolvesFromRepositoryRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	check := config.Check{
-		Name: "relative requirement",
-		Shell: `"` + relative + `"`,
-		Run: script,
-		Cwd: "work",
+		Name:     "relative requirement",
+		Shell:    `"` + relative + `"`,
+		Run:      script,
+		Cwd:      "work",
 		Requires: config.StringList{`"` + relative + `"`},
 	}
 	if missing := MissingToolsAt(root, check); len(missing) != 0 {
