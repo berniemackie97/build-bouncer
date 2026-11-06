@@ -4,7 +4,6 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"path"
-	"runtime"
 	"sort"
 	"strings"
 
@@ -35,10 +34,10 @@ func stampGeneratedChecks(checks []config.Check, source string) []config.Check {
 }
 
 func resolveGeneratedShell(check config.Check) string {
-	if strings.TrimSpace(check.Shell) != "" {
-		return shell.Normalize(check.Shell)
+	if strings.TrimSpace(check.Shell) == "" {
+		return ""
 	}
-	return shell.Resolve(runtime.GOOS, "", check.Run)
+	return shell.Normalize(check.Shell)
 }
 
 func stableCheckID(source string, check config.Check) string {
