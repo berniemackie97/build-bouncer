@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/berniemackie97/build-bouncer/internal/config"
 )
 
 func TestShellCommand(t *testing.T) {
@@ -263,6 +265,12 @@ func TestConfiguredShellPathWithSpacesExecutes(t *testing.T) {
 	result, err := exec.Command(executable, args...).CombinedOutput()
 	if err != nil || strings.TrimSpace(string(result)) != "working" {
 		t.Fatalf("execute shell with spaces: %s %v", result, err)
+	}
+
+	cfg := &config.Config{Checks: []config.Check{{Name: "path with spaces", Run: script, Shell: "\"" + target + "\""}}}
+	report, err := RunAllReport(t.TempDir(), cfg, Options{})
+	if err != nil || len(report.Failures) != 0 || len(report.Unavailable) != 0 || len(report.Skipped) != 0 {
+		t.Fatalf("runner failed to execute configured shell: %+v, %v", report, err)
 	}
 }
 
