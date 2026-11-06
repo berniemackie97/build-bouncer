@@ -69,13 +69,14 @@ func (r *RunsOn) UnmarshalYAML(value *yaml.Node) error {
 			r.Values = []string{value.Value}
 		}
 	case yaml.SequenceNode:
-		var out []string
 		for _, n := range value.Content {
-			if n.Kind == yaml.ScalarNode && strings.TrimSpace(n.Value) != "" {
-				out = append(out, n.Value)
+			if n.Kind != yaml.ScalarNode || strings.TrimSpace(n.Value) == "" {
+				return fmt.Errorf("runs-on must contain non-empty labels")
 			}
+			r.Values = append(r.Values, n.Value)
 		}
-		r.Values = out
+	default:
+		return fmt.Errorf("runs-on must be a label or list of labels")
 	}
 	return nil
 }
@@ -114,6 +115,13 @@ func ChecksFromGitHubActions(root string) ([]config.Check, error) {
 		checks[i].Cwd = normalizeWorkingDirectory(checks[i].Cwd)
 	}
 
+	seen := make(map[string]struct{}, len(checks))
+	for _, check := range checks {
+		if _, exists := seen[check.Name]; exists {
+			return nil, fmt.Errorf("duplicate imported check name %q; give workflow jobs and steps distinct names", check.Name)
+		}
+		seen[check.Name] = struct{}{}
+	}
 	return checks, nil
 }
 

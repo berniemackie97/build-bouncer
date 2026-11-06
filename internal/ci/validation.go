@@ -146,6 +146,11 @@ func supportedAction(action string) bool {
 
 func validateWorkflowEnv(env map[string]interface{}) error {
 	for name, raw := range env {
+		switch raw.(type) {
+		case string, bool, int, int64, float64:
+		default:
+			return fmt.Errorf("env %q: expected a scalar value", name)
+		}
 		if err := rejectActionsExpression(fmt.Sprint(raw)); err != nil {
 			return fmt.Errorf("env %q: %w", name, err)
 		}
