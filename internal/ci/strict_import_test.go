@@ -46,6 +46,7 @@ func TestImportRejectsUnsupportedWorkflowSemantics(t *testing.T) {
 		{"docker action", "jobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: docker://alpine:latest\n      - run: echo ok\n", "unsupported action"},
 		{"unknown shell", "jobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n        shell: 'bash --noprofile {0}'\n", "shell"},
 		{"unknown runner", "jobs:\n  build:\n    runs-on: private-runner\n    steps:\n      - run: echo ok\n", "runs-on"},
+		{"incomplete runner label", "jobs:\n  build:\n    runs-on: windows-\n    steps:\n      - run: echo ok\n", "runs-on"},
 		{"missing runner", "jobs:\n  build:\n    steps:\n      - run: echo ok\n", "runs-on is required"},
 		{"unbound OS matrix", "jobs:\n  build:\n    runs-on: ubuntu-latest\n    strategy:\n      matrix:\n        os: [ubuntu-latest, windows-latest]\n    steps:\n      - run: echo ok\n", "matrix.os must determine runs-on"},
 		{"multi-label runner", "jobs:\n  build:\n    runs-on: [self-hosted, linux]\n    steps:\n      - run: echo ok\n", "multi-label"},
