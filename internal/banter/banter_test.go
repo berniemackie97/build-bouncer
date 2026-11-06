@@ -78,7 +78,7 @@ func TestPickerSkipsMismatchedLocale(t *testing.T) {
 func TestPickerConcurrentPicks(t *testing.T) {
 	root := t.TempDir()
 	pack := Pack{
-		Version: 1,
+		Version:    1,
 		MaxHistory: 8,
 		Entries: []Entry{
 			{ID: "loading-1", Type: "loading", Text: "checking"},
