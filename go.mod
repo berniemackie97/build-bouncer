@@ -1,7 +1,7 @@
 module github.com/berniemackie97/build-bouncer
 
-go 1.25
+go 1.27
 
-toolchain go1.25.4
+toolchain go1.27.3
 
 require gopkg.in/yaml.v3 v3.0.1

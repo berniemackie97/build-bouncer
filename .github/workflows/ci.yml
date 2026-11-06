@@ -17,13 +17,16 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.sum
 
       - name: Go env
         run: go env
@@ -32,15 +35,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          files=$(find . -name '*.go' -type f)
-          if [ -n "$files" ]; then
-            bad=$(gofmt -l $files)
-            if [ -n "$bad" ]; then
-              echo "gofmt needed on:"
-              echo "$bad"
-              exit 1
-            fi
+          bad=$(gofmt -l .)
+          if [ -n "$bad" ]; then
+            echo "gofmt needed on:"
+            echo "$bad"
+            exit 1
           fi
+
+      - name: Verify module checksums
+        run: go mod verify
 
       - name: Go vet
         run: go vet ./...
@@ -53,13 +56,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.sum
 
       - name: Go test -race
         run: go test -race ./...
