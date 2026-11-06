@@ -4,13 +4,20 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
+var mutationMutex sync.Mutex
+
 func WriteFile(path string, data []byte, defaultMode os.FileMode) error {
+	mutationMutex.Lock()
+	defer mutationMutex.Unlock()
 	return writeExisting(path, data, defaultMode, true)
 }
 
 func WritePrivateState(path string, data []byte) error {
+	mutationMutex.Lock()
+	defer mutationMutex.Unlock()
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -44,6 +51,8 @@ func writeExisting(path string, data []byte, defaultMode os.FileMode, preserveMo
 }
 
 func CreateFile(path string, data []byte, mode os.FileMode) error {
+	mutationMutex.Lock()
+	defer mutationMutex.Unlock()
 	if _, err := os.Lstat(path); err == nil {
 		return fmt.Errorf("file already exists: %s: %w", path, os.ErrExist)
 	} else if !os.IsNotExist(err) {
