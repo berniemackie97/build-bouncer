@@ -321,7 +321,7 @@ By default:
 
 Successful checks delete their logs. Failed checks retain up to 4 MiB per log by default; larger output is drained but the saved log is marked as truncated, and the last 128 KiB is available for diagnostics. Files are created with owner-only permissions (0600), and the default log directory is restricted to the owner (0700). Custom log directories keep their existing directory permissions.
 
-At the start of each run, BuildBouncer deletes its own logs older than 7 days and keeps no more than 20 remaining logs. Other files in the log directory are untouched. Logs can contain credentials emitted by your tools; avoid printing secrets. Existing logs from earlier versions may need manual permission changes or cleanup.
+Before and after each run, BuildBouncer deletes its own logs older than 7 days and keeps no more than 20 remaining logs. When more checks fail than the retention count allows, the oldest saved logs are removed; the failure summaries and output tails remain available. Other files in the log directory are untouched. Logs can contain credentials emitted by your tools; avoid printing secrets. Existing logs from earlier versions may need manual permission changes or cleanup.
 
 Optional `runner` settings in `.buildbouncer/config.yaml`:
 

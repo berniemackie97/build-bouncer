@@ -409,6 +409,17 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 		return checkOrder[report.Skipped[leftIndex]] < checkOrder[report.Skipped[rightIndex]]
 	})
 
+	if err := pruneCheckLogs(logDirectory, limits, time.Now()); err != nil {
+		return report, err
+	}
+	for name, path := range report.LogFiles {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			delete(report.LogFiles, name)
+		} else if err != nil {
+			return report, err
+		}
+	}
+
 	if firstFatalError != nil {
 		return Report{}, firstFatalError
 	}
@@ -520,7 +531,7 @@ func runOne(
 			Truncated: diskWriter.truncated,
 		}
 		if logErr != nil {
-			outcome.Reason = "check log write failed: " + logErr.Error()
+			return outcome, fmt.Errorf("write check log: %w", logErr)
 		}
 
 		if runContext.Err() == context.DeadlineExceeded {
@@ -534,13 +545,7 @@ func runOne(
 
 	case waitErr := <-waitDone:
 		if logErr := finishLog(); logErr != nil {
-			return runOutcome{
-				ExitCode:  1,
-				Tail:      tailBuffer.String(),
-				LogPath:   logPath,
-				Truncated: diskWriter.truncated,
-				Reason:    "check log write failed: " + logErr.Error(),
-			}, nil
+			return runOutcome{ExitCode: 1, Tail: tailBuffer.String(), LogPath: logPath, Truncated: diskWriter.truncated}, fmt.Errorf("write check log: %w", logErr)
 		}
 		if waitErr == nil {
 			if err := removeFileWithRetries(logPath); err != nil {
