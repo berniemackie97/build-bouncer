@@ -75,7 +75,7 @@ func renderPrePushHook(hasCopiedBinary bool) string {
 # build-bouncer pre-push hook v3
 set -eu
 
-hook_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+hook_dir="$(CDPATH= cd -P "$(dirname "$0")" && pwd)"
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$repo_root" || exit 1
 

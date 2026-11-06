@@ -330,7 +330,7 @@ func TestHookUsesConfiguredHooksPath(t *testing.T) {
 		t.Fatalf("hook must not install into inactive default path: %v", err)
 	}
 
-	status, err := runHookStatus()
+	status, err := hooks.GetStatus()
 	if err != nil || status.HookPath != hookPath || !status.Ours {
 		t.Fatalf("invalid active hook status: %+v err=%v", status, err)
 	}
@@ -367,7 +367,7 @@ func TestHookUsesSharedDirectoryFromLinkedWorktree(t *testing.T) {
 	if _, err := os.Stat(hookPath); err != nil {
 		t.Fatalf("worktree hook missing in shared Git directory: %v", err)
 	}
-	status, err := runHookStatus()
+	status, err := hooks.GetStatus()
 	if err != nil || status.HookPath != hookPath || !status.Ours {
 		t.Fatalf("incorrect worktree hook status: %+v err=%v", status, err)
 	}
@@ -380,6 +380,3 @@ func TestHookUsesSharedDirectoryFromLinkedWorktree(t *testing.T) {
 	}
 }
 
-func runHookStatus() (hooks.Status, error) {
-	return hooks.GetStatus()
-}
