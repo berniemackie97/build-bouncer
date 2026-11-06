@@ -252,7 +252,7 @@ Each check:
   - `allowMissingTools`: opt-in to skipping a check when its required tools are unavailable; a run with no executed checks still fails
   - `timeout`: per-check timeout (example: `30s`, `2m`); defaults to `30m` and cannot exceed `2h`
 
-`shell` must name a single executable, not an executable plus arguments. Quote paths containing spaces; unquoted Windows executable paths ending in `.exe` are also accepted. An explicitly selected path is preserved, not replaced by a different executable on `PATH`. If the executable is missing or cannot start, the check fails without falling back to another shell.
+`shell` must name a single executable, not an executable plus arguments. Quote paths containing spaces; unquoted Windows executable paths ending in `.exe` are also accepted. An explicitly selected path is preserved, not replaced by a different executable on `PATH`. If the executable is missing or cannot start, the check fails without falling back to another shell. `allowMissingTools` permits skipping missing `requires` prerequisites; it does not permit skipping an unavailable shell.
 
 If `shell` is omitted, build-bouncer uses the OS default (`cmd` on Windows, `sh` on macOS/Linux). On Windows, a bare `bash` or `sh` resolves to Git Bash/MSYS rather than implicitly launching WSL. If Windows finds only the WSL launcher, the check fails with an actionable error unless Git Bash is installed. Use an explicit executable path to request WSL intentionally; BuildBouncer does not silently replace explicit paths.
 Generated checks include explicit shells based on CI defaults or script type; for manual checks, set `shell` if you need `bash` or `pwsh`.

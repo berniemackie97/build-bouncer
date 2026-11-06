@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/berniemackie97/build-bouncer/internal/config"
-	"github.com/berniemackie97/build-bouncer/internal/shell"
 )
 
 func checkSkipReason(check config.Check) string {
@@ -23,6 +22,10 @@ func checkReadiness(check config.Check) (reason string, unavailable bool) {
 			return "os mismatch", false
 		}
 		return "os mismatch (want " + strings.Join(allowedOSValues, ",") + ")", false
+	}
+
+	if _, err := ResolveCheckExecutable(check.Shell, check.Run); err != nil {
+		return "shell unavailable: " + err.Error(), true
 	}
 
 	missing := missingTools(check)
@@ -134,24 +137,6 @@ func missingTools(check config.Check) []string {
 		if !toolExists(toolName) {
 			missing = append(missing, toolName)
 		}
-	}
-
-	if strings.TrimSpace(check.Shell) == "" {
-		return missing
-	}
-	executable, err := shell.ParseExecutable(check.Shell)
-	if err != nil {
-		return append(missing, check.Shell)
-	}
-	shellBase := strings.ToLower(shell.BaseName(executable))
-	if shellBase == "cmd" || shellBase == "cmd.exe" {
-		return missing
-	}
-	if _, alreadyChecked := seenTools[executable]; alreadyChecked {
-		return missing
-	}
-	if !toolExists(executable) {
-		missing = append(missing, executable)
 	}
 
 	return missing

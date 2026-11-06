@@ -27,7 +27,8 @@ func TestDoctorReportsExecutableAndMissingShell(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := runDoctor(path, cli.Context{Stdout: &stdout, Stderr: &stderr})
 	if code != exitUsage || !strings.Contains(stdout.String(), "shell error:") ||
-		!strings.Contains(stdout.String(), "executable:") || !strings.Contains(stdout.String(), "unavailable") {
+		!strings.Contains(stdout.String(), "executable:") || !strings.Contains(stdout.String(), "unavailable") ||
+		strings.Contains(stdout.String(), "skip:") {
 		t.Fatalf("doctor did not report shell selection and failure: exit=%d, out=%q, err=%q", code, stdout.String(), stderr.String())
 	}
 }
