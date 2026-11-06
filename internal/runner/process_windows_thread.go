@@ -9,9 +9,9 @@ import (
 )
 
 const (
-	createSuspended        = 0x00000004
-	snapshotThreads        = 0x00000004
-	threadSuspendResume    = 0x0002
+	createSuspended     = 0x00000004
+	snapshotThreads     = 0x00000004
+	threadSuspendResume = 0x0002
 )
 
 var (
