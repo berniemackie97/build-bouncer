@@ -120,6 +120,9 @@ func isMatrixOSReference(value string) bool {
 
 func isSupportedRunner(value string) bool {
 	value = strings.ToLower(strings.TrimSpace(value))
+	if config.CanonicalOS(value) == "" {
+		return false
+	}
 	return value == "ubuntu-latest" || value == "windows-latest" || value == "macos-latest" ||
 		strings.HasPrefix(value, "ubuntu-") || strings.HasPrefix(value, "windows-") || strings.HasPrefix(value, "macos-")
 }
