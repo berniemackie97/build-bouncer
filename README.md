@@ -24,7 +24,7 @@ It’s intentionally dumb in the right way: **it does not guess your build syste
   - optionally drops a context-aware insult
 
 ### Git hook integration
-- Installs a **`pre-push`** git hook that runs: `build-bouncer check --hook`
+- Installs a **`pre-push`** hook at Git's effective hooks directory, including linked worktrees and `core.hooksPath`, that runs: `build-bouncer check --hook`
 - By default it **copies the build-bouncer binary into your repo** at:
   - `.git/hooks/bin/build-bouncer(.exe)`
 - The hook prefers that repo-pinned binary first (so it doesn’t accidentally run some other global version on your PATH).
@@ -393,7 +393,7 @@ When you run:
 build-bouncer hook install
 ```
 
-It writes `.git/hooks/pre-push` that runs:
+It writes a `pre-push` hook in Git's effective hooks directory that runs:
 
 ```bash
 build-bouncer check --hook
@@ -401,8 +401,8 @@ build-bouncer check --hook
 
 And if CopySelf is enabled (default), it copies the current executable into:
 
-- `.git/hooks/bin/build-bouncer` (mac/linux)
-- `.git/hooks/bin/build-bouncer.exe` (windows)
+- `<effective-hooks-directory>/bin/build-bouncer` (macOS/Linux)
+- `<effective-hooks-directory>/bin/build-bouncer.exe` (Windows)
 
 The hook prefers that repo-pinned binary first, so everyone on the team gets consistent behavior per repo.
 

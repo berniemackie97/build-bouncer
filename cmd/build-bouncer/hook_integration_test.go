@@ -3,19 +3,21 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/berniemackie97/build-bouncer/internal/cli"
+	"github.com/berniemackie97/build-bouncer/internal/hooks"
 )
 
 func withTempRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
-		t.Fatalf("create .git dir: %v", err)
+	if output, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
+		t.Fatalf("initialize repository: %v: %s", err, output)
 	}
 
 	cwd, err := os.Getwd()
@@ -303,4 +305,81 @@ func TestHookReinstallRemovesPushBypass(t *testing.T) {
 			t.Fatalf("unexpected bypass-related hook content %q", forbidden)
 		}
 	}
+}
+
+func TestHookUsesConfiguredHooksPath(t *testing.T) {
+	repo := withTempRepo(t)
+	if output, err := exec.Command("git", "-C", repo, "config", "core.hooksPath", "custom-hooks").CombinedOutput(); err != nil {
+		t.Fatalf("configure hooks: %v: %s", err, output)
+	}
+
+	code, _, stderr := runHookCmd([]string{"install"})
+	if code != exitOK {
+		t.Fatalf("install exit=%d stderr=%q", code, stderr)
+	}
+
+	hookPath := filepath.Join(repo, "custom-hooks", "pre-push")
+	hook, err := os.ReadFile(hookPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(hook), `$hook_dir/bin/build-bouncer`) {
+		t.Fatal("copied binary must be resolved alongside the active hook")
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".git", "hooks", "pre-push")); !os.IsNotExist(err) {
+		t.Fatalf("hook must not install into inactive default path: %v", err)
+	}
+
+	status, err := runHookStatus()
+	if err != nil || status.HookPath != hookPath || !status.Ours {
+		t.Fatalf("invalid active hook status: %+v err=%v", status, err)
+	}
+
+	code, _, stderr = runHookCmd([]string{"uninstall"})
+	if code != exitOK {
+		t.Fatalf("uninstall exit=%d stderr=%q", code, stderr)
+	}
+	if _, err := os.Stat(hookPath); !os.IsNotExist(err) {
+		t.Fatalf("configured hook remains after uninstall: %v", err)
+	}
+}
+
+func TestHookUsesSharedDirectoryFromLinkedWorktree(t *testing.T) {
+	repo := withTempRepo(t)
+	commit := exec.Command("git", "-C", repo, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "init")
+	if output, err := commit.CombinedOutput(); err != nil {
+		t.Fatalf("create initial commit: %v: %s", err, output)
+	}
+
+	worktree := filepath.Join(t.TempDir(), "worktree")
+	if output, err := exec.Command("git", "-C", repo, "worktree", "add", "-q", "--detach", worktree).CombinedOutput(); err != nil {
+		t.Fatalf("create worktree: %v: %s", err, output)
+	}
+	if err := os.Chdir(worktree); err != nil {
+		t.Fatal(err)
+	}
+
+	code, _, stderr := runHookCmd([]string{"install", "--no-copy"})
+	if code != exitOK {
+		t.Fatalf("worktree hook install exit=%d stderr=%q", code, stderr)
+	}
+	hookPath := filepath.Join(repo, ".git", "hooks", "pre-push")
+	if _, err := os.Stat(hookPath); err != nil {
+		t.Fatalf("worktree hook missing in shared Git directory: %v", err)
+	}
+	status, err := runHookStatus()
+	if err != nil || status.HookPath != hookPath || !status.Ours {
+		t.Fatalf("incorrect worktree hook status: %+v err=%v", status, err)
+	}
+	code, _, stderr = runHookCmd([]string{"uninstall"})
+	if code != exitOK {
+		t.Fatalf("worktree uninstall exit=%d stderr=%q", code, stderr)
+	}
+	if _, err := os.Stat(hookPath); !os.IsNotExist(err) {
+		t.Fatalf("worktree hook not removed: %v", err)
+	}
+}
+
+func runHookStatus() (hooks.Status, error) {
+	return hooks.GetStatus()
 }
