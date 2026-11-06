@@ -2,6 +2,7 @@
 package hooks
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,86 +14,98 @@ func UninstallPrePushHook(force bool) error {
 	if err != nil {
 		return err
 	}
-
 	hookPath := filepath.Join(hooksDir, "pre-push")
-
-	// If the hook exists, only remove it when it is ours, unless forced.
-	if b, readErr := os.ReadFile(hookPath); readErr == nil {
-		isOurs := strings.Contains(string(b), prePushMarker)
-		if !isOurs && !force {
-			return fmt.Errorf("pre-push hook exists but was not installed by build-bouncer (use --force to remove)")
-		}
-
-		// Use retry logic for Windows to handle file locks
-		if err := removeFileWithRetries(hookPath); err != nil {
-			return fmt.Errorf("remove hook: %w", err)
-		}
-	} else if !os.IsNotExist(readErr) {
-		return readErr
+	info, err := os.Lstat(hookPath)
+	if os.IsNotExist(err) {
+		return nil
 	}
-
-	// Clean up copied binaries with retry logic
-	p1, p2 := copiedBinaryPaths(hooksDir)
-	if err := removeFileWithRetries(p1); err != nil && !os.IsNotExist(err) {
-		// Log but don't fail on binary cleanup errors
-		_ = err
+	if err != nil {
+		return err
 	}
-	if p2 != p1 {
-		if err := removeFileWithRetries(p2); err != nil && !os.IsNotExist(err) {
-			// Log but don't fail on binary cleanup errors
-			_ = err
-		}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("pre-push hook is not a regular file: %s", hookPath)
 	}
-
-	// Clean up temporary files that may have been left behind
+	data, err := os.ReadFile(hookPath)
+	if err != nil {
+		return err
+	}
+	ours := strings.Contains(string(data), prePushMarker)
+	if !ours && !force {
+		return fmt.Errorf("pre-push hook exists but was not installed by build-bouncer (use --force to remove)")
+	}
+	if !ours {
+		return removeFileWithRetries(hookPath)
+	}
 	binDir := filepath.Join(hooksDir, "bin")
-	cleanupTempFiles(binDir)
-
-	// Remove bin dir if it exists and is empty
-	if err := removeDirIfEmpty(binDir); err != nil {
-		// Log but don't fail on directory cleanup errors
-		_ = err
+	if info, err := os.Lstat(binDir); err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("refusing non-directory copied executable path %q", binDir)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
 	}
 
-	return nil
+	p1, p2 := copiedBinaryPaths(hooksDir)
+	var cleanup []error
+	for _, path := range []string{p1, p2, filepath.Join(binDir, "build-bouncer.tmp"), filepath.Join(binDir, "build-bouncer.exe.tmp")} {
+		if err := removeOwnedFile(path); err != nil {
+			cleanup = append(cleanup, fmt.Errorf("remove %s: %w", path, err))
+		}
+	}
+	entries, err := os.ReadDir(binDir)
+	if err != nil && !os.IsNotExist(err) {
+		cleanup = append(cleanup, fmt.Errorf("inspect copied executable directory: %w", err))
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, ".build-bouncer-") && strings.HasSuffix(name, ".tmp") {
+			path := filepath.Join(binDir, name)
+			if err := removeOwnedFile(path); err != nil {
+				cleanup = append(cleanup, fmt.Errorf("remove %s: %w", path, err))
+			}
+		}
+	}
+	if err := errors.Join(cleanup...); err != nil {
+		return err
+	}
+	if err := removeFileWithRetries(hookPath); err != nil {
+		return fmt.Errorf("remove hook: %w", err)
+	}
+	return removeDirIfEmpty(binDir)
 }
 
-// cleanupTempFiles removes any .tmp files left behind in the hooks bin directory
-func cleanupTempFiles(dir string) {
-	entries, err := os.ReadDir(dir)
+func removeOwnedFile(path string) error {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
 	if err != nil {
-		return
+		return err
 	}
-
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".tmp") {
-			tmpPath := filepath.Join(dir, entry.Name())
-			_ = removeFileWithRetries(tmpPath)
-		}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("refusing to remove non-regular file %q", path)
 	}
+	return removeFileWithRetries(path)
 }
 
 func removeDirIfEmpty(dir string) error {
-	st, err := os.Stat(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	if !st.IsDir() {
+	info, err := os.Lstat(dir)
+	if os.IsNotExist(err) {
 		return nil
 	}
-
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("refusing non-directory bin path %q", dir)
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		// If we can't read it, we can't safely decide it's empty.
 		return err
 	}
 	if len(entries) != 0 {
 		return nil
 	}
-
 	if err := os.Remove(dir); err != nil && !os.IsNotExist(err) {
 		return err
 	}

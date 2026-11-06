@@ -1,13 +1,15 @@
 package hooks
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
+
+	"github.com/berniemackie97/build-bouncer/internal/storage"
 )
 
 type InstallOptions struct {
@@ -25,48 +27,122 @@ func InstallPrePushHook(opts InstallOptions) error {
 	}
 
 	hookPath := filepath.Join(hooksDir, "pre-push")
-
-	// Check if hook exists and is not ours
-	if !opts.Force {
-		if b, readErr := os.ReadFile(hookPath); readErr == nil {
-			isOurs := strings.Contains(string(b), prePushMarker)
-			if !isOurs {
-				return fmt.Errorf("pre-push hook exists but was not installed by build-bouncer (use --force to overwrite)")
-			}
-		}
+	previous, mode, existed, err := existingHook(hookPath, opts.Force)
+	if err != nil {
+		return err
 	}
 
-	var copied bool
+	var stagedBinary, binaryPath string
 	if opts.CopySelf {
-		exe, err := os.Executable()
-		if err != nil {
-			return err
-		}
-
 		binDir := filepath.Join(hooksDir, "bin")
 		if err := os.MkdirAll(binDir, 0o755); err != nil {
 			return err
 		}
-
-		dest := filepath.Join(binDir, "build-bouncer")
+		defer func() { _ = removeDirIfEmpty(binDir) }()
+		info, err := os.Lstat(binDir)
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("copied executable directory is not a directory: %s", binDir)
+		}
+		binaryPath = filepath.Join(binDir, "build-bouncer")
 		if runtime.GOOS == "windows" {
-			dest += ".exe"
+			binaryPath += ".exe"
 		}
-
-		if err := copyFile(exe, dest, 0o755); err != nil {
-			return fmt.Errorf("copy self into hook bin: %w", err)
+		stagedBinary, err = stageExecutable(binDir)
+		if err != nil {
+			return fmt.Errorf("stage copied binary: %w", err)
 		}
-
-		copied = true
+		defer os.Remove(stagedBinary)
 	}
 
-	hookBody := renderPrePushHook(copied)
-	if err := os.WriteFile(hookPath, []byte(hookBody), 0o755); err != nil {
+	body := []byte(renderPrePushHook(opts.CopySelf))
+	if existed {
+		err = storage.WriteFile(hookPath, body, 0o755)
+	} else {
+		err = storage.CreateFile(hookPath, body, 0o755)
+	}
+	if err != nil {
+		return fmt.Errorf("install pre-push hook: %w", err)
+	}
+	if err := os.Chmod(hookPath, 0o755); err != nil {
+		return errors.Join(err, restoreHook(hookPath, previous, mode, existed))
+	}
+	if stagedBinary != "" {
+		if err := storage.ReplaceStagedFile(stagedBinary, binaryPath); err != nil {
+			return errors.Join(fmt.Errorf("install copied binary: %w", err), restoreHook(hookPath, previous, mode, existed))
+		}
+	}
+	return nil
+}
+
+func existingHook(path string, force bool) ([]byte, os.FileMode, bool, error) {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return nil, 0, false, nil
+	}
+	if err != nil {
+		return nil, 0, false, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, 0, false, fmt.Errorf("pre-push hook is not a regular file: %s", path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	if !strings.Contains(string(data), prePushMarker) && !force {
+		return nil, 0, false, fmt.Errorf("pre-push hook exists but was not installed by build-bouncer (use --force to overwrite)")
+	}
+	return data, info.Mode().Perm(), true, nil
+}
+
+func restoreHook(path string, previous []byte, mode os.FileMode, existed bool) error {
+	if !existed {
+		return removeFileWithRetries(path)
+	}
+	if err := storage.WriteFile(path, previous, mode); err != nil {
 		return err
 	}
+	return os.Chmod(path, mode)
+}
 
-	_ = os.Chmod(hookPath, 0o755)
-	return nil
+func stageExecutable(dir string) (string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	in, err := os.Open(executable)
+	if err != nil {
+		return "", err
+	}
+	defer in.Close()
+	out, err := os.CreateTemp(dir, ".build-bouncer-*.tmp")
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if out != nil {
+			_ = out.Close()
+			_ = os.Remove(out.Name())
+		}
+	}()
+	if err := out.Chmod(0o755); err != nil {
+		return "", err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		return "", err
+	}
+	if err := out.Sync(); err != nil {
+		return "", err
+	}
+	path := out.Name()
+	if err := out.Close(); err != nil {
+		return "", err
+	}
+	out = nil
+	return path, nil
 }
 
 func renderPrePushHook(hasCopiedBinary bool) string {
@@ -110,76 +186,4 @@ else
 fi
 `
 	return body
-}
-
-// copyFile writes dst atomically via a temp file in the same directory, then renames.
-// On Windows, AV/indexing can briefly lock new .exe files; we retry rename a few times.
-func copyFile(src string, dst string, mode os.FileMode) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = in.Close() }()
-
-	tmp := dst + ".tmp"
-	_ = os.Remove(tmp)
-
-	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
-	if err != nil {
-		return err
-	}
-
-	copyErr := func() error {
-		if _, err := io.Copy(out, in); err != nil {
-			return err
-		}
-		// Best-effort flush. Some filesystems/AV combos behave better with an explicit sync.
-		_ = out.Sync()
-		return nil
-	}()
-
-	closeErr := out.Close()
-
-	if copyErr != nil {
-		_ = os.Remove(tmp)
-		return copyErr
-	}
-	if closeErr != nil {
-		_ = os.Remove(tmp)
-		return closeErr
-	}
-
-	// Windows cannot rename-over-existing; also helps if prior attempts left a file behind.
-	_ = removeFileWithRetries(dst)
-
-	if err := renameWithRetries(tmp, dst); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-
-	_ = os.Chmod(dst, mode)
-	return nil
-}
-
-func renameWithRetries(from string, to string) error {
-	// Non-Windows: rename is usually reliable; keep it simple.
-	if runtime.GOOS != "windows" {
-		return os.Rename(from, to)
-	}
-
-	const attempts = 12
-	const delay = 20 * time.Millisecond
-
-	var lastErr error
-	for range attempts {
-		// Best-effort: if something recreated/left 'to', clear it.
-		_ = os.Remove(to)
-
-		lastErr = os.Rename(from, to)
-		if lastErr == nil {
-			return nil
-		}
-		time.Sleep(delay)
-	}
-	return lastErr
 }

@@ -266,8 +266,8 @@ func TestHookUninstallCleansUpTempFiles(t *testing.T) {
 	if _, err := os.Stat(tmpFile1); !os.IsNotExist(err) {
 		t.Fatalf("tmp file 1 should be removed, stat err=%v", err)
 	}
-	if _, err := os.Stat(tmpFile2); !os.IsNotExist(err) {
-		t.Fatalf("tmp file 2 should be removed, stat err=%v", err)
+	if _, err := os.Stat(tmpFile2); err != nil {
+		t.Fatalf("unrelated temporary file should be preserved: %v", err)
 	}
 }
 
@@ -395,5 +395,55 @@ func assertSameHookFile(t *testing.T, actual, expected string) {
 	}
 	if !os.SameFile(actualInfo, expectedInfo) {
 		t.Fatalf("resolved hook %q is not expected hook %q", actual, expected)
+	}
+}
+
+func TestHookUninstallPreservesHookWhenBinaryCleanupFails(t *testing.T) {
+	repo := withTempRepo(t)
+	if code, _, stderr := runHookCmd([]string{"install", "--no-copy"}); code != exitOK {
+		t.Fatalf("hook install: %d %s", code, stderr)
+	}
+	binary := filepath.Join(repo, ".git", "hooks", "bin", "build-bouncer")
+	if runtime.GOOS == "windows" {
+		binary += ".exe"
+	}
+	if err := os.MkdirAll(binary, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(binary, "user-data"), []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, _ := runHookCmd([]string{"uninstall"}); code != exitUsage {
+		t.Fatalf("uninstall should report failed copied executable cleanup: %d", code)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".git", "hooks", "pre-push")); err != nil {
+		t.Fatalf("owned hook should remain available for retry: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(binary, "user-data")); err != nil {
+		t.Fatalf("foreign data lost: %v", err)
+	}
+}
+
+func TestHookUninstallRemovesOnlyOwnedStaleTemporaryFiles(t *testing.T) {
+	repo := withTempRepo(t)
+	if code, _, stderr := runHookCmd([]string{"install"}); code != exitOK {
+		t.Fatalf("hook install: %d %s", code, stderr)
+	}
+	dir := filepath.Join(repo, ".git", "hooks", "bin")
+	owned := filepath.Join(dir, ".build-bouncer-123456.tmp")
+	foreign := filepath.Join(dir, "other-tool.tmp")
+	for _, path := range []string{owned, foreign} {
+		if err := os.WriteFile(path, []byte("keep?"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if code, _, stderr := runHookCmd([]string{"uninstall"}); code != exitOK {
+		t.Fatalf("hook uninstall failed: %d %s", code, stderr)
+	}
+	if _, err := os.Stat(owned); !os.IsNotExist(err) {
+		t.Fatalf("owned stale temporary file was not removed: %v", err)
+	}
+	if _, err := os.Stat(foreign); err != nil {
+		t.Fatalf("foreign file should remain: %v", err)
 	}
 }

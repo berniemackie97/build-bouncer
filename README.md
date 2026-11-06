@@ -107,8 +107,7 @@ It populates those from templates shipped with build-bouncer:
 - `assets/templates/insults_default.json`
 - `assets/templates/banter_default.json`
 
-`init` always writes `.buildbouncer/config.yaml` (overwriting if it already exists).
-`--force` overwrites existing default packs.
+`init` preserves existing configuration, including the legacy `.buildbouncer.yaml`, unless `--force` is specified. With `--force`, initialization replaces the default config and packs. Failed initialization restores prior managed files.
 
 If `.github/workflows/*.yml` exists, `init` adds each `run` step as a check and skips duplicates.
 For Node-based templates, `init` reads `package.json` scripts (npm/yarn/pnpm/bun) and only includes checks that exist.
@@ -153,7 +152,8 @@ Prints resolved shell/cwd, PATH, and missing tools per check.
 ### `build-bouncer setup [--force] [--no-copy] [--ci] [--template-flag]`
 Convenience: init (if needed) + install hook + run checks.
 
-- `--force` overwrites default packs
+- `--force` replaces an existing config and default packs
+- Failed hook installation restores the previous managed files; failed checks do not undo a successful installation.
 - `--no-copy` installs hook without copying the binary into `.git/hooks/bin`
 - `--ci` runs checks in CI mode
 - Template flags choose a template when generating config (see list above)
@@ -172,12 +172,12 @@ Removes the hook.
 - Default behavior refuses to delete a hook it didn't install.
 - `--force` removes it anyway.
 
-### `build-bouncer uninstall [--force]`
-Removes build-bouncer artifacts from the repo, including:
-- `.buildbouncer/`
-- `.buildbouncer.yaml` (legacy)
-- `.git/build-bouncer/`
-- the pre-push hook
+### `build-bouncer uninstall [--force] [--purge --yes] [--dry-run]`
+By default, removes the installed pre-push hook and its copied executable while preserving configuration and state. A hook not owned by build-bouncer requires explicit `--force` to remove.
+
+- `--dry-run` previews the paths without deleting files.
+- `--purge --yes` additionally removes the entire `.buildbouncer/` directory, legacy `.buildbouncer.yaml`, and Git-resolved `build-bouncer` state directory. **These paths can contain user-edited files. Purge permanently deletes them.** Review `--purge --dry-run` before confirmation.
+- Any cleanup failure produces a nonzero exit code; removal is never reported as successful when cleanup fails.
 
 ### `build-bouncer ci sync`
 Refreshes `ci:` checks from `.github/workflows/*` `run` steps, removes stale CI entries, and skips duplicates against your custom checks.
