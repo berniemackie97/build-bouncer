@@ -222,7 +222,8 @@ func TestInvalidExplicitShellDoesNotFallBack(t *testing.T) {
 	}
 }
 
-func TestConfiguredShellPathWithSpacesExecutes(t *testing.T) {
+func copyTestShell(t *testing.T, directory string) (string, string) {
+	t.Helper()
 	var source, targetName, script string
 	if runtime.GOOS == "windows" {
 		source = os.Getenv("ComSpec")
@@ -237,7 +238,6 @@ func TestConfiguredShellPathWithSpacesExecutes(t *testing.T) {
 		targetName = "sh"
 		script = "printf working"
 	}
-	directory := filepath.Join(t.TempDir(), "shell binaries with spaces")
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -258,6 +258,11 @@ func TestConfiguredShellPathWithSpacesExecutes(t *testing.T) {
 	if err := output.Close(); err != nil {
 		t.Fatal(err)
 	}
+	return target, script
+}
+
+func TestConfiguredShellPathWithSpacesExecutes(t *testing.T) {
+	target, script := copyTestShell(t, filepath.Join(t.TempDir(), "shell binaries with spaces"))
 	executable, args, err := resolveCommand("\""+target+"\"", script, "")
 	if err != nil || executable != target {
 		t.Fatalf("shell executable changed: %q != %q: %v", executable, target, err)
@@ -280,6 +285,52 @@ func TestExplicitShellPathIsNeverReplaced(t *testing.T) {
 		if err != nil || selected != path {
 			t.Fatalf("explicit shell path %q was replaced with %q: %v", path, selected, err)
 		}
+	}
+}
+
+func TestExplicitWSLShellArguments(t *testing.T) {
+	name, args, err := commandForShell("wsl.exe", "printf '%s' 'two words'")
+	if runtime.GOOS != "windows" {
+		if err == nil {
+			t.Fatal("WSL must not be selected on a non-Windows host")
+		}
+		return
+	}
+	if err != nil || name != "wsl.exe" ||
+		!slices.Equal(args, []string{"--exec", "sh", "-c", "printf '%s' 'two words'"}) {
+		t.Fatalf("unexpected WSL command: %q %q, %v", name, args, err)
+	}
+}
+
+func TestRelativeShellSeparatorsArePortable(t *testing.T) {
+	root := t.TempDir()
+	for _, relative := range []string{`tools/shell.exe`, `tools\shell.exe`} {
+		if got, want := resolveExecutableAt(root, relative), filepath.Join(root, "tools", "shell.exe"); got != want {
+			t.Fatalf("relative shell %q resolved to %q; want %q", relative, got, want)
+		}
+	}
+	if got := resolveExecutableAt(root, `C:\Program Files\Git\bin\bash.exe`); got != `C:\Program Files\Git\bin\bash.exe` {
+		t.Fatalf("explicit drive path changed: %q", got)
+	}
+}
+
+func TestRelativeShellPathResolvesFromRepoRoot(t *testing.T) {
+	root := t.TempDir()
+	absolute, script := copyTestShell(t, filepath.Join(root, "bin with spaces"))
+	relative := filepath.Join("bin with spaces", filepath.Base(absolute))
+	if err := os.Mkdir(filepath.Join(root, "work"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Checks: []config.Check{{
+		Name: "relative shell", Shell: "\"" + relative + "\"", Cwd: "work", Run: script,
+	}}}
+	if executable, err := ResolveCheckExecutableAt(root, cfg.Checks[0].Shell, script, nil); err != nil ||
+		!strings.EqualFold(executable, absolute) {
+		t.Fatalf("root-relative shell resolved to %q instead of %q: %v", executable, absolute, err)
+	}
+	report, err := RunAllReport(root, cfg, Options{})
+	if err != nil || len(report.Failures) != 0 || len(report.Unavailable) != 0 || len(report.Skipped) != 0 {
+		t.Fatalf("root-relative shell did not execute: %+v, %v", report, err)
 	}
 }
 

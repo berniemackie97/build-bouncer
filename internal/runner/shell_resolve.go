@@ -66,6 +66,11 @@ func commandForShell(spec string, command string) (string, []string, error) {
 		return executable, []string{"-c", command}, nil
 	case "pwsh", "pwsh.exe", "powershell", "powershell.exe":
 		return executable, []string{"-NoProfile", "-NonInteractive", "-Command", command}, nil
+	case "wsl", "wsl.exe":
+		if runtime.GOOS != "windows" {
+			return "", nil, errors.New("WSL shell is supported only on Windows")
+		}
+		return executable, []string{"--exec", "sh", "-c", command}, nil
 	case "cmd", "cmd.exe":
 		if !strings.ContainsAny(executable, "/\\") {
 			executable = "cmd.exe"
@@ -266,21 +271,60 @@ func preferWindowsShell(spec string) (string, error) {
 
 // ResolveCheckExecutable reports the executable selected for a check without running it.
 func ResolveCheckExecutable(shellSpec, command string) (string, error) {
+	return ResolveCheckExecutableAt("", shellSpec, command, nil)
+}
+
+// ResolveCheckExecutableAt resolves project-relative executables against repoRoot.
+func ResolveCheckExecutableAt(repoRoot, shellSpec, command string, env map[string]string) (string, error) {
 	executable, _, err := resolveCommand(shellSpec, command, "")
 	if err != nil {
 		return "", err
 	}
+	executable = resolveExecutableAt(repoRoot, executable)
 	path, err := exec.LookPath(executable)
 	if err != nil {
 		return "", fmt.Errorf("executable %q is unavailable: %w", executable, err)
 	}
+	if err := validateWSLEnvironment(path, env); err != nil {
+		return "", err
+	}
 	return path, nil
+}
+
+func resolveExecutableAt(repoRoot, executable string) string {
+	if repoRoot != "" && strings.ContainsAny(executable, "/\\") && !filepath.IsAbs(executable) &&
+		!(len(executable) >= 2 && executable[1] == ':') {
+		return filepath.Join(repoRoot, filepath.FromSlash(strings.ReplaceAll(executable, "\\", "/")))
+	}
+	return executable
+}
+
+func isWSLLauncher(executable string) bool {
+	switch strings.ToLower(shell.BaseName(executable)) {
+	case "wsl", "wsl.exe":
+		return true
+	case "bash", "bash.exe":
+		return detectShellFlavorPath(executable) == pathFlavorWSL
+	default:
+		return false
+	}
+}
+
+func validateWSLEnvironment(executable string, overrides map[string]string) error {
+	if runtime.GOOS == "windows" && len(overrides) > 0 && isWSLLauncher(executable) {
+		return errors.New("WSL shell does not support check env overrides; configure environment inside the Linux command")
+	}
+	return nil
 }
 
 // adjustEnvForShell exists because Windows path separators and bash path separators do not match.
 // If we run bash or sh on Windows, we rewrite PATH into a form those shells usually understand.
 func adjustEnvForShell(shell string, env []string) []string {
 	if runtime.GOOS != "windows" {
+		return env
+	}
+
+	if isWSLLauncher(shell) {
 		return env
 	}
 

@@ -215,7 +215,7 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 				Check: checkName,
 			})
 
-			if reason, unavailable := checkReadiness(checkDefinition); reason != "" {
+			if reason, unavailable := checkReadiness(repoRoot, checkDefinition); reason != "" {
 				outcome := runOutcome{Skipped: !unavailable, Reason: reason}
 				if unavailable {
 					outcome.ExitCode = 1
@@ -499,6 +499,10 @@ func runOne(
 	defer cancelRun()
 
 	execName, execArgs, err := resolveCommand(explicitShell, commandText, "")
+	if err == nil {
+		execName = resolveExecutableAt(repoRoot, execName)
+		err = validateWSLEnvironment(execName, environmentOverrides)
+	}
 	if err != nil {
 		_ = finishLog()
 		_ = os.Remove(logPath)

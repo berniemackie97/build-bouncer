@@ -11,11 +11,11 @@ import (
 )
 
 func checkSkipReason(check config.Check) string {
-	reason, _ := checkReadiness(check)
+	reason, _ := checkReadiness("", check)
 	return reason
 }
 
-func checkReadiness(check config.Check) (reason string, unavailable bool) {
+func checkReadiness(repoRoot string, check config.Check) (reason string, unavailable bool) {
 	applies, allowedOSValues := checkAppliesToOS(check)
 	if !applies {
 		if len(allowedOSValues) == 0 {
@@ -24,7 +24,7 @@ func checkReadiness(check config.Check) (reason string, unavailable bool) {
 		return "os mismatch (want " + strings.Join(allowedOSValues, ",") + ")", false
 	}
 
-	if _, err := ResolveCheckExecutable(check.Shell, check.Run); err != nil {
+	if _, err := ResolveCheckExecutableAt(repoRoot, check.Shell, check.Run, check.Env); err != nil {
 		return "shell unavailable: " + err.Error(), true
 	}
 
@@ -37,6 +37,11 @@ func checkReadiness(check config.Check) (reason string, unavailable bool) {
 
 func SkipReason(check config.Check) string {
 	return checkSkipReason(check)
+}
+
+func SkipReasonAt(repoRoot string, check config.Check) string {
+	reason, _ := checkReadiness(repoRoot, check)
+	return reason
 }
 
 func CheckAppliesToOS(check config.Check) (bool, []string) {
