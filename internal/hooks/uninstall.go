@@ -72,6 +72,7 @@ func UninstallPrePushHook(force bool) error {
 		return fmt.Errorf("remove hook: %w", err)
 	}
 	return removeDirIfEmpty(binDir)
+}
 
 func removeOwnedFile(path string) error {
 	info, err := os.Lstat(path)
