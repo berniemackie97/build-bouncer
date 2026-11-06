@@ -58,7 +58,7 @@ func validateAndDefault(cfg *Config) error {
 			return fmt.Errorf("config: checks[%d] shell: %w", i, err)
 		}
 
-		osList, err := normalizeOSList(c.OS, c.Platforms)
+		osList, err := NormalizeOSList(c.OS, c.Platforms)
 		if err != nil {
 			return fmt.Errorf("config: checks[%d] os: %w", i, err)
 		}
@@ -188,7 +188,8 @@ func normalizeStringList(list StringList) (StringList, error) {
 	return out, nil
 }
 
-func normalizeOSList(osList StringList, platforms StringList) (StringList, error) {
+// NormalizeOSList combines canonical and legacy OS restrictions, rejecting unknown values.
+func NormalizeOSList(osList StringList, platforms StringList) (StringList, error) {
 	combined := make([]string, 0, len(osList)+len(platforms))
 	combined = append(combined, osList...)
 	combined = append(combined, platforms...)
@@ -198,8 +199,8 @@ func normalizeOSList(osList StringList, platforms StringList) (StringList, error
 	out := make([]string, 0, len(combined))
 	seen := map[string]struct{}{}
 	for _, item := range combined {
-		val, ok := normalizeOSValue(item)
-		if !ok {
+		val := CanonicalOS(item)
+		if val == "" {
 			return nil, fmt.Errorf("unknown value %q", item)
 		}
 		if _, ok := seen[val]; ok {
@@ -211,19 +212,25 @@ func normalizeOSList(osList StringList, platforms StringList) (StringList, error
 	return out, nil
 }
 
-func normalizeOSValue(value string) (string, bool) {
-	lower := strings.ToLower(strings.TrimSpace(value))
-	if lower == "" {
-		return "", false
+// CanonicalOS maps supported OS names and GitHub runner labels to platform names.
+// Unknown values do not select an operating system.
+func CanonicalOS(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch value {
+	case "windows":
+		return "windows"
+	case "macos", "darwin", "osx":
+		return "macos"
+	case "linux", "ubuntu":
+		return "linux"
 	}
 	switch {
-	case strings.Contains(lower, "windows"):
-		return "windows", true
-	case strings.Contains(lower, "macos") || strings.Contains(lower, "osx") || strings.Contains(lower, "darwin"):
-		return "macos", true
-	case strings.Contains(lower, "linux") || strings.Contains(lower, "ubuntu"):
-		return "linux", true
-	default:
-		return "", false
+	case strings.HasPrefix(value, "windows-") && len(value) > len("windows-"):
+		return "windows"
+	case strings.HasPrefix(value, "macos-") && len(value) > len("macos-"):
+		return "macos"
+	case strings.HasPrefix(value, "ubuntu-") && len(value) > len("ubuntu-"):
+		return "linux"
 	}
+	return ""
 }

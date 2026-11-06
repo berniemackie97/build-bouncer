@@ -214,11 +214,11 @@ func jobPlatforms(job Job) []string {
 		targets := matrixValues(job.Strategy.Matrix, "os")
 		platforms := make([]string, 0, len(targets))
 		for _, value := range targets {
-			platforms = append(platforms, osFromValue(value))
+			platforms = append(platforms, config.CanonicalOS(value))
 		}
 		return platforms
 	}
-	return []string{osFromValue(target)}
+	return []string{config.CanonicalOS(target)}
 }
 
 func labelFromWorkflow(path string, workflowName string) string {
@@ -361,20 +361,6 @@ func matrixValues(matrix map[string]interface{}, key string) []string {
 		return out
 	default:
 		return nil
-	}
-}
-
-func osFromValue(value string) string {
-	s := strings.ToLower(strings.TrimSpace(value))
-	switch {
-	case strings.Contains(s, "windows"):
-		return "windows"
-	case strings.Contains(s, "macos") || strings.Contains(s, "osx"):
-		return "macos"
-	case strings.Contains(s, "ubuntu") || strings.Contains(s, "linux"):
-		return "linux"
-	default:
-		return ""
 	}
 }
 

@@ -241,7 +241,7 @@ Working directories are relative to the repository root; absolute paths and path
 | `timeout` | Optional check timeout, e.g. `"2m"`; defaults to 30 minutes, maximum 2 hours. |
 | `id` / `source` | Metadata on generated checks; `ci sync` owns checks explicitly marked with a `ci:` source. |
 
-Do not set `allowMissingTools: true` for required tests or builds. Missing prerequisite tools otherwise fail closed. If a check applies only to a particular operating system, constrain it with `os` instead of making a required dependency optional.
+Do not set `allowMissingTools: true` for required tests or builds. Missing prerequisite tools otherwise fail closed. If a check applies only to a particular operating system, constrain it with `os` instead of making a required dependency optional. Unknown OS restrictions are rejected rather than treated as unconstrained.
 
 ### Runner options
 
