@@ -73,3 +73,30 @@ func TestGeneratedTemplateShellIsPortable(t *testing.T) {
 		t.Fatalf("generated template check must have no platform-specific default shell: %+v", generated)
 	}
 }
+
+func TestCheckContentKeySharesDirectShellParser(t *testing.T) {
+	canonical := config.Check{Shell: "bash", Run: "go test ./..."}
+	direct := config.Check{Run: "bash -lc \"go test ./...\""}
+	if checkContentKey(canonical) != checkContentKey(direct) {
+		t.Fatal("matching direct invocation was not deduplicated")
+	}
+	for _, tc := range []struct {
+		configured config.Check
+		direct     config.Check
+	}{
+		{config.Check{Shell: "bash", Run: "go test ./..."}, config.Check{Run: "bash -c \"go test ./...\""}},
+		{config.Check{Shell: "sh", Run: "go test ./..."}, config.Check{Run: "sh -lc \"go test ./...\""}},
+	} {
+		if checkContentKey(tc.configured) == checkContentKey(tc.direct) {
+			t.Fatalf("different shell invocation flags were deduplicated: %+v %+v", tc.configured, tc.direct)
+		}
+	}
+	sh := config.Check{Shell: "sh", Run: "go test ./..."}
+	if checkContentKey(sh) != checkContentKey(config.Check{Run: "sh -c \"go test ./...\""}) {
+		t.Fatal("matching sh invocation was not deduplicated")
+	}
+	malformed := config.Check{Run: "bash -lc \"go test ./..."}
+	if checkContentKey(canonical) == checkContentKey(malformed) {
+		t.Fatal("malformed direct invocation was normalized into an executable check")
+	}
+}

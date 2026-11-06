@@ -28,89 +28,6 @@ func TestShellCommand(t *testing.T) {
 	}
 }
 
-func TestCutFirstToken(t *testing.T) {
-	t.Run("unquoted", func(t *testing.T) {
-		tok, rest := cutFirstToken("foo bar baz")
-		if tok != "foo" || rest != "bar baz" {
-			t.Fatalf("cutFirstToken() = (%q, %q), want (%q, %q)", tok, rest, "foo", "bar baz")
-		}
-	})
-
-	t.Run("quoted path", func(t *testing.T) {
-		in := `"C:\Program Files\Git\bin\bash.exe" -lc "echo hi"`
-		tok, rest := cutFirstToken(in)
-		if tok != `C:\Program Files\Git\bin\bash.exe` || rest != `-lc "echo hi"` {
-			t.Fatalf("cutFirstToken() = (%q, %q), want (%q, %q)", tok, rest, `C:\Program Files\Git\bin\bash.exe`, `-lc "echo hi"`)
-		}
-	})
-
-	t.Run("unterminated quoted token returns empty", func(t *testing.T) {
-		tok, rest := cutFirstToken(`"C:\Nope`)
-		if tok != "" || rest != "" {
-			t.Fatalf("cutFirstToken() = (%q, %q), want empty", tok, rest)
-		}
-	})
-}
-
-func TestUnquoteShellArg(t *testing.T) {
-	tests := []struct {
-		name   string
-		in     string
-		want   string
-		wantOK bool
-	}{
-		{name: "double quoted", in: `"echo hi"`, want: "echo hi", wantOK: true},
-		{name: "single quoted", in: `'echo hi'`, want: "echo hi", wantOK: true},
-		{name: "double quoted with escapes", in: `"a\"b"`, want: `a"b`, wantOK: true},
-		{name: "not quoted", in: `echo hi`, want: "", wantOK: false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, ok := unquoteShellArg(tt.in)
-			if ok != tt.wantOK || got != tt.want {
-				t.Fatalf("unquoteShellArg(%q) = (%q, %v), want (%q, %v)", tt.in, got, ok, tt.want, tt.wantOK)
-			}
-		})
-	}
-}
-
-func TestParseDirectShellInvocation(t *testing.T) {
-	t.Run("bash -lc with quoted script", func(t *testing.T) {
-		name, args, ok := parseDirectShellInvocation(`bash -lc "make test"`, "bash")
-		if !ok {
-			t.Fatal("expected ok")
-		}
-		if name != "bash" || !slices.Equal(args, []string{"-lc", "make test"}) {
-			t.Fatalf("got (%q, %v), want (%q, %v)", name, args, "bash", []string{"-lc", "make test"})
-		}
-	})
-
-	t.Run("accepts full path ending in bash", func(t *testing.T) {
-		name, args, ok := parseDirectShellInvocation(`/usr/bin/bash -c "echo hi"`, "bash")
-		if !ok {
-			t.Fatal("expected ok")
-		}
-		if name != "/usr/bin/bash" || !slices.Equal(args, []string{"-c", "echo hi"}) {
-			t.Fatalf("got (%q, %v), want (%q, %v)", name, args, "bash", []string{"-c", "echo hi"})
-		}
-	})
-
-	t.Run("rejects unsupported flag", func(t *testing.T) {
-		_, _, ok := parseDirectShellInvocation(`bash -x "echo hi"`, "bash")
-		if ok {
-			t.Fatal("expected not ok")
-		}
-	})
-
-	t.Run("rejects unquoted script", func(t *testing.T) {
-		_, _, ok := parseDirectShellInvocation(`bash -lc echo`, "bash")
-		if ok {
-			t.Fatal("expected not ok")
-		}
-	})
-}
-
 func TestCommandForShell(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -207,12 +124,32 @@ func TestResolveCommand_Order(t *testing.T) {
 	})
 }
 
-func TestDirectPowerShellInvocationPreservesExecutablePath(t *testing.T) {
-	spec := "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -NoProfile -Command \"Write-Host ok\""
-	name, args, ok := parseDirectPowerShellInvocation(spec, "pwsh")
-	if !ok || name != "C:\\Program Files\\PowerShell\\7\\pwsh.exe" ||
-		!slices.Equal(args, []string{"-NoProfile", "-Command", "Write-Host ok"}) {
-		t.Fatalf("direct invocation changed explicit path: %q, %q, %t", name, args, ok)
+func TestMalformedDirectShellFailsWithoutFallback(t *testing.T) {
+	for _, run := range []string{
+		"bash -lc \"unterminated",
+		"sh -c echo",
+		"bash -c \"echo \"broken\"\"",
+		"pwsh -NoProfile -Command \"unterminated",
+	} {
+		if _, _, err := resolveCommand("", run, "sh"); err == nil {
+			t.Fatalf("malformed direct invocation used a fallback shell: %q", run)
+		}
+		if _, err := ResolveCheckExecutable("", run); err == nil {
+			t.Fatalf("readiness accepted malformed direct invocation: %q", run)
+		}
+	}
+}
+
+func TestDirectShellRunPreservesQuotedScript(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess regression runs on Linux/macOS")
+	}
+	cfg := &config.Config{Checks: []config.Check{{
+		Name: "quoted direct script", Run: "sh -c 'printf \"two words\"'",
+	}}}
+	report, err := RunAllReport(t.TempDir(), cfg, Options{})
+	if err != nil || len(report.Failures) != 0 || len(report.Unavailable) != 0 || len(report.Skipped) != 0 {
+		t.Fatalf("quoted direct shell check did not execute: %+v, %v", report, err)
 	}
 }
 
