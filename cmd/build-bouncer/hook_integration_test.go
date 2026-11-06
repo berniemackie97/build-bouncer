@@ -380,4 +380,3 @@ func TestHookUsesSharedDirectoryFromLinkedWorktree(t *testing.T) {
 		t.Fatalf("worktree hook not removed: %v", err)
 	}
 }
-

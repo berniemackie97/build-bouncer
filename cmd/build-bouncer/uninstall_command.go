@@ -76,4 +76,3 @@ func removeFile(path string) bool {
 	_ = os.Remove(path)
 	return true
 }
-

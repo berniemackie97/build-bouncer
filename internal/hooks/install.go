@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"strings"
 	"time"
-
 )
 
 type InstallOptions struct {
