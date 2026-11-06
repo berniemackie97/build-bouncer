@@ -20,9 +20,9 @@ func TestPolicyValuesAndNormalization(t *testing.T) {
 	}
 	for _, tc := range cases {
 		cfg := &Config{
-			Checks: []Check{{Name: "test", Run: "echo ok"}},
+			Checks:     []Check{{Name: "test", Run: "echo ok"}},
 			Protection: Protection{Level: tc.level},
-			Insults: Insults{Mode: tc.insult},
+			Insults:    Insults{Mode: tc.insult},
 		}
 		err := validateAndDefault(cfg)
 		if tc.wantError != "" {
