@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -36,6 +37,7 @@ type State struct {
 }
 
 type Picker struct {
+	mu sync.Mutex
 	root      string
 	cfg       Config
 	pack      Pack
@@ -79,6 +81,9 @@ func Load(root string, cfg Config) (*Picker, error) {
 }
 
 func (p *Picker) Pick(entryType string) string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	entryType = strings.ToLower(strings.TrimSpace(entryType))
 	if entryType == "" {
 		return ""
