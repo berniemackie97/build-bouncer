@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/berniemackie97/build-bouncer/internal/config"
@@ -15,8 +16,10 @@ import (
 )
 
 type Workflow struct {
-	Name string         `yaml:"name"`
-	Jobs map[string]Job `yaml:"jobs"`
+	Name     string                 `yaml:"name"`
+	Env      map[string]interface{} `yaml:"env"`
+	Defaults Defaults               `yaml:"defaults"`
+	Jobs     map[string]Job         `yaml:"jobs"`
 }
 
 type Job struct {
@@ -116,10 +119,9 @@ func ChecksFromGitHubActions(root string) ([]config.Check, error) {
 		checks = append(checks, fileChecks...)
 	}
 
-	// Normalize checks for local execution
+	// Apply workspace-relative paths without changing script content.
 	for i := range checks {
 		checks[i].Cwd = normalizeWorkingDirectory(checks[i].Cwd)
-		checks[i].Run = normalizeGitHubActionsTemplates(checks[i].Run)
 	}
 
 	return checks, nil
@@ -140,14 +142,31 @@ func checksFromWorkflowFile(path string) ([]config.Check, error) {
 	var out []config.Check
 	currentOS := currentRunnerOS()
 
-	for jobKey, job := range wf.Jobs {
+	jobKeys := make([]string, 0, len(wf.Jobs))
+	for key := range wf.Jobs {
+		jobKeys = append(jobKeys, key)
+	}
+	sort.Strings(jobKeys)
+	workflowEnv := normalizeEnv(wf.Env)
+	for _, jobKey := range jobKeys {
+		job := wf.Jobs[jobKey]
+		if err := validateWorkflowJob(jobKey, job); err != nil {
+			return nil, err
+		}
 		if !jobAppliesToOS(job, currentOS) {
 			continue
 		}
 		usage := detectToolsUsed(job.Steps)
 		jobLabel := labelFromJob(jobKey, job.Name)
-		jobEnv := normalizeEnv(job.Env)
+		jobEnv := mergeEnv(workflowEnv, normalizeEnv(job.Env))
 		jobDir := strings.TrimSpace(job.Defaults.Run.WorkingDirectory)
+		if jobDir == "" {
+			jobDir = strings.TrimSpace(wf.Defaults.Run.WorkingDirectory)
+		}
+		defaultShell := strings.TrimSpace(job.Defaults.Run.Shell)
+		if defaultShell == "" {
+			defaultShell = strings.TrimSpace(wf.Defaults.Run.Shell)
+		}
 
 		for _, step := range job.Steps {
 			if !stepAppliesToOS(step, currentOS) {
@@ -159,7 +178,7 @@ func checksFromWorkflowFile(path string) ([]config.Check, error) {
 			}
 
 			if strings.TrimSpace(step.Run) == "" {
-				if check := checkFromUsesStep(workflowLabel, jobLabel, jobEnv, jobDir, job.Defaults, step, usage, currentOS); check != nil {
+				if check := checkFromUsesStep(workflowLabel, jobLabel, jobEnv, jobDir, Defaults{Run: RunDefaults{Shell: defaultShell}}, step, usage, currentOS); check != nil {
 					out = append(out, *check)
 				}
 				continue
@@ -174,7 +193,7 @@ func checksFromWorkflowFile(path string) ([]config.Check, error) {
 			if cwd == "" {
 				cwd = jobDir
 			}
-			shell := resolveShell(step.Shell, job.Defaults.Run.Shell, currentOS)
+			shell := resolveShell(step.Shell, defaultShell, currentOS)
 			out = append(out, config.Check{
 				Name:   name,
 				Run:    strings.TrimSpace(step.Run),
@@ -674,96 +693,163 @@ func normalizeWorkingDirectory(cwd string) string {
 	return normalized
 }
 
-// normalizeGitHubActionsTemplates transforms GitHub Actions template expressions into executable local commands.
-//
-// This function handles the following transformations:
-//
-//  1. Matrix Variables:
-//     - matrix.build_type → "Release" (default build configuration for local development)
-//     - matrix.os → current OS (e.g., "windows-latest", "ubuntu-latest", "macos-latest")
-//     - Other matrix.* → removed (can be overridden via environment variables)
-//
-//  2. PowerShell Environment Variables:
-//     - $env:VCPKG_ROOT → actual VCPKG_ROOT from environment, or auto-detected from common paths
-//     - $env:GITHUB_WORKSPACE → current working directory
-//     - Other $env:GITHUB_* → removed (GitHub Actions specific)
-//
-//  3. GitHub Actions Context Variables:
-//     - ${{ github.* }} → removed (e.g., github.sha, github.ref)
-//     - ${{ runner.* }} → removed (e.g., runner.os, runner.arch)
-//     - ${{ env.* }} → removed (user can set via actual environment)
-//
-//  4. Unknown Template Expressions:
-//     - Any remaining ${{ ... }} → removed
-//
-// Examples:
-//
-//	"cmake --build build --config ${{ matrix.build_type }}"
-//	→ "cmake --build build --config Release"
-//
-//	"cmake -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
-//	→ "cmake -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake"
-func normalizeGitHubActionsTemplates(command string) string {
-	if strings.TrimSpace(command) == "" {
-		return command
+var simpleOSCondition = regexp.MustCompile(`(?i)^(?:runner|matrix)\.os\s*(==|!=)\s*['"]([^'"]+)['"]$`)
+
+func validateWorkflowJob(name string, job Job) error {
+	for key := range job.Strategy.Matrix {
+		if key != "os" {
+			return fmt.Errorf("job %q: unsupported matrix dimension %q", name, key)
+		}
 	}
-
-	result := command
-
-	// Handle matrix.build_type - default to Release for local builds
-	result = regexp.MustCompile(`\$\{\{\s*matrix\.build_type\s*\}\}`).ReplaceAllString(result, "Release")
-
-	// Handle matrix.os - default to current OS
-	currentOS := currentRunnerOS()
-	osMapping := map[string]string{
-		"windows": "windows-latest",
-		"linux":   "ubuntu-latest",
-		"macos":   "macos-latest",
-	}
-	if osValue, ok := osMapping[currentOS]; ok {
-		result = regexp.MustCompile(`\$\{\{\s*matrix\.os\s*\}\}`).ReplaceAllString(result, osValue)
-	}
-
-	// Handle other common matrix variables with empty defaults (user can override via env)
-	result = regexp.MustCompile(`\$\{\{\s*matrix\.\w+\s*\}\}`).ReplaceAllString(result, "")
-
-	// Handle PowerShell env variables for GitHub Actions specific paths
-	// $env:VCPKG_ROOT - look for common VCPKG locations or use env var if set
-	if strings.Contains(result, "$env:VCPKG_ROOT") {
-		vcpkgRoot := os.Getenv("VCPKG_ROOT")
-		if vcpkgRoot == "" {
-			// Try common Windows vcpkg locations
-			commonPaths := []string{
-				"C:\\vcpkg",
-				"C:\\src\\vcpkg",
-				filepath.Join(os.Getenv("USERPROFILE"), "vcpkg"),
+	for _, runTarget := range job.RunsOn.Values {
+		target := strings.TrimSpace(runTarget)
+		if isMatrixOSReference(target) {
+			values := matrixValues(job.Strategy.Matrix, "os")
+			if len(values) == 0 {
+				return fmt.Errorf("job %q: matrix.os has no supported values", name)
 			}
-			for _, p := range commonPaths {
-				if _, err := os.Stat(p); err == nil {
-					vcpkgRoot = p
-					break
+			for _, value := range values {
+				if !isSupportedRunner(value) {
+					return fmt.Errorf("job %q: unsupported matrix runner %q", name, value)
 				}
 			}
-		}
-		if vcpkgRoot != "" {
-			result = strings.ReplaceAll(result, "$env:VCPKG_ROOT", vcpkgRoot)
-		}
-	}
-
-	// Handle $env:GITHUB_WORKSPACE - use current directory as workspace
-	if strings.Contains(result, "$env:GITHUB_WORKSPACE") {
-		if cwd, err := os.Getwd(); err == nil {
-			result = strings.ReplaceAll(result, "$env:GITHUB_WORKSPACE", cwd)
+		} else if !isSupportedRunner(target) {
+			return fmt.Errorf("job %q: unsupported runs-on %q", name, target)
 		}
 	}
+	if _, err := conditionMatchesOS(job.If, "linux"); err != nil {
+		return fmt.Errorf("job %q: %w", name, err)
+	}
+	if err := validateWorkflowEnv(job.Env); err != nil {
+		return fmt.Errorf("job %q: %w", name, err)
+	}
+	if err := rejectActionsExpression(job.Defaults.Run.WorkingDirectory); err != nil {
+		if !isWorkspaceDirectory(job.Defaults.Run.WorkingDirectory) {
+			return fmt.Errorf("job %q working-directory: %w", name, err)
+		}
+	}
+	if err := validateWorkflowShell(job.Defaults.Run.Shell); err != nil {
+		return fmt.Errorf("job %q: %w", name, err)
+	}
+	for i, step := range job.Steps {
+		if _, err := conditionMatchesOS(step.If, "linux"); err != nil {
+			return fmt.Errorf("job %q step %d: %w", name, i+1, err)
+		}
+		if err := rejectActionsExpression(step.Run); err != nil {
+			return fmt.Errorf("job %q step %d run: %w", name, i+1, err)
+		}
+		if err := validateWorkflowEnv(step.Env); err != nil {
+			return fmt.Errorf("job %q step %d: %w", name, i+1, err)
+		}
+		if err := rejectActionsExpression(step.WorkingDirectory); err != nil {
+			if !isWorkspaceDirectory(step.WorkingDirectory) {
+				return fmt.Errorf("job %q step %d working-directory: %w", name, i+1, err)
+			}
+		}
+		if err := validateWorkflowShell(step.Shell); err != nil {
+			return fmt.Errorf("job %q step %d: %w", name, i+1, err)
+		}
+		if step.Run != "" && step.Uses != "" {
+			return fmt.Errorf("job %q step %d: cannot combine run and uses", name, i+1)
+		}
+		if step.Uses != "" {
+			action := normalizeUsesAction(step.Uses)
+			if action == "" || !supportedAction(action) {
+				return fmt.Errorf("job %q step %d: unsupported action %q", name, i+1, step.Uses)
+			}
+		}
+	}
+	return nil
+}
 
-	// Handle other GitHub Actions context variables
-	result = regexp.MustCompile(`\$\{\{\s*github\.\w+\s*\}\}`).ReplaceAllString(result, "")
-	result = regexp.MustCompile(`\$\{\{\s*runner\.\w+\s*\}\}`).ReplaceAllString(result, "")
-	result = regexp.MustCompile(`\$\{\{\s*env\.\w+\s*\}\}`).ReplaceAllString(result, "")
+func isMatrixOSReference(value string) bool {
+	value = strings.TrimSpace(value)
+	if !strings.HasPrefix(value, "${{") || !strings.HasSuffix(value, "}}") {
+		return false
+	}
+	return strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(value, "${{"), "}}")) == "matrix.os"
+}
 
-	// Clean up any remaining template expressions we don't handle
-	result = regexp.MustCompile(`\$\{\{\s*[^}]+\s*\}\}`).ReplaceAllString(result, "")
+func isSupportedRunner(value string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	return value == "ubuntu-latest" || value == "windows-latest" || value == "macos-latest" ||
+		strings.HasPrefix(value, "ubuntu-") || strings.HasPrefix(value, "windows-") || strings.HasPrefix(value, "macos-")
+}
 
-	return result
+func conditionMatchesOS(expr string, targetOS string) (bool, error) {
+	expr = strings.TrimSpace(expr)
+	if strings.HasPrefix(expr, "${{") && strings.HasSuffix(expr, "}}") {
+		expr = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(expr, "${{"), "}}"))
+	}
+	switch expr {
+	case "", "true":
+		return true, nil
+	case "false":
+		return false, nil
+	}
+	matches := simpleOSCondition.FindStringSubmatch(expr)
+	if len(matches) != 3 || !isSupportedRunner(matches[2]) && !isOSName(matches[2]) {
+		return false, fmt.Errorf("unsupported if condition %q", expr)
+	}
+	result := osFromValue(matches[2]) == targetOS
+	if matches[1] == "!=" {
+		return !result, nil
+	}
+	return result, nil
+}
+
+func isOSName(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "windows", "linux", "macos":
+		return true
+	default:
+		return false
+	}
+}
+
+func supportedAction(action string) bool {
+	switch action {
+	case "actions/checkout", "actions/cache", "actions/cache/restore", "actions/cache/save",
+		"actions/setup-node", "actions/setup-go", "actions/setup-python",
+		"actions/setup-dotnet", "actions/setup-java", "actions/setup-ruby", "ruby/setup-ruby":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateWorkflowEnv(env map[string]interface{}) error {
+	for name, raw := range env {
+		if err := rejectActionsExpression(fmt.Sprint(raw)); err != nil {
+			return fmt.Errorf("env %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func validateWorkflowShell(value string) error {
+	if value == "" {
+		return nil
+	}
+	if err := rejectActionsExpression(value); err != nil {
+		return fmt.Errorf("shell: %w", err)
+	}
+	switch shell.Normalize(value) {
+	case "bash", "sh", "pwsh", "powershell", "cmd":
+		return nil
+	default:
+		return fmt.Errorf("unsupported workflow shell %q", value)
+	}
+}
+
+func rejectActionsExpression(value string) error {
+	if strings.Contains(value, "${{") || strings.Contains(value, "}}") {
+		return fmt.Errorf("unsupported GitHub Actions expression in %q", value)
+	}
+	return nil
+}
+
+func isWorkspaceDirectory(value string) bool {
+	normalized := normalizeWorkingDirectory(value)
+	return normalized != value && !strings.Contains(normalized, "${{")
 }
