@@ -27,13 +27,13 @@ func validateWorkflowJob(name string, job Job) error {
 	if len(job.RunsOn.Values) > 1 {
 		return fmt.Errorf("job %q: multi-label runs-on cannot be represented by a local check", name)
 	}
-	if len(job.Strategy.Matrix) > 0 && !isMatrixOSReference(job.RunsOn.Values[0]) {
-		return fmt.Errorf("job %q: matrix.os must determine runs-on to generate portable checks", name)
-	}
 	for key := range job.Strategy.Matrix {
 		if key != "os" {
 			return fmt.Errorf("job %q: unsupported matrix dimension %q", name, key)
 		}
+	}
+	if len(job.Strategy.Matrix) > 0 && !isMatrixOSReference(job.RunsOn.Values[0]) {
+		return fmt.Errorf("job %q: matrix.os must determine runs-on to generate portable checks", name)
 	}
 	for _, runTarget := range job.RunsOn.Values {
 		target := strings.TrimSpace(runTarget)

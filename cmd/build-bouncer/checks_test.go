@@ -56,7 +56,7 @@ func TestGeneratedCheckIDsIncludeMissingToolPolicy(t *testing.T) {
 		t.Fatal("checks with different missing-tool policies must have distinct IDs")
 	}
 }
- 
+
 func TestMergeChecksPreservesDistinctPlatforms(t *testing.T) {
 	first := config.Check{Name: "ci:test:linux", Run: "go test ./...", Shell: "bash", OS: config.StringList{"linux"}}
 	second := config.Check{Name: "ci:test:macos", Run: "go test ./...", Shell: "bash", OS: config.StringList{"macos"}}

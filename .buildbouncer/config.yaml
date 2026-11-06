@@ -15,6 +15,13 @@ checks:
       name: lint
       run: go vet ./...
       requires: go
+    - id: ci:ci:81aa61a98427
+      source: ci:ci
+      name: ci:ci:race-ubuntu-latest:linux:go-test--race
+      run: go test -race ./...
+      shell: bash
+      os: linux
+      requires: go
     - id: ci:ci:4c98b7f5dc34
       source: ci:ci
       name: ci:ci:test-matrix.os:linux:go-env
@@ -137,13 +144,6 @@ checks:
       run: go test ./...
       shell: bash
       os: macos
-      requires: go
-    - id: ci:ci:81aa61a98427
-      source: ci:ci
-      name: ci:ci:race-ubuntu-latest:linux:go-test--race
-      run: go test -race ./...
-      shell: bash
-      os: linux
       requires: go
 protection:
     level: moderate
