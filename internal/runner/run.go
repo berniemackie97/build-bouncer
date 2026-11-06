@@ -134,6 +134,13 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 
 	var workerGroup sync.WaitGroup
 	var outputMutex sync.Mutex
+	var stopOnce sync.Once
+	stopAll := func() {
+		stopOnce.Do(func() {
+			close(stopDispatch)
+			cancelRun()
+		})
+	}
 
 	workerFn := func() {
 		defer workerGroup.Done()
@@ -141,6 +148,10 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 		for job := range jobsChannel {
 			checkDefinition := job.check
 			checkName := checkDefinition.Name
+			if runContext.Err() != nil {
+				resultsChannel <- checkResult{index: job.index, name: checkName, outcome: runOutcome{Canceled: true}}
+				continue
+			}
 
 			if options.Progress != nil {
 				options.Progress(ProgressEvent{
@@ -174,6 +185,9 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 					}
 					outputMutex.Unlock()
 				}
+				if unavailable && options.FailFast {
+					stopAll()
+				}
 				resultsChannel <- checkResult{index: job.index, name: checkName, outcome: outcome}
 				continue
 			}
@@ -201,6 +215,9 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 				checkDefinition.Timeout,
 				options,
 			)
+			if runErr != nil || (options.FailFast && (outcome.ExitCode != 0 || outcome.TimedOut)) {
+				stopAll()
+			}
 
 			if options.Progress != nil {
 				options.Progress(ProgressEvent{
@@ -266,16 +283,8 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 		close(jobsChannel)
 	}()
 
-	var stopOnce sync.Once
 	var firstFatalError error
 	failFastTriggered := false
-
-	stopAll := func() {
-		stopOnce.Do(func() {
-			close(stopDispatch)
-			cancelRun()
-		})
-	}
 
 	for result := range resultsChannel {
 		if result.runErr != nil && firstFatalError == nil {

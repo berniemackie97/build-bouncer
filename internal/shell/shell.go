@@ -2,7 +2,7 @@
 package shell
 
 import (
-	"path/filepath"
+	"path"
 	"slices"
 	"strings"
 )
@@ -97,7 +97,7 @@ func Normalize(shell string) string {
 		return ""
 	}
 
-	lowerBaseName := strings.ToLower(filepath.Base(trimmedShell))
+	lowerBaseName := strings.ToLower(path.Base(strings.ReplaceAll(trimmedShell, "\\", "/")))
 
 	switch lowerBaseName {
 	case "bash", "bash.exe":
