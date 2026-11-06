@@ -5,10 +5,11 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/berniemackie97/build-bouncer/internal/storage"
 )
 
 type Config struct {
@@ -278,41 +279,9 @@ func loadState(path string) State {
 }
 
 func saveState(path string, st State) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	b, err := json.MarshalIndent(st, "", "  ")
+	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, ".banter-state-*.tmp")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(b); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		if runtime.GOOS != "windows" {
-			return err
-		}
-		if _, statErr := os.Stat(path); statErr != nil {
-			return err
-		}
-		if removeErr := os.Remove(path); removeErr != nil {
-			return err
-		}
-		return os.Rename(tmp.Name(), path)
-	}
-	return nil
+	return storage.WritePrivateState(path, data)
 }

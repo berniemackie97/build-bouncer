@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	assettemplates "github.com/berniemackie97/build-bouncer/assets/templates"
+	"github.com/berniemackie97/build-bouncer/internal/storage"
 )
 
 type configTemplate struct {
@@ -222,17 +223,20 @@ var configTemplates = []configTemplate{
 
 func ensureDefaultPack(targetRoot string, destPath string, templateName string, force bool) error {
 	if !force {
-		if _, err := os.Stat(destPath); err == nil {
+		if _, err := os.Lstat(destPath); err == nil {
 			return nil
+		} else if !os.IsNotExist(err) {
+			return err
 		}
 	}
-
 	templateBytes, err := loadTemplateBytes(targetRoot, templateName)
 	if err != nil {
 		return err
 	}
-
-	return os.WriteFile(destPath, templateBytes, 0o644)
+	if force {
+		return storage.WriteFile(destPath, templateBytes, 0o644)
+	}
+	return storage.CreateFile(destPath, templateBytes, 0o644)
 }
 
 func loadTemplateBytes(targetRoot string, templateName string) ([]byte, error) {
