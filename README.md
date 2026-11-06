@@ -52,7 +52,7 @@ Logs also default under `.git/`:
 ## Install
 
 ### From source (right now)
-This repo is Go. Build a binary and put it somewhere on your PATH.
+This repo requires a supported Go toolchain (currently Go 1.27.3). Build a binary and put it somewhere on your PATH.
 
 Example (Windows / PowerShell):
 
