@@ -37,7 +37,7 @@ type State struct {
 }
 
 type Picker struct {
-	mu sync.Mutex
+	mu        sync.Mutex
 	root      string
 	cfg       Config
 	pack      Pack
