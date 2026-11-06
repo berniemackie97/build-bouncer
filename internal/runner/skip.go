@@ -1,13 +1,14 @@
 package runner
 
 import (
-	"os"
+	"fmt"
 	"os/exec"
 	"runtime"
 	"slices"
 	"strings"
 
 	"github.com/berniemackie97/build-bouncer/internal/config"
+	"github.com/berniemackie97/build-bouncer/internal/shell"
 )
 
 func checkSkipReason(check config.Check) string {
@@ -28,7 +29,10 @@ func checkReadiness(repoRoot string, check config.Check) (reason string, unavail
 		return "shell unavailable: " + err.Error(), true
 	}
 
-	missing := missingTools(check)
+	missing, err := missingToolsAt(repoRoot, check)
+	if err != nil {
+		return "invalid required executable: " + err.Error(), true
+	}
 	if len(missing) > 0 {
 		return "missing tools: " + strings.Join(missing, ", "), !check.AllowMissingTools
 	}
@@ -49,7 +53,15 @@ func CheckAppliesToOS(check config.Check) (bool, []string) {
 }
 
 func MissingTools(check config.Check) []string {
-	return missingTools(check)
+	return MissingToolsAt("", check)
+}
+
+func MissingToolsAt(repoRoot string, check config.Check) []string {
+	missing, err := missingToolsAt(repoRoot, check)
+	if err != nil {
+		return []string{err.Error()}
+	}
+	return missing
 }
 
 func CurrentOS() string {
@@ -78,48 +90,27 @@ func currentOS() string {
 	}
 }
 
-func missingTools(check config.Check) []string {
-	seenTools := map[string]struct{}{}
-	missing := make([]string, 0)
+func missingToolsAt(repoRoot string, check config.Check) ([]string, error) {
+	seen := make(map[string]struct{}, len(check.Requires))
+	var missing []string
 
-	for _, toolSpec := range check.Requires {
-		toolName := firstToken(toolSpec)
-		if toolName == "" {
+	for _, required := range check.Requires {
+		executable, err := shell.ParseExecutable(required)
+		if err != nil {
+			return nil, fmt.Errorf("%q: %w", required, err)
+		}
+		if executable == "" {
+			return nil, fmt.Errorf("empty required executable")
+		}
+		resolved := resolveExecutableAt(repoRoot, executable)
+		if _, exists := seen[resolved]; exists {
 			continue
 		}
-		if _, alreadyChecked := seenTools[toolName]; alreadyChecked {
-			continue
-		}
-
-		seenTools[toolName] = struct{}{}
-		if !toolExists(toolName) {
-			missing = append(missing, toolName)
+		seen[resolved] = struct{}{}
+		if _, err := exec.LookPath(resolved); err != nil {
+			missing = append(missing, executable)
 		}
 	}
 
-	return missing
-}
-
-func toolExists(tool string) bool {
-	// If the user gave us a path, check the filesystem.
-	if strings.ContainsAny(tool, `/\`) {
-		info, err := os.Stat(tool)
-		return err == nil && info.Mode().IsRegular()
-	}
-
-	_, lookErr := exec.LookPath(tool)
-	return lookErr == nil
-}
-
-func firstToken(value string) string {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return ""
-	}
-
-	fields := strings.Fields(trimmed)
-	if len(fields) == 0 {
-		return ""
-	}
-	return fields[0]
+	return missing, nil
 }

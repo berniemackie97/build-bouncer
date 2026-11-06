@@ -81,3 +81,38 @@ func TestDoctorDoesNotRequireForeignOSShell(t *testing.T) {
 		t.Fatalf("doctor should diagnose foreign OS without requiring its shell: %d, %q, %q", code, stdout.String(), stderr.String())
 	}
 }
+
+func TestDoctorResolvesRequiredToolsAtRepositoryRoot(t *testing.T) {
+	root := t.TempDir()
+	cfgPath := filepath.Join(root, config.ConfigDirName, config.ConfigFileName)
+	executableName := "check"
+	if runtime.GOOS == "windows" {
+		executableName = "check.exe"
+	}
+	toolPath := filepath.Join(root, "tools", executableName)
+	if err := os.MkdirAll(filepath.Dir(toolPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(toolPath, []byte("placeholder"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	relative := filepath.ToSlash(filepath.Join("tools", executableName))
+	cfg := &config.Config{Checks: []config.Check{{Name: "required", Run: "echo ok", Requires: config.StringList{relative}}}}
+	if err := config.Save(cfgPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	if code := runDoctor(cfgPath, cli.Context{Stdout: &out, Stderr: &errOut}); code != exitOK || strings.Contains(out.String(), "missing:") {
+		t.Fatalf("doctor did not resolve root-relative required executable: %d, %q, %q", code, out.String(), errOut.String())
+	}
+	cfg.Checks[0].Requires = config.StringList{"tools/missing-command"}
+	if err := config.Save(cfgPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	errOut.Reset()
+	if code := runDoctor(cfgPath, cli.Context{Stdout: &out, Stderr: &errOut}); code != exitUsage ||
+		!strings.Contains(out.String(), "missing: tools/missing-command") {
+		t.Fatalf("doctor did not report missing required executable: %d, %q, %q", code, out.String(), errOut.String())
+	}
+}

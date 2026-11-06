@@ -287,6 +287,8 @@ checks:
 
 Quote an executable path with spaces (for example, `shell: '"C:\Program Files\PowerShell\7\pwsh.exe"'`). Relative executable paths containing a directory separator resolve from the repository root, independently of `cwd`. The configured executable is never silently replaced with another shell.
 
+To check a Windows WSL installation independently, run `wsl.exe --list --verbose` and `wsl.exe --exec sh -c "printf ready"` in PowerShell. An installed WSL launcher alone does not guarantee an initialized Linux distribution. The Windows integration regression tests exercise the configured WSL shell only when a usable default distribution is available.
+
 If `shell` is omitted, `run` may also use a recognized direct invocation such as `bash -lc "go test ./..."`, `sh -c 'echo ready'`, or PowerShell's `-Command`. Proper quoting is required for direct POSIX scripts; malformed recognized invocations fail instead of silently falling back to a different interpreter. Other command strings use the OS default shell.
 
 On Windows, a bare `bash` or `sh` prefers a compatible Git Bash/MSYS installation, not an implicit WSL launcher. To use WSL intentionally, select `shell: wsl.exe`; BuildBouncer invokes `wsl.exe --exec sh -c`, requiring an installed and initialized Linux distribution. Per-check `env` overrides are rejected for WSL launchers because they are not automatically forwarded into the Linux environment. Live initialized-distribution compatibility remains an open verification item.

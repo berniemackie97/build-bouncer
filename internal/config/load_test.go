@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -245,5 +246,30 @@ func TestNormalizeOSListPreservesOrderAndRemovesAliases(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("NormalizeOSList = %v; want %v", got, want)
 		}
+	}
+}
+
+func TestRequiredExecutablesRejectArguments(t *testing.T) {
+	for _, required := range []string{"dotnet test", "sh -c", "\"unterminated"} {
+		cfg := "version: 1\nchecks:\n  - name: sample\n    run: echo ok\n    requires:\n      - " + strconv.Quote(required) + "\n"
+		if _, err := Parse([]byte(cfg)); err == nil || !strings.Contains(err.Error(), "requires") {
+			t.Fatalf("invalid required executable %q accepted: %v", required, err)
+		}
+	}
+}
+
+func TestRequiredExecutablesAcceptQuotedPaths(t *testing.T) {
+	cfg, err := Parse([]byte(`version: 1
+checks:
+  - name: sample
+    run: echo ok
+    requires:
+      - '"./tools with spaces/check"'
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Checks[0].Requires) != 1 || cfg.Checks[0].Requires[0] != "\"./tools with spaces/check\"" {
+		t.Fatalf("quoted required executable changed: %+v", cfg.Checks[0].Requires)
 	}
 }
