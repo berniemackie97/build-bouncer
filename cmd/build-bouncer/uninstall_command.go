@@ -35,7 +35,7 @@ func runUninstall(force bool, ctx cli.Context) int {
 	}
 
 	var hookErr error
-	if isDir(filepath.Join(root, ".git")) {
+	if _, err := git.FindRepoRoot(); err == nil {
 		if err := hooks.UninstallPrePushHook(force); err != nil {
 			hookErr = err
 			fmt.Fprintln(ctx.Stderr, "uninstall hook:", err)
@@ -75,9 +75,4 @@ func removeFile(path string) bool {
 	}
 	_ = os.Remove(path)
 	return true
-}
-
-func isDir(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
 }

@@ -8,8 +8,6 @@ import (
 	"runtime"
 	"strings"
 	"time"
-
-	"github.com/berniemackie97/build-bouncer/internal/git"
 )
 
 type InstallOptions struct {
@@ -18,12 +16,10 @@ type InstallOptions struct {
 }
 
 func InstallPrePushHook(opts InstallOptions) error {
-	root, err := git.FindRepoRoot()
+	_, hooksDir, err := repoHooksDir()
 	if err != nil {
 		return err
 	}
-
-	hooksDir := filepath.Join(root, ".git", "hooks")
 	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 		return err
 	}
@@ -78,6 +74,7 @@ func renderPrePushHook(hasCopiedBinary bool) string {
 # build-bouncer pre-push hook v3
 set -eu
 
+hook_dir="$(CDPATH= cd -P "$(dirname "$0")" && pwd)"
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$repo_root" || exit 1
 
@@ -86,10 +83,10 @@ bb=""
 
 	if hasCopiedBinary {
 		body += `
-if [ -x "$repo_root/.git/hooks/bin/build-bouncer" ]; then
-  bb="$repo_root/.git/hooks/bin/build-bouncer"
-elif [ -x "$repo_root/.git/hooks/bin/build-bouncer.exe" ]; then
-  bb="$repo_root/.git/hooks/bin/build-bouncer.exe"
+if [ -x "$hook_dir/bin/build-bouncer" ]; then
+  bb="$hook_dir/bin/build-bouncer"
+elif [ -x "$hook_dir/bin/build-bouncer.exe" ]; then
+  bb="$hook_dir/bin/build-bouncer.exe"
 fi
 `
 	}

@@ -1,7 +1,9 @@
 package hooks
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -18,7 +20,18 @@ func repoHooksDir() (repoRoot string, hooksDir string, err error) {
 		return "", "", err
 	}
 
-	return root, filepath.Join(root, ".git", "hooks"), nil
+	output, err := exec.Command("git", "-C", root, "rev-parse", "--git-path", "hooks").Output()
+	if err != nil {
+		return "", "", fmt.Errorf("resolve Git hooks directory: %w", err)
+	}
+	hooks := strings.TrimSpace(string(output))
+	if hooks == "" {
+		return "", "", fmt.Errorf("Git returned an empty hooks path")
+	}
+	if !filepath.IsAbs(hooks) {
+		hooks = filepath.Join(root, hooks)
+	}
+	return root, filepath.Clean(hooks), nil
 }
 
 func copiedBinaryPaths(hooksDir string) (string, string) {
