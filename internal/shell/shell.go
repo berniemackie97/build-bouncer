@@ -88,8 +88,7 @@ func DefaultForOS(goos string) string {
 	}
 }
 
-// Normalize tries to normalize common shell names and paths into a stable executable name.
-// If it does not recognize the input, it returns the trimmed string as is.
+// Normalize canonicalizes known shell names and preserves explicit executable paths.
 func Normalize(shell string) string {
 	trimmed := strings.TrimSpace(shell)
 	if trimmed == "" || strings.ContainsAny(trimmed, "/\\") {

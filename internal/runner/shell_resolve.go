@@ -13,7 +13,6 @@ import (
 	"github.com/berniemackie97/build-bouncer/internal/shell"
 )
 
-// shellCommand is the final fallback when we cannot confidently resolve a specific shell.
 func shellCommand(command string) (string, []string) {
 	if runtime.GOOS == "windows" {
 		return "cmd.exe", []string{"/C", command}
@@ -21,12 +20,6 @@ func shellCommand(command string) (string, []string) {
 	return "sh", []string{"-c", command}
 }
 
-// resolveCommand decides how to run a check command.
-// Order matters and is intentionally stable:
-// 1. Respect explicit shell
-// 2. Respect direct shell invocation in the command (bash -c "...", powershell -Command "...")
-// 3. Respect fallback shell
-// 4. Fall back to OS default
 func resolveCommand(shellSpec string, command string, fallbackShell string) (string, []string, error) {
 	if strings.TrimSpace(shellSpec) != "" {
 		return commandForShell(shellSpec, command)
@@ -76,11 +69,6 @@ func commandForShell(spec string, command string) (string, []string, error) {
 	}
 }
 
-// directShellCommand detects a command that already explicitly calls a shell.
-// Examples:
-//
-//	bash -lc "make test"
-//	powershell -NoProfile -Command "Start-Sleep -Seconds 2"
 func directShellCommand(command string) (string, []string, bool) {
 	trimmedCommand := strings.TrimSpace(command)
 	if trimmedCommand == "" {
@@ -94,8 +82,6 @@ func directShellCommand(command string) (string, []string, bool) {
 		return executableName, executableArgs, true
 	}
 
-	// This matters on Windows: wrapping a PowerShell call inside cmd.exe /C can get weird with quoting.
-	// If the command is already a PowerShell invocation, run PowerShell directly.
 	if executableName, executableArgs, ok := parseDirectPowerShellInvocation(trimmedCommand, "pwsh"); ok {
 		return executableName, executableArgs, true
 	}
@@ -106,9 +92,6 @@ func directShellCommand(command string) (string, []string, bool) {
 	return "", nil, false
 }
 
-// parseDirectShellInvocation detects a command that already explicitly calls a POSIX shell.
-// Example: bash -lc "make test"
-// Note: Tests expect this function to exist by this exact name.
 func parseDirectShellInvocation(command string, expectedShell string) (string, []string, bool) {
 	executableToken, remainingText := cutFirstToken(command)
 	if executableToken == "" {
@@ -118,7 +101,6 @@ func parseDirectShellInvocation(command string, expectedShell string) (string, [
 	lowerExecutableBase := strings.ToLower(shell.BaseName(executableToken))
 	expectedLower := strings.ToLower(expectedShell)
 
-	// Allow bash, bash.exe, sh, sh.exe, or full paths that end with those.
 	if lowerExecutableBase != expectedLower && lowerExecutableBase != expectedLower+".exe" {
 		return "", nil, false
 	}
@@ -199,8 +181,6 @@ func cutFirstToken(text string) (string, string) {
 		return "", ""
 	}
 
-	// Support a quoted first token so paths with spaces work.
-	// Tests require unterminated quotes to return empty.
 	first := trimmed[0]
 	if first == '"' || first == '\'' {
 		quote := first
@@ -223,8 +203,6 @@ func cutFirstToken(text string) (string, string) {
 		return fields[0], ""
 	}
 
-	// Rebuild the rest without trying to be clever about quoting.
-	// This is only used for direct invocation detection where we already require quotes around the script.
 	firstToken := fields[0]
 	rest := strings.TrimSpace(trimmed[len(firstToken):])
 	return firstToken, rest
