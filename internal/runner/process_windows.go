@@ -11,7 +11,7 @@ import (
 
 const (
 	jobObjectExtendedLimitInformation = 9
-	jobObjectLimitKillOnJobClose       = 0x2000
+	jobObjectLimitKillOnJobClose      = 0x2000
 	processAssignAccess               = 0x0100 | 0x0001
 )
 
