@@ -180,6 +180,15 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 
 	var workerGroup sync.WaitGroup
 	var outputMutex sync.Mutex
+	var progressMutex sync.Mutex
+	emitProgress := func(event ProgressEvent) {
+		if options.Progress == nil {
+			return
+		}
+		progressMutex.Lock()
+		defer progressMutex.Unlock()
+		options.Progress(event)
+	}
 	var stopOnce sync.Once
 	stopAll := func() {
 		stopOnce.Do(func() {
@@ -199,29 +208,25 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 				continue
 			}
 
-			if options.Progress != nil {
-				options.Progress(ProgressEvent{
-					Stage: "start",
-					Index: job.index + 1,
-					Total: totalChecks,
-					Check: checkName,
-				})
-			}
+			emitProgress(ProgressEvent{
+				Stage: "start",
+				Index: job.index + 1,
+				Total: totalChecks,
+				Check: checkName,
+			})
 
 			if reason, unavailable := checkReadiness(checkDefinition); reason != "" {
 				outcome := runOutcome{Skipped: !unavailable, Reason: reason}
 				if unavailable {
 					outcome.ExitCode = 1
 				}
-				if options.Progress != nil {
-					options.Progress(ProgressEvent{
-						Stage:    "end",
-						Index:    job.index + 1,
-						Total:    totalChecks,
-						Check:    checkName,
-						ExitCode: outcome.ExitCode,
-					})
-				}
+				emitProgress(ProgressEvent{
+					Stage:    "end",
+					Index:    job.index + 1,
+					Total:    totalChecks,
+					Check:    checkName,
+					ExitCode: outcome.ExitCode,
+				})
 				if options.Verbose {
 					outputMutex.Lock()
 					if unavailable {
@@ -265,15 +270,13 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 				stopAll()
 			}
 
-			if options.Progress != nil {
-				options.Progress(ProgressEvent{
-					Stage:    "end",
-					Index:    job.index + 1,
-					Total:    totalChecks,
-					Check:    checkName,
-					ExitCode: outcome.ExitCode,
-				})
-			}
+			emitProgress(ProgressEvent{
+				Stage:    "end",
+				Index:    job.index + 1,
+				Total:    totalChecks,
+				Check:    checkName,
+				ExitCode: outcome.ExitCode,
+			})
 
 			if options.Verbose {
 				outputMutex.Lock()

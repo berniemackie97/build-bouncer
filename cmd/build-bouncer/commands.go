@@ -269,6 +269,13 @@ func runCheck(args []string, ctx cli.Context) int {
 			bp = p
 		}
 	}
+	if bp != nil {
+		defer func() {
+			if err := bp.Flush(); err != nil && *verbose {
+				fmt.Fprintln(ctx.Stderr, "banter state:", err)
+			}
+		}()
+	}
 
 	var sp *ui.Spinner
 	if quietUI {
