@@ -26,7 +26,8 @@ func resolveCommand(shellSpec string, command string, fallbackShell string) (str
 	}
 
 	if executable, args, ok := directShellCommand(command); ok {
-		return preferWindowsShell(executable), args, nil
+		selected, err := preferWindowsShell(executable)
+		return selected, args, err
 	}
 
 	if strings.TrimSpace(fallbackShell) != "" {
@@ -49,12 +50,18 @@ func commandForShell(spec string, command string) (string, []string, error) {
 	switch strings.ToLower(shell.BaseName(executable)) {
 	case "bash", "bash.exe":
 		if !strings.ContainsAny(executable, "/\\") {
-			executable = preferWindowsShell("bash")
+			executable, err = preferWindowsShell(executable)
+			if err != nil {
+				return "", nil, err
+			}
 		}
 		return executable, []string{"-lc", command}, nil
 	case "sh", "sh.exe":
 		if !strings.ContainsAny(executable, "/\\") {
-			executable = preferWindowsShell("sh")
+			executable, err = preferWindowsShell(executable)
+			if err != nil {
+				return "", nil, err
+			}
 		}
 		return executable, []string{"-c", command}, nil
 	case "pwsh", "pwsh.exe", "powershell", "powershell.exe":
@@ -231,23 +238,43 @@ func unquoteShellArg(arg string) (string, bool) {
 	return trimmed[1 : len(trimmed)-1], true
 }
 
-func preferWindowsShell(shell string) string {
-	if runtime.GOOS != "windows" {
-		return shell
+func preferWindowsShell(spec string) (string, error) {
+	if runtime.GOOS != "windows" || strings.ContainsAny(spec, "/\\") {
+		return spec, nil
 	}
 
-	shellPath, err := exec.LookPath(shell)
+	name := strings.ToLower(strings.TrimSuffix(strings.ToLower(spec), ".exe"))
+	if name != "bash" && name != "sh" {
+		return spec, nil
+	}
+
+	resolved, err := exec.LookPath(spec)
 	if err != nil {
-		return shell
-	}
-
-	if detectShellFlavorPath(shellPath) == pathFlavorWSL {
-		if alt := findGitShell(shell); alt != "" {
-			return alt
+		if gitShell := findGitShell(name); gitShell != "" {
+			return gitShell, nil
 		}
+		return "", fmt.Errorf("locate %s shell: %w; install Git Bash or configure an explicit executable path", spec, err)
 	}
+	if detectShellFlavorPath(resolved) == pathFlavorWSL {
+		if gitShell := findGitShell(name); gitShell != "" {
+			return gitShell, nil
+		}
+		return "", fmt.Errorf("%s resolves to the WSL launcher %q; configure an explicit WSL executable path or install Git Bash", spec, resolved)
+	}
+	return resolved, nil
+}
 
-	return shellPath
+// ResolveCheckExecutable reports the executable selected for a check without running it.
+func ResolveCheckExecutable(shellSpec, command string) (string, error) {
+	executable, _, err := resolveCommand(shellSpec, command, "")
+	if err != nil {
+		return "", err
+	}
+	path, err := exec.LookPath(executable)
+	if err != nil {
+		return "", fmt.Errorf("executable %q is unavailable: %w", executable, err)
+	}
+	return path, nil
 }
 
 // adjustEnvForShell exists because Windows path separators and bash path separators do not match.
@@ -273,6 +300,9 @@ const (
 )
 
 func detectShellFlavor(shell string) shellPathFlavor {
+	if strings.ContainsAny(shell, "/\\") {
+		return detectShellFlavorPath(shell)
+	}
 	shellPath, err := exec.LookPath(shell)
 	if err != nil {
 		return pathFlavorMSYS
@@ -298,23 +328,18 @@ func detectShellFlavorPath(path string) shellPathFlavor {
 }
 
 func findGitShell(shell string) string {
-	name := shell + ".exe"
-	candidates := []string{
-		filepath.Join(os.Getenv("ProgramFiles"), "Git", "usr", "bin", name),
-		filepath.Join(os.Getenv("ProgramFiles"), "Git", "bin", name),
-		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Git", "usr", "bin", name),
-		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Git", "bin", name),
-	}
-
-	for _, candidatePath := range candidates {
-		if candidatePath == "" {
+	name := strings.TrimSuffix(strings.ToLower(shell), ".exe") + ".exe"
+	for _, root := range []string{os.Getenv("ProgramFiles"), os.Getenv("ProgramFiles(x86)")} {
+		if root == "" {
 			continue
 		}
-		if fileExists(candidatePath) {
-			return candidatePath
+		for _, directory := range []string{"usr", ""} {
+			candidate := filepath.Join(root, "Git", directory, "bin", name)
+			if fileExists(candidate) {
+				return candidate
+			}
 		}
 	}
-
 	return ""
 }
 
