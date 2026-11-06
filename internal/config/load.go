@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
+	"unicode"
 )
 
 func Load(path string) (*Config, error) {
@@ -71,9 +73,14 @@ func validateAndDefault(cfg *Config) error {
 		if err := validateEnvOverrides(c.Env); err != nil {
 			return fmt.Errorf("config: checks[%d] env: %w", i, err)
 		}
+		cwd, err := validateCheckDirectory(c.Cwd)
+		if err != nil {
+			return fmt.Errorf("config: checks[%d] cwd: %w", i, err)
+		}
 
 		// Normalize deprecated/legacy fields into canonical ones.
 		c.Name = name
+		c.Cwd = cwd
 		c.OS = osList
 		c.Platforms = nil
 		c.Requires = requires
@@ -88,8 +95,21 @@ func validateAndDefault(cfg *Config) error {
 		return errors.New("config: runner log limits must be >= 0")
 	}
 
-	if strings.TrimSpace(cfg.Insults.Mode) == "" {
+	cfg.Protection.Level = strings.ToLower(strings.TrimSpace(cfg.Protection.Level))
+	switch cfg.Protection.Level {
+	case "", "lax", "moderate", "strict":
+	default:
+		return fmt.Errorf("config: protection.level %q is invalid (expected lax, moderate, or strict)", cfg.Protection.Level)
+	}
+
+	cfg.Insults.Mode = strings.ToLower(strings.TrimSpace(cfg.Insults.Mode))
+	if cfg.Insults.Mode == "" {
 		cfg.Insults.Mode = "snarky"
+	}
+	switch cfg.Insults.Mode {
+	case "polite", "snarky", "nuclear":
+	default:
+		return fmt.Errorf("config: insults.mode %q is invalid (expected polite, snarky, or nuclear)", cfg.Insults.Mode)
 	}
 	if strings.TrimSpace(cfg.Insults.File) == "" {
 		cfg.Insults.File = filepath.ToSlash(filepath.Join(ConfigDirName, DefaultInsultsRel))
@@ -198,24 +218,34 @@ func cutFirstTokenStrict(text string) (string, string, error) {
 }
 
 func validateEnvOverrides(env map[string]string) error {
-	if len(env) == 0 {
-		return nil
-	}
-
-	for rawKey := range env {
-		key := strings.TrimSpace(rawKey)
-		if key == "" {
-			return errors.New("env contains an empty key")
+	for key, value := range env {
+		if key == "" || strings.IndexFunc(key, unicode.IsSpace) >= 0 || strings.ContainsAny(key, "\x00=") {
+			return fmt.Errorf("env key %q contains invalid characters", key)
 		}
-		if strings.ContainsAny(key, "\x00\r\n") {
-			return fmt.Errorf("env key %q contains invalid characters", rawKey)
-		}
-		if strings.Contains(key, "=") {
-			return fmt.Errorf("env key %q must not contain '='", rawKey)
+		if strings.ContainsRune(value, '\x00') {
+			return fmt.Errorf("env value for %q contains NUL", key)
 		}
 	}
-
 	return nil
+}
+
+func validateCheckDirectory(cwd string) (string, error) {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		return "", nil
+	}
+	if strings.ContainsAny(cwd, "\x00\r\n\t") {
+		return "", errors.New("must not contain control characters")
+	}
+	normalized := strings.ReplaceAll(cwd, "\\", "/")
+	if path.IsAbs(normalized) || len(normalized) >= 2 && normalized[1] == ':' {
+		return "", errors.New("must be relative to the repository root")
+	}
+	normalized = path.Clean(normalized)
+	if normalized == ".." || strings.HasPrefix(normalized, "../") {
+		return "", errors.New("must not escape the repository root")
+	}
+	return normalized, nil
 }
 
 func normalizeStringList(list StringList) (StringList, error) {
