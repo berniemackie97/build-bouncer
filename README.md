@@ -125,7 +125,7 @@ Elixir, Deno, Scala, Clojure, Haskell, Erlang, Lua, Perl, R, and Terraform.
 The manual template includes a placeholder check that fails until you replace it.
 
 ### `build-bouncer check [--hook] [--verbose] [--ci] [--log-dir DIR] [--tail N] [--parallel N] [--fail-fast]`
-Runs all configured checks. Cancellation (Ctrl+C or SIGTERM) stops running check process groups and blocks the operation. Remaining descendants are terminated when a check finishes, and inherited output pipes have a bounded wait.
+Runs all configured checks. Cancellation (Ctrl+C or SIGTERM) stops running check process groups and blocks the operation. Remaining descendants are terminated when a check finishes, and inherited output pipes have a bounded wait. On Windows, each check starts suspended, joins its cleanup Job Object, and only then begins execution; an unsuccessful assignment prevents the check from running.
 
 Flags:
 - `--verbose` : stream full output to terminal (still logs)

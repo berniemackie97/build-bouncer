@@ -76,6 +76,11 @@ func startCheckProcess(command *exec.Cmd) (*checkProcess, error) {
 		return nil, fmt.Errorf("configure process job: %w", callErr)
 	}
 
+	if command.SysProcAttr == nil {
+		command.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	command.SysProcAttr.CreationFlags |= createSuspended
+
 	if err := command.Start(); err != nil {
 		_ = syscall.CloseHandle(job)
 		return nil, err
@@ -86,8 +91,11 @@ func startCheckProcess(command *exec.Cmd) (*checkProcess, error) {
 		ok, _, callErr = assignProcessToJobObject.Call(uintptr(job), uintptr(processHandle))
 		_ = syscall.CloseHandle(processHandle)
 		if ok == 0 {
-			err = fmt.Errorf("assign process to job: %w", callErr)
+			err = fmt.Errorf("assign suspended process to job: %w", callErr)
 		}
+	}
+	if err == nil {
+		err = resumeProcessMainThread(uint32(command.Process.Pid))
 	}
 	if err != nil {
 		_ = command.Process.Kill()
