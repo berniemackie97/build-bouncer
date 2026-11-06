@@ -441,4 +441,4 @@ Only when you want to permanently delete the project's config, packs, and BuildB
 
 ## Engineering, roadmap, and license
 
-See [engineering standards](docs/engineering.md), the [modernization roadmap](https://github.com/berniemackie97/build-bouncer/issues/16), and the [MIT license](LICENSE). Binary package-manager distributions and broader CI workflow execution remain planned work.
+See [engineering standards](docs/engineering.md) and the [modernization roadmap](https://github.com/berniemackie97/build-bouncer/issues/16). Binary package-manager distributions, a tracked license declaration, and broader CI workflow execution remain work in progress; see [release and licensing issue #13](https://github.com/berniemackie97/build-bouncer/issues/13).
