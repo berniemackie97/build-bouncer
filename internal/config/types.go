@@ -22,8 +22,9 @@ type Check struct {
 	Env       map[string]string `yaml:"env,omitempty"`
 	OS        StringList        `yaml:"os,omitempty"`
 	Platforms StringList        `yaml:"platforms,omitempty"`
-	Requires  StringList        `yaml:"requires,omitempty"`
-	Timeout   time.Duration     `yaml:"timeout,omitempty"`
+	Requires          StringList        `yaml:"requires,omitempty"`
+	AllowMissingTools bool              `yaml:"allowMissingTools,omitempty"`
+	Timeout           time.Duration     `yaml:"timeout,omitempty"`
 }
 
 type Runner struct {

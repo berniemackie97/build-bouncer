@@ -38,6 +38,7 @@ type Report struct {
 	Failures         []string
 	FailureTails     map[string]string // checkName -> output tail
 	FailureHeadlines map[string]string // checkName -> headline
+	Unavailable      map[string]string // checkName -> missing required tools
 	Canceled         []string
 	Skipped          []string
 	SkipReasons      map[string]string // checkName -> reason
@@ -107,13 +108,14 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 		Failures:         []string{},
 		FailureTails:     map[string]string{},
 		FailureHeadlines: map[string]string{},
+		Unavailable:      map[string]string{},
 		LogFiles:         map[string]string{},
 		SkipReasons:      map[string]string{},
 	}
 
 	totalChecks := len(configuration.Checks)
 	if totalChecks == 0 {
-		return report, nil
+		return report, fmt.Errorf("no checks configured")
 	}
 
 	maxParallel := options.MaxParallel
@@ -149,33 +151,30 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 				})
 			}
 
-			if skipReason := checkSkipReason(checkDefinition); strings.TrimSpace(skipReason) != "" {
+			if reason, unavailable := checkReadiness(checkDefinition); reason != "" {
+				outcome := runOutcome{Skipped: !unavailable, Reason: reason}
+				if unavailable {
+					outcome.ExitCode = 1
+				}
 				if options.Progress != nil {
 					options.Progress(ProgressEvent{
 						Stage:    "end",
 						Index:    job.index + 1,
 						Total:    totalChecks,
 						Check:    checkName,
-						ExitCode: 0,
+						ExitCode: outcome.ExitCode,
 					})
 				}
-
 				if options.Verbose {
 					outputMutex.Lock()
-					fmt.Printf("~~ %s skipped (%s)\n\n", checkName, skipReason)
+					if unavailable {
+						fmt.Printf("!! %s unavailable (%s)\n\n", checkName, reason)
+					} else {
+						fmt.Printf("~~ %s skipped (%s)\n\n", checkName, reason)
+					}
 					outputMutex.Unlock()
 				}
-
-				resultsChannel <- checkResult{
-					index: job.index,
-					name:  checkName,
-					outcome: runOutcome{
-						ExitCode: 0,
-						Skipped:  true,
-						Reason:   skipReason,
-					},
-					runErr: nil,
-				}
+				resultsChannel <- checkResult{index: job.index, name: checkName, outcome: outcome}
 				continue
 			}
 
@@ -308,7 +307,10 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 				report.LogFiles[result.name] = result.outcome.LogPath
 			}
 
-			if result.outcome.TimedOut {
+			if result.outcome.Reason != "" {
+				report.Unavailable[result.name] = result.outcome.Reason
+				report.FailureHeadlines[result.name] = result.outcome.Reason
+			} else if result.outcome.TimedOut {
 				report.FailureHeadlines[result.name] = fmt.Sprintf("Timed out after %s", result.outcome.Timeout)
 			} else if headline := strings.TrimSpace(ExtractHeadline(result.name, result.outcome.Tail)); headline != "" {
 				report.FailureHeadlines[result.name] = headline
@@ -348,6 +350,9 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 
 	if firstFatalError != nil {
 		return Report{}, firstFatalError
+	}
+	if len(report.Skipped) == totalChecks {
+		return report, fmt.Errorf("no checks executed: all %d configured checks were skipped", totalChecks)
 	}
 
 	return report, nil

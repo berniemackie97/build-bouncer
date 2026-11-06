@@ -164,3 +164,18 @@ checks:
 		t.Fatalf("expected os validation error, got %v", err)
 	}
 }
+
+func TestLoadAllowMissingTools(t *testing.T) {
+	cfg, err := Parse([]byte(`version: 1
+checks:
+  - name: optional
+    run: echo ok
+    allowMissingTools: true
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Checks[0].AllowMissingTools {
+		t.Fatal("explicit missing-tool policy not loaded")
+	}
+}

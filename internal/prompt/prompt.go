@@ -89,6 +89,9 @@ func hasCriticalFailures(report runner.Report) bool {
 
 // ShouldBlock determines if failures should block the push based on protection level
 func ShouldBlock(report runner.Report, protectionLevel string) bool {
+	if len(report.Unavailable) > 0 {
+		return true
+	}
 	if len(report.Failures) == 0 {
 		return false
 	}

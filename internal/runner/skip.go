@@ -12,20 +12,24 @@ import (
 )
 
 func checkSkipReason(check config.Check) string {
+	reason, _ := checkReadiness(check)
+	return reason
+}
+
+func checkReadiness(check config.Check) (reason string, unavailable bool) {
 	applies, allowedOSValues := checkAppliesToOS(check)
 	if !applies {
 		if len(allowedOSValues) == 0 {
-			return "os mismatch"
+			return "os mismatch", false
 		}
-		return "os mismatch (want " + strings.Join(allowedOSValues, ",") + ")"
+		return "os mismatch (want " + strings.Join(allowedOSValues, ",") + ")", false
 	}
 
 	missing := missingTools(check)
 	if len(missing) > 0 {
-		return "missing tools: " + strings.Join(missing, ", ")
+		return "missing tools: " + strings.Join(missing, ", "), !check.AllowMissingTools
 	}
-
-	return ""
+	return "", false
 }
 
 func SkipReason(check config.Check) string {
