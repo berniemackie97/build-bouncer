@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/berniemackie97/build-bouncer/internal/config"
+	"github.com/berniemackie97/build-bouncer/internal/shell"
 )
 
 func checkSkipReason(check config.Check) string {
@@ -136,28 +137,22 @@ func missingTools(check config.Check) []string {
 		}
 	}
 
-	// Shell itself can be a tool dependency too (unless it's cmd, which is always present on Windows).
-	explicitShell := strings.TrimSpace(check.Shell)
-	if explicitShell == "" {
+	if strings.TrimSpace(check.Shell) == "" {
 		return missing
 	}
-
-	shellBase := strings.ToLower(filepath.Base(explicitShell))
+	executable, err := shell.ParseExecutable(check.Shell)
+	if err != nil {
+		return append(missing, check.Shell)
+	}
+	shellBase := strings.ToLower(shell.BaseName(executable))
 	if shellBase == "cmd" || shellBase == "cmd.exe" {
 		return missing
 	}
-
-	shellTool := firstToken(explicitShell)
-	if shellTool == "" {
+	if _, alreadyChecked := seenTools[executable]; alreadyChecked {
 		return missing
 	}
-	if _, alreadyChecked := seenTools[shellTool]; alreadyChecked {
-		return missing
-	}
-
-	seenTools[shellTool] = struct{}{}
-	if !toolExists(shellTool) {
-		missing = append(missing, shellTool)
+	if !toolExists(executable) {
+		missing = append(missing, executable)
 	}
 
 	return missing
@@ -166,8 +161,8 @@ func missingTools(check config.Check) []string {
 func toolExists(tool string) bool {
 	// If the user gave us a path, check the filesystem.
 	if strings.ContainsAny(tool, `/\`) {
-		_, statErr := os.Stat(tool)
-		return statErr == nil
+		info, err := os.Stat(tool)
+		return err == nil && info.Mode().IsRegular()
 	}
 
 	_, lookErr := exec.LookPath(tool)
