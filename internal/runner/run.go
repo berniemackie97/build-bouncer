@@ -4,6 +4,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -512,6 +513,15 @@ func runOne(
 		}
 
 		closeLogFile()
+
+		if errors.Is(waitErr, exec.ErrWaitDelay) {
+			return runOutcome{
+				ExitCode: 1,
+				Tail:     tailBuffer.String(),
+				LogPath:  logPath,
+				Reason:   "output pipes stayed open after the command exited",
+			}, nil
+		}
 
 		if exitErr, ok := waitErr.(*exec.ExitError); ok {
 			return runOutcome{

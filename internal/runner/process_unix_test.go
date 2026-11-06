@@ -64,8 +64,11 @@ func TestInheritedPipeDoesNotHang(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > 4*time.Second {
 		t.Fatalf("waiting for inherited pipe took %s", elapsed)
 	}
-	if err == nil && outcome.ExitCode == 0 {
-		t.Fatal("command leaving a live descendant must not report success")
+	if err != nil || outcome.ExitCode == 0 || outcome.LogPath == "" {
+		t.Fatalf("inherited pipe must produce a recorded check failure: outcome=%+v err=%v", outcome, err)
+	}
+	if outcome.Reason == "" {
+		t.Fatal("expected an actionable failure reason")
 	}
 }
 
