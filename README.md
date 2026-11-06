@@ -147,7 +147,7 @@ Validates `.buildbouncer/config.yaml` and prints the number of checks.
 Use `--config` to validate a specific file instead of searching from the current directory.
 
 ### `build-bouncer doctor [--config PATH]`
-Prints resolved shell/cwd, PATH, and missing tools per check.
+Prints the configured shell, executable actually selected for applicable checks, cwd, PATH, and missing tools. Returns a nonzero exit status when an applicable check has an unavailable shell.
 
 ### `build-bouncer setup [--force] [--no-copy] [--ci] [--template-flag]`
 Convenience: init (if needed) + install hook + run checks.
@@ -254,7 +254,7 @@ Each check:
 
 `shell` must name a single executable, not an executable plus arguments. Quote paths containing spaces; unquoted Windows executable paths ending in `.exe` are also accepted. An explicitly selected path is preserved, not replaced by a different executable on `PATH`. If the executable is missing or cannot start, the check fails without falling back to another shell.
 
-If `shell` is omitted, build-bouncer uses the OS default (`cmd` on Windows, `sh` on macOS/Linux).
+If `shell` is omitted, build-bouncer uses the OS default (`cmd` on Windows, `sh` on macOS/Linux). On Windows, a bare `bash` or `sh` resolves to Git Bash/MSYS rather than implicitly launching WSL. If Windows finds only the WSL launcher, the check fails with an actionable error unless Git Bash is installed. Use an explicit executable path to request WSL intentionally; BuildBouncer does not silently replace explicit paths.
 Generated checks include explicit shells based on CI defaults or script type; for manual checks, set `shell` if you need `bash` or `pwsh`.
 
 Configuration validation rejects unknown `protection.level` values (`lax`, `moderate`, `strict`) and unknown `insults.mode` values (`polite`, `snarky`, `nuclear`). Case and surrounding whitespace are normalized. Strict protection disables interactive overrides even when `interactive: true` is configured. Environment override keys must not contain whitespace, NUL, or `=`; values must not contain NUL. Validation is shared by `validate`, `check`, `doctor`, `init`, and `ci sync`.
