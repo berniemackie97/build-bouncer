@@ -40,10 +40,10 @@ func TestDoctorDoesNotRequireForeignOSShell(t *testing.T) {
 		other = "linux"
 	}
 	cfg := &config.Config{Checks: []config.Check{{
-		Name: "foreign",
-		Run: "echo ok",
+		Name:  "foreign",
+		Run:   "echo ok",
 		Shell: filepath.Join(root, "missing-shell"),
-		OS: config.StringList{other},
+		OS:    config.StringList{other},
 	}}}
 	if err := config.Save(path, cfg); err != nil {
 		t.Fatal(err)

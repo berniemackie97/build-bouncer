@@ -66,7 +66,8 @@ func runDoctor(cfgPath string, ctx cli.Context) int {
 		fmt.Fprintln(ctx.Stdout, "  run:", check.Run)
 		fmt.Fprintln(ctx.Stdout, "  shell:", resolvedShell(check))
 		skipReason := runner.SkipReason(check)
-		if skipReason == "" {
+		applies, _ := runner.CheckAppliesToOS(check)
+		if applies {
 			executable, err := runner.ResolveCheckExecutable(check.Shell, check.Run)
 			if err != nil {
 				fmt.Fprintln(ctx.Stdout, "  shell error:", err)
