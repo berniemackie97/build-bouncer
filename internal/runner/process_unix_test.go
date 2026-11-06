@@ -83,3 +83,26 @@ func TestCanceledRunDoesNotReportSuccess(t *testing.T) {
 		t.Fatalf("canceled suite took %s", elapsed)
 	}
 }
+
+func TestParallelFailFastTerminatesDescendants(t *testing.T) {
+	root := t.TempDir()
+	marker := filepath.Join(root, "survived")
+	cfg := &config.Config{Checks: []config.Check{
+		{Name: "running", Run: fmt.Sprintf("(sleep 1; echo survived > %q) & wait", marker)},
+		{Name: "failure", Run: "sleep 0.3; exit 7"},
+	}}
+	report, err := RunAllReport(root, cfg, Options{MaxParallel: 2, FailFast: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Failures) != 1 || report.Failures[0] != "failure" {
+		t.Fatalf("unexpected failures: %+v", report)
+	}
+	if len(report.Canceled) != 1 || report.Canceled[0] != "running" {
+		t.Fatalf("unexpected canceled checks: %+v", report)
+	}
+	time.Sleep(1100 * time.Millisecond)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("descendant survived fail-fast cancellation: %v", err)
+	}
+}

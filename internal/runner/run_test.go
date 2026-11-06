@@ -130,3 +130,17 @@ func failCommand(msg string) string {
 	}
 	return "echo " + msg + " && exit 1"
 }
+
+func TestRunAllReportRejectsExcessiveConcurrency(t *testing.T) {
+	cfg := &config.Config{Checks: []config.Check{{Name: "pass", Run: "echo ok"}}}
+	if _, err := RunAllReport(t.TempDir(), cfg, Options{MaxParallel: 33}); err == nil {
+		t.Fatal("concurrency above the supported limit must fail")
+	}
+}
+
+func TestRunOneRejectsExcessiveTimeout(t *testing.T) {
+	root := t.TempDir()
+	if _, err := runOne(context.Background(), root, root, 0, "invalid-timeout", "echo ok", "", nil, 3*time.Hour, Options{}); err == nil {
+		t.Fatal("timeout beyond the supported limit must fail")
+	}
+}

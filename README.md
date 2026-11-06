@@ -126,7 +126,7 @@ Elixir, Deno, Scala, Clojure, Haskell, Erlang, Lua, Perl, R, and Terraform.
 The manual template includes a placeholder check that fails until you replace it.
 
 ### `build-bouncer check [--hook] [--verbose] [--ci] [--log-dir DIR] [--tail N] [--parallel N] [--fail-fast]`
-Runs all configured checks.
+Runs all configured checks. Cancellation (Ctrl+C or SIGTERM) stops running check process groups and blocks the operation. Remaining descendants are terminated when a check finishes, and inherited output pipes have a bounded wait.
 
 Flags:
 - `--verbose` : stream full output to terminal (still logs)
@@ -134,7 +134,7 @@ Flags:
 - `--hook` : forces spinner/banter even if stdout doesn't look like a TTY (used by the git hook)
 - `--log-dir` : override log directory (default: `.git/build-bouncer/logs`)
 - `--tail` : extra tail lines printed per failed check in verbose mode (default: `0`)
-- `--parallel` : max concurrent checks (default: 1 or config)
+- `--parallel` : max concurrent checks (default: 1 or config; maximum 32)
 - `--fail-fast` : cancel remaining checks after the first failure
 
 Exit codes:
@@ -247,7 +247,7 @@ Each check:
   - `os` / `platforms`: restrict to specific OS (`windows`, `linux`, `macos`)
   - `requires`: binaries required to run the check (missing tools block by default)
   - `allowMissingTools`: opt-in to skipping a check when its required tools are unavailable; a run with no executed checks still fails
-  - `timeout`: per-check timeout (example: `30s`, `2m`)
+  - `timeout`: per-check timeout (example: `30s`, `2m`); defaults to `30m` and cannot exceed `2h`
 
 `shell` must be just the executable name or path (no arguments). Use `run` for the actual command.
 
@@ -266,7 +266,7 @@ checks:
 ```
 
 Runner options (optional):
-- `runner.maxParallel`: maximum concurrent checks
+- `runner.maxParallel`: maximum concurrent checks (1–32)
 - `runner.failFast`: cancel remaining checks after the first failure
 
 ---
