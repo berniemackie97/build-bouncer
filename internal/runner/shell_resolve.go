@@ -294,7 +294,7 @@ func ResolveCheckExecutableAt(repoRoot, shellSpec, command string, env map[strin
 func resolveExecutableAt(repoRoot, executable string) string {
 	if repoRoot != "" && strings.ContainsAny(executable, "/\\") && !filepath.IsAbs(executable) &&
 		!(len(executable) >= 2 && executable[1] == ':') {
-		return filepath.Join(repoRoot, executable)
+		return filepath.Join(repoRoot, filepath.FromSlash(strings.ReplaceAll(executable, "\\", "/")))
 	}
 	return executable
 }
