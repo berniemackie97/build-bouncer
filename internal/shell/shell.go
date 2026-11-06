@@ -96,15 +96,15 @@ func Normalize(shell string) string {
 		return trimmed
 	}
 	switch strings.ToLower(trimmed) {
-	case "bash.exe":
+	case "bash", "bash.exe":
 		return "bash"
-	case "sh.exe":
+	case "sh", "sh.exe":
 		return "sh"
-	case "pwsh.exe":
+	case "pwsh", "pwsh.exe":
 		return "pwsh"
-	case "powershell.exe":
+	case "powershell", "powershell.exe":
 		return "powershell"
-	case "cmd.exe":
+	case "cmd", "cmd.exe":
 		return "cmd"
 	default:
 		return trimmed

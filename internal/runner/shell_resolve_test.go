@@ -189,9 +189,9 @@ func TestResolveCommand_Order(t *testing.T) {
 		name, args, err := resolveCommand("", "echo hi", "")
 		if runtime.GOOS == "windows" {
 			if err != nil {
-			t.Fatal(err)
-		}
-		if name != "cmd.exe" || !slices.Equal(args, []string{"/C", "echo hi"}) {
+				t.Fatal(err)
+			}
+			if name != "cmd.exe" || !slices.Equal(args, []string{"/C", "echo hi"}) {
 				t.Fatalf("got (%q, %v), want (cmd.exe, [/C echo hi])", name, args)
 			}
 			return
