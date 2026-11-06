@@ -297,6 +297,18 @@ func TestExplicitWSLShellArguments(t *testing.T) {
 	}
 }
 
+func TestRelativeShellSeparatorsArePortable(t *testing.T) {
+	root := t.TempDir()
+	for _, relative := range []string{`tools/shell.exe`, `tools\shell.exe`} {
+		if got, want := resolveExecutableAt(root, relative), filepath.Join(root, "tools", "shell.exe"); got != want {
+			t.Fatalf("relative shell %q resolved to %q; want %q", relative, got, want)
+		}
+	}
+	if got := resolveExecutableAt(root, `C:\Program Files\Git\bin\bash.exe`); got != `C:\Program Files\Git\bin\bash.exe` {
+		t.Fatalf("explicit drive path changed: %q", got)
+	}
+}
+
 func TestRelativeShellPathResolvesFromRepoRoot(t *testing.T) {
 	var source, name, script string
 	if runtime.GOOS == "windows" {
