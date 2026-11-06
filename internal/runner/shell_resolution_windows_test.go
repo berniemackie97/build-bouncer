@@ -99,3 +99,20 @@ func TestExplicitWSLLauncherKeepsWindowsPATH(t *testing.T) {
 		}
 	}
 }
+
+func TestWSLEnvironmentOverridesFailBeforeExecution(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "wsl.exe")
+	if err := os.WriteFile(executable, []byte("not a process"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	check := config.Check{
+		Name: "wsl", Shell: executable, Run: "printf ok",
+		Env: map[string]string{"TEST_SETTING": "value"}, AllowMissingTools: true,
+	}
+	report, err := RunAllReport(root, &config.Config{Checks: []config.Check{check}}, Options{})
+	if err != nil || len(report.Failures) != 1 || len(report.Skipped) != 0 ||
+		!strings.Contains(report.Unavailable[check.Name], "WSL shell does not support") {
+		t.Fatalf("WSL env override must fail before process launch: %+v, %v", report, err)
+	}
+}
