@@ -39,7 +39,7 @@ func TestInitRollsBackInvalidImportedWorkingDirectory(t *testing.T) {
 	original := map[string]string{
 		cfgPath: "user configuration",
 		filepath.Join(assets, "insults", "default.json"): "user insults",
-		filepath.Join(assets, "banter", "default.json"): "user banter",
+		filepath.Join(assets, "banter", "default.json"):  "user banter",
 	}
 	for path, content := range original {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

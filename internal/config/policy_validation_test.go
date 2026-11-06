@@ -47,7 +47,7 @@ func TestPolicyValuesAndNormalization(t *testing.T) {
 func TestCheckDirectoryValidationIsPortable(t *testing.T) {
 	cases := []struct {
 		cwd, normalized string
-		reject bool
+		reject          bool
 	}{
 		{cwd: ".", normalized: "."},
 		{cwd: "./src/../tests", normalized: "tests"},
