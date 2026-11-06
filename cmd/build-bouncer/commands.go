@@ -403,10 +403,10 @@ func runCheck(args []string, ctx cli.Context) int {
 				if p := rep.LogFiles[f]; strings.TrimSpace(p) != "" {
 					fmt.Fprintln(ctx.Stderr, "")
 					label := "Full log: "
-				if rep.LogTruncated[f] {
-					label = "Full log (truncated): "
-				}
-				fmt.Fprintln(ctx.Stderr, tui.Arrow(label+p))
+					if rep.LogTruncated[f] {
+						label = "Full log (truncated): "
+					}
+					fmt.Fprintln(ctx.Stderr, tui.Arrow(label+p))
 				}
 			}
 		}
