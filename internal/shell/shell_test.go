@@ -112,9 +112,9 @@ func TestNormalizeShell(t *testing.T) {
 		}
 	})
 
-	t.Run("normalizes bash from windows path", func(t *testing.T) {
-		if Normalize("C:\\Tools\\bash.exe") != "bash" {
-			t.Fatal("expected bash normalization")
+	t.Run("preserves explicit Windows executable path", func(t *testing.T) {
+		if Normalize("C:\\Tools\\bash.exe") != "C:\\Tools\\bash.exe" {
+			t.Fatal("expected exact shell path")
 		}
 	})
 }
