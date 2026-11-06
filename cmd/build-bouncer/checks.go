@@ -155,10 +155,7 @@ func stripCIChecks(checks []config.Check) ([]config.Check, int) {
 }
 
 func isCICheck(c config.Check) bool {
-	if strings.HasPrefix(strings.TrimSpace(c.Name), "ci:") {
-		return true
-	}
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(c.Source)), "ci")
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(c.Source)), "ci:")
 }
 
 func isManualPlaceholder(c config.Check) bool {

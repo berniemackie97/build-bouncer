@@ -3,10 +3,10 @@ package ci
 import (
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/berniemackie97/build-bouncer/internal/config"
@@ -15,18 +15,25 @@ import (
 )
 
 type Workflow struct {
-	Name string         `yaml:"name"`
-	Jobs map[string]Job `yaml:"jobs"`
-}
-
-type Job struct {
 	Name     string                 `yaml:"name"`
 	Env      map[string]interface{} `yaml:"env"`
 	Defaults Defaults               `yaml:"defaults"`
-	Steps    []Step                 `yaml:"steps"`
-	RunsOn   RunsOn                 `yaml:"runs-on"`
-	If       string                 `yaml:"if"`
-	Strategy Strategy               `yaml:"strategy"`
+	Jobs     map[string]Job         `yaml:"jobs"`
+}
+
+type Job struct {
+	Name           string                 `yaml:"name"`
+	Env            map[string]interface{} `yaml:"env"`
+	Defaults       Defaults               `yaml:"defaults"`
+	Steps          []Step                 `yaml:"steps"`
+	RunsOn         RunsOn                 `yaml:"runs-on"`
+	If             string                 `yaml:"if"`
+	Strategy       Strategy               `yaml:"strategy"`
+	Needs          interface{}            `yaml:"needs"`
+	Container      interface{}            `yaml:"container"`
+	Services       interface{}            `yaml:"services"`
+	Uses           string                 `yaml:"uses"`
+	TimeoutMinutes int                    `yaml:"timeout-minutes"`
 }
 
 type Defaults struct {
@@ -47,6 +54,8 @@ type Step struct {
 	WorkingDirectory string                 `yaml:"working-directory"`
 	If               string                 `yaml:"if"`
 	Shell            string                 `yaml:"shell"`
+	ContinueOnError  *bool                  `yaml:"continue-on-error"`
+	TimeoutMinutes   int                    `yaml:"timeout-minutes"`
 }
 
 type Strategy struct {
@@ -55,15 +64,6 @@ type Strategy struct {
 
 type RunsOn struct {
 	Values []string
-}
-
-type toolUsage struct {
-	node   bool
-	goLang bool
-	python bool
-	dotnet bool
-	java   bool
-	ruby   bool
 }
 
 func (r *RunsOn) UnmarshalYAML(value *yaml.Node) error {
@@ -76,13 +76,14 @@ func (r *RunsOn) UnmarshalYAML(value *yaml.Node) error {
 			r.Values = []string{value.Value}
 		}
 	case yaml.SequenceNode:
-		var out []string
 		for _, n := range value.Content {
-			if n.Kind == yaml.ScalarNode && strings.TrimSpace(n.Value) != "" {
-				out = append(out, n.Value)
+			if n.Kind != yaml.ScalarNode || strings.TrimSpace(n.Value) == "" {
+				return fmt.Errorf("runs-on must contain non-empty labels")
 			}
+			r.Values = append(r.Values, n.Value)
 		}
-		r.Values = out
+	default:
+		return fmt.Errorf("runs-on must be a label or list of labels")
 	}
 	return nil
 }
@@ -116,12 +117,18 @@ func ChecksFromGitHubActions(root string) ([]config.Check, error) {
 		checks = append(checks, fileChecks...)
 	}
 
-	// Normalize checks for local execution
+	// Apply workspace-relative paths without changing script content.
 	for i := range checks {
 		checks[i].Cwd = normalizeWorkingDirectory(checks[i].Cwd)
-		checks[i].Run = normalizeGitHubActionsTemplates(checks[i].Run)
 	}
 
+	seen := make(map[string]struct{}, len(checks))
+	for _, check := range checks {
+		if _, exists := seen[check.Name]; exists {
+			return nil, fmt.Errorf("duplicate imported check name %q; give workflow jobs and steps distinct names", check.Name)
+		}
+		seen[check.Name] = struct{}{}
+	}
 	return checks, nil
 }
 
@@ -136,18 +143,44 @@ func checksFromWorkflowFile(path string) ([]config.Check, error) {
 		return nil, err
 	}
 
+	if err := validateWorkflowEnv(wf.Env); err != nil {
+		return nil, fmt.Errorf("workflow env: %w", err)
+	}
+	if err := validateWorkflowShell(wf.Defaults.Run.Shell); err != nil {
+		return nil, fmt.Errorf("workflow defaults: %w", err)
+	}
+	if err := rejectActionsExpression(wf.Defaults.Run.WorkingDirectory); err != nil && !isWorkspaceDirectory(wf.Defaults.Run.WorkingDirectory) {
+		return nil, fmt.Errorf("workflow working-directory: %w", err)
+	}
+
 	workflowLabel := labelFromWorkflow(path, wf.Name)
 	var out []config.Check
 	currentOS := currentRunnerOS()
 
-	for jobKey, job := range wf.Jobs {
+	jobKeys := make([]string, 0, len(wf.Jobs))
+	for key := range wf.Jobs {
+		jobKeys = append(jobKeys, key)
+	}
+	sort.Strings(jobKeys)
+	workflowEnv := normalizeEnv(wf.Env)
+	for _, jobKey := range jobKeys {
+		job := wf.Jobs[jobKey]
+		if err := validateWorkflowJob(jobKey, job); err != nil {
+			return nil, err
+		}
 		if !jobAppliesToOS(job, currentOS) {
 			continue
 		}
-		usage := detectToolsUsed(job.Steps)
 		jobLabel := labelFromJob(jobKey, job.Name)
-		jobEnv := normalizeEnv(job.Env)
+		jobEnv := mergeEnv(workflowEnv, normalizeEnv(job.Env))
 		jobDir := strings.TrimSpace(job.Defaults.Run.WorkingDirectory)
+		if jobDir == "" {
+			jobDir = strings.TrimSpace(wf.Defaults.Run.WorkingDirectory)
+		}
+		defaultShell := strings.TrimSpace(job.Defaults.Run.Shell)
+		if defaultShell == "" {
+			defaultShell = strings.TrimSpace(wf.Defaults.Run.Shell)
+		}
 
 		for _, step := range job.Steps {
 			if !stepAppliesToOS(step, currentOS) {
@@ -159,9 +192,6 @@ func checksFromWorkflowFile(path string) ([]config.Check, error) {
 			}
 
 			if strings.TrimSpace(step.Run) == "" {
-				if check := checkFromUsesStep(workflowLabel, jobLabel, jobEnv, jobDir, job.Defaults, step, usage, currentOS); check != nil {
-					out = append(out, *check)
-				}
 				continue
 			}
 
@@ -174,10 +204,10 @@ func checksFromWorkflowFile(path string) ([]config.Check, error) {
 			if cwd == "" {
 				cwd = jobDir
 			}
-			shell := resolveShell(step.Shell, job.Defaults.Run.Shell, currentOS)
+			shell := resolveShell(step.Shell, defaultShell, currentOS)
 			out = append(out, config.Check{
 				Name:   name,
-				Run:    strings.TrimSpace(step.Run),
+				Run:    step.Run,
 				Shell:  shell,
 				Cwd:    cwd,
 				Env:    env,
@@ -194,17 +224,13 @@ func jobAppliesToOS(job Job, currentOS string) bool {
 	if !runsOnMatches(job.RunsOn, job.Strategy.Matrix, currentOS) {
 		return false
 	}
-	if known, allowed := evalIfOS(job.If, currentOS); known && !allowed {
-		return false
-	}
-	return true
+	applies, _ := conditionMatchesOS(job.If, currentOS)
+	return applies
 }
 
 func stepAppliesToOS(step Step, currentOS string) bool {
-	if known, allowed := evalIfOS(step.If, currentOS); known && !allowed {
-		return false
-	}
-	return true
+	applies, _ := conditionMatchesOS(step.If, currentOS)
+	return applies
 }
 
 func labelFromWorkflow(path string, workflowName string) string {
@@ -235,18 +261,6 @@ func labelFromStep(step Step) string {
 		return "step"
 	}
 	return sanitizeLabel(firstLine)
-}
-
-func labelFromUses(step Step, action string) string {
-	if strings.TrimSpace(step.Name) != "" {
-		return sanitizeLabel(step.Name)
-	}
-	short := actionShortName(action)
-	cache := strings.ToLower(strings.TrimSpace(stepWithString(step, "cache")))
-	if cache != "" {
-		short = short + "-" + cache
-	}
-	return sanitizeLabel(short)
 }
 
 func sanitizeLabel(s string) string {
@@ -302,94 +316,6 @@ func mergeEnv(base map[string]string, override map[string]string) map[string]str
 	return out
 }
 
-func detectToolsUsed(steps []Step) toolUsage {
-	usage := toolUsage{}
-	for _, step := range steps {
-		if strings.TrimSpace(step.Run) == "" {
-			continue
-		}
-		token := commandToken(step.Run)
-		switch token {
-		case "node", "npm", "pnpm", "yarn", "bun":
-			usage.node = true
-		case "go":
-			usage.goLang = true
-		case "python", "python3", "pip", "pip3", "pipenv", "poetry", "pdm", "uv", "rye", "hatch":
-			usage.python = true
-		case "dotnet":
-			usage.dotnet = true
-		case "java", "mvn", "mvnw", "gradle", "gradlew":
-			usage.java = true
-		case "ruby", "bundle", "bundler", "rake":
-			usage.ruby = true
-		}
-	}
-	return usage
-}
-
-func commandToken(run string) string {
-	fields := strings.Fields(run)
-	if len(fields) == 0 {
-		return ""
-	}
-	token := strings.Trim(fields[0], `"'`)
-	token = strings.ReplaceAll(token, "\\", "/")
-	base := path.Base(token)
-	return strings.ToLower(base)
-}
-
-func usesActionNeeded(action string, usage toolUsage) bool {
-	switch action {
-	case "actions/setup-node":
-		return usage.node
-	case "actions/setup-go":
-		return usage.goLang
-	case "actions/setup-python":
-		return usage.python
-	case "actions/setup-dotnet":
-		return usage.dotnet
-	case "actions/setup-java":
-		return usage.java
-	case "actions/setup-ruby", "ruby/setup-ruby":
-		return usage.ruby
-	default:
-		return true
-	}
-}
-
-func checkFromUsesStep(workflowLabel string, jobLabel string, jobEnv map[string]string, jobDir string, defaults Defaults, step Step, usage toolUsage, currentOS string) *config.Check {
-	action := normalizeUsesAction(step.Uses)
-	if action == "" {
-		return nil
-	}
-	if !usesActionNeeded(action, usage) {
-		return nil
-	}
-	run := usesRunCommand(action, step)
-	if strings.TrimSpace(run) == "" {
-		return nil
-	}
-
-	stepEnv := normalizeEnv(step.Env)
-	env := mergeEnv(jobEnv, stepEnv)
-	cwd := strings.TrimSpace(step.WorkingDirectory)
-	if cwd == "" {
-		cwd = jobDir
-	}
-	shell := resolveShell(step.Shell, defaults.Run.Shell, currentOS)
-
-	name := fmt.Sprintf("ci:%s:%s:%s", workflowLabel, jobLabel, labelFromUses(step, action))
-	return &config.Check{
-		Name:   name,
-		Run:    run,
-		Shell:  shell,
-		Cwd:    cwd,
-		Env:    env,
-		OS:     config.StringList{currentOS},
-		Source: "ci:" + workflowLabel,
-	}
-}
-
 func normalizeUsesAction(uses string) string {
 	s := strings.TrimSpace(uses)
 	if s == "" {
@@ -404,51 +330,6 @@ func normalizeUsesAction(uses string) string {
 		return ""
 	}
 	return s
-}
-
-func actionShortName(action string) string {
-	parts := strings.Split(strings.Trim(action, "/"), "/")
-	if len(parts) == 0 {
-		return action
-	}
-	return parts[len(parts)-1]
-}
-
-func usesRunCommand(action string, step Step) string {
-	switch action {
-	case "actions/checkout":
-		return ""
-	case "actions/cache", "actions/cache/restore", "actions/cache/save":
-		return ""
-	case "actions/setup-node":
-		return setupNodeCommand(step)
-	case "actions/setup-go":
-		return "go version"
-	case "actions/setup-python":
-		return "python --version"
-	case "actions/setup-java":
-		return "java -version"
-	case "actions/setup-dotnet":
-		return "dotnet --version"
-	case "actions/setup-ruby", "ruby/setup-ruby":
-		return "ruby --version"
-	default:
-		return ""
-	}
-}
-
-func setupNodeCommand(step Step) string {
-	cache := strings.ToLower(strings.TrimSpace(stepWithString(step, "cache")))
-	switch cache {
-	case "pnpm":
-		return "pnpm --version"
-	case "yarn":
-		return "yarn --version"
-	case "npm":
-		return "npm --version"
-	default:
-		return "node --version"
-	}
 }
 
 func resolveShell(stepShell string, defaultShell string, currentOS string) string {
@@ -471,17 +352,6 @@ func defaultGitHubShell(currentOS string) string {
 	default:
 		return "bash"
 	}
-}
-
-func stepWithString(step Step, key string) string {
-	if step.With == nil {
-		return ""
-	}
-	val, ok := step.With[key]
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(fmt.Sprint(val))
 }
 
 func currentRunnerOS() string {
@@ -539,61 +409,7 @@ func expandRunsOn(values []string, matrix map[string]interface{}) ([]string, boo
 	return out, unknown
 }
 
-var (
-	reIfEq       = regexp.MustCompile(`(?i)\b(?:runner\.os|matrix\.os)\s*==\s*['"]([^'"]+)['"]`)
-	reIfNe       = regexp.MustCompile(`(?i)\b(?:runner\.os|matrix\.os)\s*!=\s*['"]([^'"]+)['"]`)
-	reIfContains = regexp.MustCompile(`(?i)contains\(\s*(?:runner\.os|matrix\.os)\s*,\s*['"]([^'"]+)['"]\s*\)`)
-	reMatrixVar  = regexp.MustCompile(`(?i)matrix\.([a-z0-9_-]+)`)
-)
-
-func evalIfOS(expr string, currentOS string) (bool, bool) {
-	expr = strings.TrimSpace(expr)
-	if expr == "" {
-		return false, true
-	}
-	lower := strings.ToLower(expr)
-	if !strings.Contains(lower, "runner.os") && !strings.Contains(lower, "matrix.os") {
-		return false, true
-	}
-
-	var eqMatches []string
-	for _, m := range reIfEq.FindAllStringSubmatch(expr, -1) {
-		eqMatches = append(eqMatches, m[1])
-	}
-	for _, m := range reIfContains.FindAllStringSubmatch(expr, -1) {
-		eqMatches = append(eqMatches, m[1])
-	}
-
-	var neMatches []string
-	for _, m := range reIfNe.FindAllStringSubmatch(expr, -1) {
-		neMatches = append(neMatches, m[1])
-	}
-
-	if len(eqMatches) == 0 && len(neMatches) == 0 {
-		return false, true
-	}
-
-	if len(eqMatches) > 0 {
-		allowed := false
-		for _, v := range eqMatches {
-			if os := osFromValue(v); os != "" && os == currentOS {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return true, false
-		}
-	}
-
-	for _, v := range neMatches {
-		if os := osFromValue(v); os != "" && os == currentOS {
-			return true, false
-		}
-	}
-
-	return true, true
-}
+var reMatrixVar = regexp.MustCompile(`(?i)matrix\.([a-z0-9_-]+)`)
 
 func matrixKeyFromExpr(value string) string {
 	if m := reMatrixVar.FindStringSubmatch(value); len(m) == 2 {
@@ -638,132 +454,15 @@ func osFromValue(value string) string {
 	}
 }
 
-// normalizeWorkingDirectory removes GitHub Actions template variables from working directory paths.
-// For example, "${{github.workspace}}/build" becomes "build".
 func normalizeWorkingDirectory(cwd string) string {
-	if strings.TrimSpace(cwd) == "" {
-		return ""
-	}
-
-	// Remove ${{github.workspace}} prefix and normalize path separators
-	normalized := strings.TrimSpace(cwd)
-
-	// Match various forms of the github.workspace variable
-	replacements := []string{
-		"${{github.workspace}}/",
-		"${{github.workspace}}\\",
-		"${{ github.workspace }}/",
-		"${{ github.workspace }}\\",
-		"${{github.workspace}}",
-		"${{ github.workspace }}",
-	}
-
-	for _, prefix := range replacements {
-		if strings.HasPrefix(normalized, prefix) {
-			normalized = strings.TrimPrefix(normalized, prefix)
-			break
+	cwd = strings.TrimSpace(cwd)
+	for _, marker := range []string{"${{github.workspace}}", "${{ github.workspace }}"} {
+		if cwd == marker {
+			return ""
+		}
+		if strings.HasPrefix(cwd, marker+"/") || strings.HasPrefix(cwd, marker+"\\") {
+			return cwd[len(marker)+1:]
 		}
 	}
-
-	// If the path is now empty or is just a separator, return empty
-	normalized = strings.TrimSpace(normalized)
-	if normalized == "/" || normalized == "\\" || normalized == "" {
-		return ""
-	}
-
-	return normalized
-}
-
-// normalizeGitHubActionsTemplates transforms GitHub Actions template expressions into executable local commands.
-//
-// This function handles the following transformations:
-//
-//  1. Matrix Variables:
-//     - matrix.build_type → "Release" (default build configuration for local development)
-//     - matrix.os → current OS (e.g., "windows-latest", "ubuntu-latest", "macos-latest")
-//     - Other matrix.* → removed (can be overridden via environment variables)
-//
-//  2. PowerShell Environment Variables:
-//     - $env:VCPKG_ROOT → actual VCPKG_ROOT from environment, or auto-detected from common paths
-//     - $env:GITHUB_WORKSPACE → current working directory
-//     - Other $env:GITHUB_* → removed (GitHub Actions specific)
-//
-//  3. GitHub Actions Context Variables:
-//     - ${{ github.* }} → removed (e.g., github.sha, github.ref)
-//     - ${{ runner.* }} → removed (e.g., runner.os, runner.arch)
-//     - ${{ env.* }} → removed (user can set via actual environment)
-//
-//  4. Unknown Template Expressions:
-//     - Any remaining ${{ ... }} → removed
-//
-// Examples:
-//
-//	"cmake --build build --config ${{ matrix.build_type }}"
-//	→ "cmake --build build --config Release"
-//
-//	"cmake -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
-//	→ "cmake -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake"
-func normalizeGitHubActionsTemplates(command string) string {
-	if strings.TrimSpace(command) == "" {
-		return command
-	}
-
-	result := command
-
-	// Handle matrix.build_type - default to Release for local builds
-	result = regexp.MustCompile(`\$\{\{\s*matrix\.build_type\s*\}\}`).ReplaceAllString(result, "Release")
-
-	// Handle matrix.os - default to current OS
-	currentOS := currentRunnerOS()
-	osMapping := map[string]string{
-		"windows": "windows-latest",
-		"linux":   "ubuntu-latest",
-		"macos":   "macos-latest",
-	}
-	if osValue, ok := osMapping[currentOS]; ok {
-		result = regexp.MustCompile(`\$\{\{\s*matrix\.os\s*\}\}`).ReplaceAllString(result, osValue)
-	}
-
-	// Handle other common matrix variables with empty defaults (user can override via env)
-	result = regexp.MustCompile(`\$\{\{\s*matrix\.\w+\s*\}\}`).ReplaceAllString(result, "")
-
-	// Handle PowerShell env variables for GitHub Actions specific paths
-	// $env:VCPKG_ROOT - look for common VCPKG locations or use env var if set
-	if strings.Contains(result, "$env:VCPKG_ROOT") {
-		vcpkgRoot := os.Getenv("VCPKG_ROOT")
-		if vcpkgRoot == "" {
-			// Try common Windows vcpkg locations
-			commonPaths := []string{
-				"C:\\vcpkg",
-				"C:\\src\\vcpkg",
-				filepath.Join(os.Getenv("USERPROFILE"), "vcpkg"),
-			}
-			for _, p := range commonPaths {
-				if _, err := os.Stat(p); err == nil {
-					vcpkgRoot = p
-					break
-				}
-			}
-		}
-		if vcpkgRoot != "" {
-			result = strings.ReplaceAll(result, "$env:VCPKG_ROOT", vcpkgRoot)
-		}
-	}
-
-	// Handle $env:GITHUB_WORKSPACE - use current directory as workspace
-	if strings.Contains(result, "$env:GITHUB_WORKSPACE") {
-		if cwd, err := os.Getwd(); err == nil {
-			result = strings.ReplaceAll(result, "$env:GITHUB_WORKSPACE", cwd)
-		}
-	}
-
-	// Handle other GitHub Actions context variables
-	result = regexp.MustCompile(`\$\{\{\s*github\.\w+\s*\}\}`).ReplaceAllString(result, "")
-	result = regexp.MustCompile(`\$\{\{\s*runner\.\w+\s*\}\}`).ReplaceAllString(result, "")
-	result = regexp.MustCompile(`\$\{\{\s*env\.\w+\s*\}\}`).ReplaceAllString(result, "")
-
-	// Clean up any remaining template expressions we don't handle
-	result = regexp.MustCompile(`\$\{\{\s*[^}]+\s*\}\}`).ReplaceAllString(result, "")
-
-	return result
+	return cwd
 }

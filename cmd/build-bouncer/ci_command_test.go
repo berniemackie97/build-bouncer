@@ -81,7 +81,7 @@ func TestCISyncReplacesOldCIChecks(t *testing.T) {
 		Version: 1,
 		Checks: []config.Check{
 			{Name: "local", Run: "echo local"},
-			{Name: "ci:old:step", Run: "echo old"},
+			{Name: "ci:old:step", Run: "echo old", Source: "ci:old"},
 		},
 		Insults: config.Insults{
 			Mode:   "snarky",
@@ -133,5 +133,100 @@ jobs:
 		if strings.HasPrefix(c.Name, "ci:old") {
 			t.Fatalf("expected old CI check removed, got %+v", updated.Checks)
 		}
+	}
+}
+
+func TestCISyncIsIdempotentAndPreservesUnownedChecks(t *testing.T) {
+	repo := withTempRepo(t)
+	path := config.DefaultConfigPath(repo)
+	cfg := &config.Config{
+		Checks: []config.Check{
+			{Name: "ci:manual", Run: "echo manual"},
+			{Name: "ci:stale", Run: "echo stale", Source: "ci:previous"},
+			{Name: "local", Run: "go vet ./..."},
+		},
+	}
+	if err := config.Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(repo, ".github", "workflows")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	workflow := "jobs:\n  z:\n    steps:\n      - name: lint\n        run: go vet ./...\n  a:\n    steps:\n      - name: test\n        run: go test ./...\n"
+	if err := os.WriteFile(filepath.Join(dir, "ci.yml"), []byte(workflow), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	context := cli.Context{Stdout: &stdout, Stderr: &stderr}
+	if exit := runCISync(context); exit != exitOK {
+		t.Fatalf("initial sync failed: %d %s", exit, stderr.String())
+	}
+	first, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var custom, generated, stale bool
+	for _, check := range updated.Checks {
+		switch check.Name {
+		case "ci:manual":
+			custom = true
+		case "ci:stale":
+			stale = true
+		default:
+			if strings.HasPrefix(check.Source, "ci:") {
+				generated = true
+			}
+		}
+	}
+	if !custom || !generated || stale {
+		t.Fatalf("unexpected ownership after sync: %+v", updated.Checks)
+	}
+	for i := 0; i < 3; i++ {
+		stdout.Reset()
+		stderr.Reset()
+		if exit := runCISync(context); exit != exitOK {
+			t.Fatalf("repeat sync %d failed: %d %s", i, exit, stderr.String())
+		}
+		after, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(first, after) {
+			t.Fatalf("sync %d modified stable configuration: %v", i, err)
+		}
+	}
+}
+
+func TestCISyncRejectedExpressionDoesNotModifyConfig(t *testing.T) {
+	repo := withTempRepo(t)
+	path := config.DefaultConfigPath(repo)
+	cfg := &config.Config{Checks: []config.Check{{Name: "ci:existing", Run: "go test ./...", Source: "ci:old"}}}
+	if err := config.Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(repo, ".github", "workflows")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	workflow := "jobs:\n  build:\n    steps:\n      - run: echo ${{ github.sha }}\n"
+	if err := os.WriteFile(filepath.Join(dir, "ci.yml"), []byte(workflow), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCISync(cli.Context{Stdout: &stdout, Stderr: &stderr}); code != exitUsage {
+		t.Fatalf("unsafe workflow imported: %d", code)
+	}
+	if !strings.Contains(stderr.String(), "unsupported GitHub Actions expression") {
+		t.Fatalf("missing actionable import error: %s", stderr.String())
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("rejected workflow damaged existing configuration: %v", err)
 	}
 }
