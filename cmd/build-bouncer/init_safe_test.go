@@ -66,3 +66,22 @@ func TestInitRequiresForceToReplaceConfiguration(t *testing.T) {
 		t.Fatalf("missing success message: %q", stdout.String())
 	}
 }
+
+func TestInitPreservesLegacyConfig(t *testing.T) {
+	root := withTempRepo(t)
+	path := config.LegacyConfigPath(root)
+	if err := os.WriteFile(path, []byte("legacy preferences"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runInit(false, "go", cli.Context{Stdout: &stdout, Stderr: &stderr}); code != exitUsage {
+		t.Fatalf("expected refusal for existing legacy config, got %d stderr=%q", code, stderr.String())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "legacy preferences" {
+		t.Fatalf("legacy config overwritten: %q %v", data, err)
+	}
+	if _, err := os.Stat(config.DefaultConfigPath(root)); !os.IsNotExist(err) {
+		t.Fatalf("unexpected new config: %v", err)
+	}
+}

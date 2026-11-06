@@ -140,12 +140,16 @@ func runInit(force bool, templateID string, ctx cli.Context) int {
 	}
 
 	cfgPath := config.DefaultConfigPath(root)
-	if _, err := os.Lstat(cfgPath); err == nil && !force {
-		fmt.Fprintln(ctx.Stderr, "init: configuration already exists (use --force to replace it):", cfgPath)
-		return exitUsage
-	} else if err != nil && !os.IsNotExist(err) {
-		fmt.Fprintln(ctx.Stderr, "init:", err)
-		return exitUsage
+	if !force {
+		for _, existingPath := range []string{cfgPath, config.LegacyConfigPath(root)} {
+			if _, err := os.Lstat(existingPath); err == nil {
+				fmt.Fprintln(ctx.Stderr, "init: configuration already exists (use --force to replace it):", existingPath)
+				return exitUsage
+			} else if !os.IsNotExist(err) {
+				fmt.Fprintln(ctx.Stderr, "init:", err)
+				return exitUsage
+			}
+		}
 	}
 	assetsDir := config.DefaultAssetsPath(root)
 	insultsPath := filepath.Join(assetsDir, "insults", "default.json")
