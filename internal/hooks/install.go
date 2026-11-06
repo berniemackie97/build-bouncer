@@ -38,6 +38,14 @@ func InstallPrePushHook(opts InstallOptions) error {
 		if err := os.MkdirAll(binDir, 0o755); err != nil {
 			return err
 		}
+		defer func() { _ = removeDirIfEmpty(binDir) }()
+		info, err := os.Lstat(binDir)
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("copied executable directory is not a directory: %s", binDir)
+		}
 		binaryPath = filepath.Join(binDir, "build-bouncer")
 		if runtime.GOOS == "windows" {
 			binaryPath += ".exe"
