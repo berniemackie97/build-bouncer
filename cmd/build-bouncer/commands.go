@@ -42,7 +42,7 @@ func newSetupCommand() cli.Command {
 		Summary: "Init config/packs, install hook, then run checks.",
 		Run: func(ctx cli.Context, args []string) int {
 			fs := cli.NewFlagSet(ctx, "setup")
-			force := fs.Bool("force", false, "overwrite default insult/banter packs")
+			force := fs.Bool("force", false, "replace existing configuration and default packs")
 			noCopy := fs.Bool("no-copy", false, "do not copy the build-bouncer binary into .git/hooks/bin")
 			ci := fs.Bool("ci", false, "CI mode")
 			selector := registerTemplateFlags(fs)
@@ -112,7 +112,7 @@ func newInitCommand() cli.Command {
 		Summary: "Create .buildbouncer/config.yaml and default insult/banter packs.",
 		Run: func(ctx cli.Context, args []string) int {
 			fs := cli.NewFlagSet(ctx, "init")
-			force := fs.Bool("force", false, "overwrite default insult/banter packs")
+			force := fs.Bool("force", false, "replace existing configuration and default packs")
 			selector := registerTemplateFlags(fs)
 			if err := fs.Parse(args); err != nil {
 				return exitUsage
@@ -140,27 +140,16 @@ func runInit(force bool, templateID string, ctx cli.Context) int {
 	}
 
 	cfgPath := config.DefaultConfigPath(root)
+	if _, err := os.Lstat(cfgPath); err == nil && !force {
+		fmt.Fprintln(ctx.Stderr, "init: configuration already exists (use --force to replace it):", cfgPath)
+		return exitUsage
+	} else if err != nil && !os.IsNotExist(err) {
+		fmt.Fprintln(ctx.Stderr, "init:", err)
+		return exitUsage
+	}
 	assetsDir := config.DefaultAssetsPath(root)
 	insultsPath := filepath.Join(assetsDir, "insults", "default.json")
 	banterPath := filepath.Join(assetsDir, "banter", "default.json")
-
-	if err := os.MkdirAll(filepath.Dir(insultsPath), 0o755); err != nil {
-		fmt.Fprintln(ctx.Stderr, "init:", err)
-		return exitUsage
-	}
-	if err := os.MkdirAll(filepath.Dir(banterPath), 0o755); err != nil {
-		fmt.Fprintln(ctx.Stderr, "init:", err)
-		return exitUsage
-	}
-
-	if err := ensureDefaultPack(root, insultsPath, "insults_default.json", force); err != nil {
-		fmt.Fprintln(ctx.Stderr, "init:", err)
-		return exitUsage
-	}
-	if err := ensureDefaultPack(root, banterPath, "banter_default.json", force); err != nil {
-		fmt.Fprintln(ctx.Stderr, "init:", err)
-		return exitUsage
-	}
 
 	tmpl, ok := findConfigTemplate(templateID)
 	if !ok {
@@ -201,7 +190,27 @@ func runInit(force bool, templateID string, ctx cli.Context) int {
 	ciChecks = stampGeneratedChecks(ciChecks, "ci")
 	merge := mergeChecks(cfg.Checks, ciChecks)
 	cfg.Checks = merge.Merged
-	if err := config.Save(cfgPath, cfg); err != nil {
+	if err := os.MkdirAll(filepath.Dir(insultsPath), 0o755); err != nil {
+		fmt.Fprintln(ctx.Stderr, "init:", err)
+		return exitUsage
+	}
+	if err := os.MkdirAll(filepath.Dir(banterPath), 0o755); err != nil {
+		fmt.Fprintln(ctx.Stderr, "init:", err)
+		return exitUsage
+	}
+	if err := ensureDefaultPack(root, insultsPath, "insults_default.json", force); err != nil {
+		fmt.Fprintln(ctx.Stderr, "init:", err)
+		return exitUsage
+	}
+	if err := ensureDefaultPack(root, banterPath, "banter_default.json", force); err != nil {
+		fmt.Fprintln(ctx.Stderr, "init:", err)
+		return exitUsage
+	}
+	save := config.Create
+	if force {
+		save = config.Save
+	}
+	if err := save(cfgPath, cfg); err != nil {
 		fmt.Fprintln(ctx.Stderr, "init:", err)
 		return exitUsage
 	}
