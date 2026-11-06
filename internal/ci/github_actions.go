@@ -138,6 +138,16 @@ func checksFromWorkflowFile(path string) ([]config.Check, error) {
 		return nil, err
 	}
 
+	if err := validateWorkflowEnv(wf.Env); err != nil {
+		return nil, fmt.Errorf("workflow env: %w", err)
+	}
+	if err := validateWorkflowShell(wf.Defaults.Run.Shell); err != nil {
+		return nil, fmt.Errorf("workflow defaults: %w", err)
+	}
+	if err := rejectActionsExpression(wf.Defaults.Run.WorkingDirectory); err != nil && !isWorkspaceDirectory(wf.Defaults.Run.WorkingDirectory) {
+		return nil, fmt.Errorf("workflow working-directory: %w", err)
+	}
+
 	workflowLabel := labelFromWorkflow(path, wf.Name)
 	var out []config.Check
 	currentOS := currentRunnerOS()
@@ -213,17 +223,13 @@ func jobAppliesToOS(job Job, currentOS string) bool {
 	if !runsOnMatches(job.RunsOn, job.Strategy.Matrix, currentOS) {
 		return false
 	}
-	if known, allowed := evalIfOS(job.If, currentOS); known && !allowed {
-		return false
-	}
-	return true
+	applies, _ := conditionMatchesOS(job.If, currentOS)
+	return applies
 }
 
 func stepAppliesToOS(step Step, currentOS string) bool {
-	if known, allowed := evalIfOS(step.If, currentOS); known && !allowed {
-		return false
-	}
-	return true
+	applies, _ := conditionMatchesOS(step.If, currentOS)
+	return applies
 }
 
 func labelFromWorkflow(path string, workflowName string) string {
@@ -558,61 +564,7 @@ func expandRunsOn(values []string, matrix map[string]interface{}) ([]string, boo
 	return out, unknown
 }
 
-var (
-	reIfEq       = regexp.MustCompile(`(?i)\b(?:runner\.os|matrix\.os)\s*==\s*['"]([^'"]+)['"]`)
-	reIfNe       = regexp.MustCompile(`(?i)\b(?:runner\.os|matrix\.os)\s*!=\s*['"]([^'"]+)['"]`)
-	reIfContains = regexp.MustCompile(`(?i)contains\(\s*(?:runner\.os|matrix\.os)\s*,\s*['"]([^'"]+)['"]\s*\)`)
-	reMatrixVar  = regexp.MustCompile(`(?i)matrix\.([a-z0-9_-]+)`)
-)
-
-func evalIfOS(expr string, currentOS string) (bool, bool) {
-	expr = strings.TrimSpace(expr)
-	if expr == "" {
-		return false, true
-	}
-	lower := strings.ToLower(expr)
-	if !strings.Contains(lower, "runner.os") && !strings.Contains(lower, "matrix.os") {
-		return false, true
-	}
-
-	var eqMatches []string
-	for _, m := range reIfEq.FindAllStringSubmatch(expr, -1) {
-		eqMatches = append(eqMatches, m[1])
-	}
-	for _, m := range reIfContains.FindAllStringSubmatch(expr, -1) {
-		eqMatches = append(eqMatches, m[1])
-	}
-
-	var neMatches []string
-	for _, m := range reIfNe.FindAllStringSubmatch(expr, -1) {
-		neMatches = append(neMatches, m[1])
-	}
-
-	if len(eqMatches) == 0 && len(neMatches) == 0 {
-		return false, true
-	}
-
-	if len(eqMatches) > 0 {
-		allowed := false
-		for _, v := range eqMatches {
-			if os := osFromValue(v); os != "" && os == currentOS {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return true, false
-		}
-	}
-
-	for _, v := range neMatches {
-		if os := osFromValue(v); os != "" && os == currentOS {
-			return true, false
-		}
-	}
-
-	return true, true
-}
+var reMatrixVar = regexp.MustCompile(`(?i)matrix\.([a-z0-9_-]+)`)
 
 func matrixKeyFromExpr(value string) string {
 	if m := reMatrixVar.FindStringSubmatch(value); len(m) == 2 {
@@ -751,6 +703,11 @@ func validateWorkflowJob(name string, job Job) error {
 		}
 		if step.Run != "" && step.Uses != "" {
 			return fmt.Errorf("job %q step %d: cannot combine run and uses", name, i+1)
+		}
+		for key, val := range step.With {
+			if err := rejectActionsExpression(fmt.Sprint(val)); err != nil {
+				return fmt.Errorf("job %q step %d with.%s: %w", name, i+1, key, err)
+			}
 		}
 		if step.Uses != "" {
 			action := normalizeUsesAction(step.Uses)
