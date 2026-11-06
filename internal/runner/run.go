@@ -17,6 +17,13 @@ import (
 	"github.com/berniemackie97/build-bouncer/internal/config"
 )
 
+const (
+	maxParallelChecks   = 32
+	defaultCheckTimeout = 30 * time.Minute
+	maxCheckTimeout     = 2 * time.Hour
+	processWaitDelay    = 2 * time.Second
+)
+
 type ProgressEvent struct {
 	Stage    string // start | end
 	Index    int
@@ -26,6 +33,7 @@ type ProgressEvent struct {
 }
 
 type Options struct {
+	Context     context.Context
 	CI          bool
 	Verbose     bool
 	LogDir      string
@@ -122,8 +130,21 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 	if maxParallel <= 0 {
 		maxParallel = 1
 	}
+	if maxParallel > maxParallelChecks {
+		return report, fmt.Errorf("max parallel checks %d exceeds limit %d", maxParallel, maxParallelChecks)
+	}
+	if maxParallel > totalChecks {
+		maxParallel = totalChecks
+	}
 
-	runContext, cancelRun := context.WithCancel(context.Background())
+	parentContext := options.Context
+	if parentContext == nil {
+		parentContext = context.Background()
+	}
+	if err := parentContext.Err(); err != nil {
+		return report, err
+	}
+	runContext, cancelRun := context.WithCancel(parentContext)
 	defer cancelRun()
 
 	jobsChannel := make(chan checkJob)
@@ -275,6 +296,9 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 			case <-stopDispatch:
 				close(jobsChannel)
 				return
+			case <-runContext.Done():
+				close(jobsChannel)
+				return
 			case jobsChannel <- checkJob{index: checkIndex, check: checkDefinition}:
 				jobScheduled[checkIndex] = true
 			}
@@ -334,7 +358,7 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 
 	<-dispatchDone
 
-	if failFastTriggered {
+	if runContext.Err() != nil || failFastTriggered {
 		for checkIndex, checkDefinition := range configuration.Checks {
 			if !jobScheduled[checkIndex] {
 				report.Canceled = append(report.Canceled, checkDefinition.Name)
@@ -360,6 +384,9 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 	if firstFatalError != nil {
 		return Report{}, firstFatalError
 	}
+	if err := parentContext.Err(); err != nil {
+		return report, err
+	}
 	if len(report.Skipped) == totalChecks {
 		return report, fmt.Errorf("no checks executed: all %d configured checks were skipped", totalChecks)
 	}
@@ -381,6 +408,12 @@ func runOne(
 ) (runOutcome, error) {
 	if parentContext.Err() != nil {
 		return runOutcome{ExitCode: 1, Canceled: true}, nil
+	}
+	if timeoutDuration <= 0 {
+		timeoutDuration = defaultCheckTimeout
+	}
+	if timeoutDuration > maxCheckTimeout {
+		return runOutcome{ExitCode: 1}, fmt.Errorf("check %q timeout %s exceeds limit %s", checkName, timeoutDuration, maxCheckTimeout)
 	}
 
 	tailBuffer := newLimitedBuffer(128 * 1024)
@@ -417,19 +450,14 @@ func runOne(
 		outputWriter = io.MultiWriter(os.Stdout, logFile, tailBuffer)
 	}
 
-	runContext := parentContext
-	var cancelRun context.CancelFunc
-	if timeoutDuration > 0 {
-		runContext, cancelRun = context.WithTimeout(parentContext, timeoutDuration)
-	}
-	if cancelRun != nil {
-		defer cancelRun()
-	}
+	runContext, cancelRun := context.WithTimeout(parentContext, timeoutDuration)
+	defer cancelRun()
 
 	// Enterprise behavior: no implicit defaults. If shell is not configured, we use OS default.
 	execName, execArgs := resolveCommand(explicitShell, commandText, "")
 
 	command := exec.Command(execName, execArgs...) //nolint:gosec // command comes from user config by design
+	command.WaitDelay = processWaitDelay
 	command.Dir = workingDirectory
 	command.Stdout = outputWriter
 	command.Stderr = outputWriter
@@ -437,20 +465,20 @@ func runOne(
 	command.Env = applyEnvOverrides(os.Environ(), environmentOverrides)
 	command.Env = adjustEnvForShell(execName, command.Env)
 
-	if err := command.Start(); err != nil {
+	process, err := startCheckProcess(command)
+	if err != nil {
 		closeLogFile()
-		_ = os.Remove(logPath) // best-effort cleanup for an empty log created before spawn
+		_ = os.Remove(logPath)
 		return runOutcome{ExitCode: 1}, err
 	}
+	defer process.close()
 
 	waitDone := make(chan error, 1)
 	go func() { waitDone <- command.Wait() }()
 
 	select {
 	case <-runContext.Done():
-		if command.Process != nil {
-			_ = command.Process.Kill()
-		}
+		process.terminate()
 		<-waitDone
 
 		closeLogFile()

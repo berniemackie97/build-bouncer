@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/berniemackie97/build-bouncer/internal/ci"
 	"github.com/berniemackie97/build-bouncer/internal/cli"
@@ -239,6 +243,10 @@ func runCheck(args []string, ctx cli.Context) int {
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
+	if *parallel < 0 || *parallel > 32 {
+		fmt.Fprintln(ctx.Stderr, "check: --parallel must be between 0 and 32")
+		return exitUsage
+	}
 
 	cfgPath, cfgDir, err := config.FindConfigFromCwd()
 	if err != nil {
@@ -281,7 +289,11 @@ func runCheck(args []string, ctx cli.Context) int {
 		sp.Start(intro)
 	}
 
+	checkContext, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+
 	opts := runner.Options{
+		Context:     checkContext,
 		CI:          *ci,
 		Verbose:     *verbose || *ci,
 		LogDir:      *logDir,
@@ -321,6 +333,9 @@ func runCheck(args []string, ctx cli.Context) int {
 	}
 	if err != nil {
 		fmt.Fprintln(ctx.Stderr, "check:", err)
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return exitRunFailed
+		}
 		return exitUsage
 	}
 
