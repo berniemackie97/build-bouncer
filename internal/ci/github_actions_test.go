@@ -56,7 +56,7 @@ jobs:
 	}
 }
 
-func TestChecksFromGitHubActionsSkipsOtherOS(t *testing.T) {
+func TestChecksFromGitHubActionsPreservesAllPlatforms(t *testing.T) {
 	root := t.TempDir()
 	workflowDir := filepath.Join(root, ".github", "workflows")
 	if err := os.MkdirAll(workflowDir, 0o755); err != nil {
