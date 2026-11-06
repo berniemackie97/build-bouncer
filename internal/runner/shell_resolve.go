@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 
 	"github.com/berniemackie97/build-bouncer/internal/shell"
@@ -25,7 +24,10 @@ func resolveCommand(shellSpec string, command string, fallbackShell string) (str
 		return commandForShell(shellSpec, command)
 	}
 
-	if executable, args, ok := directShellCommand(command); ok {
+	if executable, args, matched, err := shell.ParseDirectInvocation(command); matched {
+		if err != nil {
+			return "", nil, err
+		}
 		selected, err := preferWindowsShell(executable)
 		return selected, args, err
 	}
@@ -79,168 +81,6 @@ func commandForShell(spec string, command string) (string, []string, error) {
 	default:
 		return executable, []string{command}, nil
 	}
-}
-
-func directShellCommand(command string) (string, []string, bool) {
-	trimmedCommand := strings.TrimSpace(command)
-	if trimmedCommand == "" {
-		return "", nil, false
-	}
-
-	if executableName, executableArgs, ok := parseDirectShellInvocation(trimmedCommand, "bash"); ok {
-		return executableName, executableArgs, true
-	}
-	if executableName, executableArgs, ok := parseDirectShellInvocation(trimmedCommand, "sh"); ok {
-		return executableName, executableArgs, true
-	}
-
-	if executableName, executableArgs, ok := parseDirectPowerShellInvocation(trimmedCommand, "pwsh"); ok {
-		return executableName, executableArgs, true
-	}
-	if executableName, executableArgs, ok := parseDirectPowerShellInvocation(trimmedCommand, "powershell"); ok {
-		return executableName, executableArgs, true
-	}
-
-	return "", nil, false
-}
-
-func parseDirectShellInvocation(command string, expectedShell string) (string, []string, bool) {
-	executableToken, remainingText := cutFirstToken(command)
-	if executableToken == "" {
-		return "", nil, false
-	}
-
-	lowerExecutableBase := strings.ToLower(shell.BaseName(executableToken))
-	expectedLower := strings.ToLower(expectedShell)
-
-	if lowerExecutableBase != expectedLower && lowerExecutableBase != expectedLower+".exe" {
-		return "", nil, false
-	}
-
-	flagToken, remainingAfterFlag := cutFirstToken(strings.TrimSpace(remainingText))
-	if flagToken != "-lc" && flagToken != "-c" {
-		return "", nil, false
-	}
-
-	scriptToken := strings.TrimSpace(remainingAfterFlag)
-	if scriptToken == "" {
-		return "", nil, false
-	}
-
-	script, ok := unquoteShellArg(scriptToken)
-	if !ok {
-		return "", nil, false
-	}
-
-	return executableToken, []string{flagToken, script}, true
-}
-
-func parseDirectPowerShellInvocation(command string, expectedShell string) (string, []string, bool) {
-	executableToken, remainingText := cutFirstToken(command)
-	if executableToken == "" {
-		return "", nil, false
-	}
-
-	lowerExecutableBase := strings.ToLower(shell.BaseName(executableToken))
-	expectedLower := strings.ToLower(expectedShell)
-
-	if lowerExecutableBase != expectedLower && lowerExecutableBase != expectedLower+".exe" {
-		return "", nil, false
-	}
-
-	remaining := strings.TrimSpace(remainingText)
-	if remaining == "" {
-		return "", nil, false
-	}
-
-	prefixArgs := make([]string, 0, 6)
-
-	for {
-		nextToken, rest := cutFirstToken(remaining)
-		if nextToken == "" {
-			return "", nil, false
-		}
-
-		lowerToken := strings.ToLower(strings.TrimSpace(nextToken))
-		if lowerToken == "-command" || lowerToken == "-c" {
-			scriptToken := strings.TrimSpace(rest)
-			if scriptToken == "" {
-				return "", nil, false
-			}
-
-			// PowerShell treats the remainder as the command text. Accept quoted or unquoted.
-			scriptText := strings.TrimSpace(scriptToken)
-			if unquoted, ok := unquoteShellArg(scriptText); ok {
-				scriptText = unquoted
-			}
-
-			args := append([]string{}, prefixArgs...)
-			args = append(args, nextToken, scriptText)
-			return executableToken, args, true
-		}
-
-		prefixArgs = append(prefixArgs, nextToken)
-		remaining = strings.TrimSpace(rest)
-		if remaining == "" {
-			return "", nil, false
-		}
-	}
-}
-
-func cutFirstToken(text string) (string, string) {
-	trimmed := strings.TrimSpace(text)
-	if trimmed == "" {
-		return "", ""
-	}
-
-	first := trimmed[0]
-	if first == '"' || first == '\'' {
-		quote := first
-		rest := trimmed[1:]
-		closingQuote := strings.IndexByte(rest, quote)
-		if closingQuote == -1 {
-			return "", ""
-		}
-
-		token := rest[:closingQuote]
-		remaining := strings.TrimSpace(trimmed[closingQuote+2:])
-		return token, remaining
-	}
-
-	fields := strings.Fields(trimmed)
-	if len(fields) == 0 {
-		return "", ""
-	}
-	if len(fields) == 1 {
-		return fields[0], ""
-	}
-
-	firstToken := fields[0]
-	rest := strings.TrimSpace(trimmed[len(firstToken):])
-	return firstToken, rest
-}
-
-func unquoteShellArg(arg string) (string, bool) {
-	trimmed := strings.TrimSpace(arg)
-	if len(trimmed) < 2 {
-		return "", false
-	}
-
-	quote := trimmed[0]
-	if (quote != '"' && quote != '\'') || trimmed[len(trimmed)-1] != quote {
-		return "", false
-	}
-
-	// Double quotes can be safely handled by strconv.Unquote.
-	if quote == '"' {
-		if unquoted, err := strconv.Unquote(trimmed); err == nil {
-			return unquoted, true
-		}
-		return trimmed[1 : len(trimmed)-1], true
-	}
-
-	// Single quotes are treated as literal content.
-	return trimmed[1 : len(trimmed)-1], true
 }
 
 func preferWindowsShell(spec string) (string, error) {

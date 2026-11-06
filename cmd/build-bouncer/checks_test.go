@@ -73,3 +73,15 @@ func TestGeneratedTemplateShellIsPortable(t *testing.T) {
 		t.Fatalf("generated template check must have no platform-specific default shell: %+v", generated)
 	}
 }
+
+func TestCheckContentKeySharesDirectShellParser(t *testing.T) {
+	canonical := config.Check{Shell: "bash", Run: "go test ./..."}
+	direct := config.Check{Run: "bash -lc \"go test ./...\""}
+	if checkContentKey(canonical) != checkContentKey(direct) {
+		t.Fatal("matching direct invocation was not deduplicated")
+	}
+	malformed := config.Check{Run: "bash -lc \"go test ./..."}
+	if checkContentKey(canonical) == checkContentKey(malformed) {
+		t.Fatal("malformed direct invocation was normalized into an executable check")
+	}
+}
