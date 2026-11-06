@@ -117,3 +117,36 @@ func TestRunAllReportFailFastOnMissingTools(t *testing.T) {
 		t.Fatalf("fail-fast must stop dispatch: %+v", report)
 	}
 }
+
+func TestRunnerRejectsInvalidOSRestrictions(t *testing.T) {
+	for _, input := range []string{"not-windows", "unknown-os", ""} {
+		cfg := &config.Config{Checks: []config.Check{
+			{Name: "valid", Run: "echo ok"},
+			{Name: "invalid", Run: "echo must-not-run", OS: config.StringList{input}},
+		}}
+		report, err := RunAllReport(t.TempDir(), cfg, Options{})
+		if err != nil {
+			t.Fatalf("RunAllReport returned unexpected error: %v", err)
+		}
+		if len(report.Failures) != 1 || report.Failures[0] != "invalid" {
+			t.Fatalf("invalid OS restriction was not a failed check: %+v", report)
+		}
+		if !strings.Contains(report.Unavailable["invalid"], "invalid OS restriction") {
+			t.Fatalf("missing failure reason for invalid OS: %+v", report.Unavailable)
+		}
+		if len(report.Skipped) != 0 {
+			t.Fatalf("invalid OS restriction must not skip: %+v", report)
+		}
+	}
+}
+
+func TestRunnerCanonicalizesLegacyPlatforms(t *testing.T) {
+	check := config.Check{OS: config.StringList{"Windows-Latest"}, Platforms: config.StringList{"darwin", "linux"}}
+	applies, allowed := CheckAppliesToOS(check)
+	if !applies {
+		t.Fatal("supported platforms must include current platform")
+	}
+	if len(allowed) != 3 || allowed[0] != "windows" || allowed[1] != "macos" || allowed[2] != "linux" {
+		t.Fatalf("unexpected platform normalization: %v", allowed)
+	}
+}

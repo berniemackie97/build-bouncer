@@ -19,7 +19,7 @@ func checkReadiness(repoRoot string, check config.Check) (reason string, unavail
 	applies, allowedOSValues := checkAppliesToOS(check)
 	if !applies {
 		if len(allowedOSValues) == 0 {
-			return "os mismatch", false
+			return "invalid OS restriction", true
 		}
 		return "os mismatch (want " + strings.Join(allowedOSValues, ",") + ")", false
 	}
@@ -57,61 +57,14 @@ func CurrentOS() string {
 }
 
 func checkAppliesToOS(check config.Check) (bool, []string) {
-	rawOSValues := make([]string, 0, len(check.OS)+len(check.Platforms))
-	rawOSValues = append(rawOSValues, check.OS...)
-	rawOSValues = append(rawOSValues, check.Platforms...)
-	if len(rawOSValues) == 0 {
-		return true, nil
+	allowed, err := config.NormalizeOSList(check.OS, check.Platforms)
+	if err != nil {
+		return false, nil
 	}
-
-	allowed := normalizeAllowedOSValues(rawOSValues)
 	if len(allowed) == 0 {
-		// If config values are present but all are junk, treat as "no constraint".
 		return true, nil
 	}
-
-	current := currentOS()
-	if slices.Contains(allowed, current) {
-		return true, allowed
-	}
-	return false, allowed
-}
-
-func normalizeAllowedOSValues(values []string) []string {
-	allowed := make([]string, 0, len(values))
-	seen := map[string]struct{}{}
-
-	for _, rawValue := range values {
-		normalizedValue, ok := normalizeOSValue(rawValue)
-		if !ok {
-			continue
-		}
-		if _, exists := seen[normalizedValue]; exists {
-			continue
-		}
-		seen[normalizedValue] = struct{}{}
-		allowed = append(allowed, normalizedValue)
-	}
-
-	return allowed
-}
-
-func normalizeOSValue(value string) (string, bool) {
-	lower := strings.ToLower(strings.TrimSpace(value))
-	if lower == "" {
-		return "", false
-	}
-
-	switch {
-	case strings.Contains(lower, "windows"):
-		return "windows", true
-	case strings.Contains(lower, "macos") || strings.Contains(lower, "osx") || strings.Contains(lower, "darwin"):
-		return "macos", true
-	case strings.Contains(lower, "linux") || strings.Contains(lower, "ubuntu"):
-		return "linux", true
-	default:
-		return "", false
-	}
+	return slices.Contains(allowed, currentOS()), allowed
 }
 
 func currentOS() string {
@@ -121,7 +74,7 @@ func currentOS() string {
 	case "darwin":
 		return "macos"
 	default:
-		return "linux"
+		return runtime.GOOS
 	}
 }
 

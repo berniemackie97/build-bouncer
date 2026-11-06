@@ -204,3 +204,46 @@ runner:
 		}
 	}
 }
+
+func TestCanonicalOSAcceptsSupportedAliases(t *testing.T) {
+	for input, want := range map[string]string{
+		"windows":          "windows",
+		" Windows-Latest ": "windows",
+		"windows-2025":     "windows",
+		"macos":            "macos",
+		"darwin":           "macos",
+		"OSX":              "macos",
+		"macos-15":         "macos",
+		"linux":            "linux",
+		"ubuntu":           "linux",
+		"Ubuntu-24.04":     "linux",
+	} {
+		if got := CanonicalOS(input); got != want {
+			t.Errorf("CanonicalOS(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestCanonicalOSRejectsAmbiguousValues(t *testing.T) {
+	for _, input := range []string{"", "solaris", "not-windows", "pre-ubuntu", "macosmaybe", "window", "linux-gnu", "windows-", "ubuntu-"} {
+		if got := CanonicalOS(input); got != "" {
+			t.Errorf("CanonicalOS(%q) = %q; expected unknown", input, got)
+		}
+		if _, err := NormalizeOSList(StringList{input}, nil); err == nil {
+			t.Errorf("NormalizeOSList accepted invalid value %q", input)
+		}
+	}
+}
+
+func TestNormalizeOSListPreservesOrderAndRemovesAliases(t *testing.T) {
+	got, err := NormalizeOSList(StringList{"Windows-Latest", "macos"}, StringList{"windows", "darwin", "ubuntu-22.04"})
+	want := StringList{"windows", "macos", "linux"}
+	if err != nil || len(got) != len(want) {
+		t.Fatalf("NormalizeOSList = %v, %v", got, err)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("NormalizeOSList = %v; want %v", got, want)
+		}
+	}
+}

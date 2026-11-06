@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/berniemackie97/build-bouncer/internal/config"
 	"github.com/berniemackie97/build-bouncer/internal/shell"
 )
 
@@ -47,7 +48,7 @@ func validateWorkflowJob(name string, job Job) error {
 				if !isSupportedRunner(value) {
 					return fmt.Errorf("job %q: unsupported matrix runner %q", name, value)
 				}
-				osName := osFromValue(value)
+				osName := config.CanonicalOS(value)
 				if seenOS[osName] {
 					return fmt.Errorf("job %q: multiple runner images for %s cannot be represented by one local check", name, osName)
 				}
@@ -119,6 +120,9 @@ func isMatrixOSReference(value string) bool {
 
 func isSupportedRunner(value string) bool {
 	value = strings.ToLower(strings.TrimSpace(value))
+	if config.CanonicalOS(value) == "" {
+		return false
+	}
 	return value == "ubuntu-latest" || value == "windows-latest" || value == "macos-latest" ||
 		strings.HasPrefix(value, "ubuntu-") || strings.HasPrefix(value, "windows-") || strings.HasPrefix(value, "macos-")
 }
@@ -138,7 +142,7 @@ func conditionMatchesOS(expr string, targetOS string) (bool, error) {
 	if len(matches) != 3 || !isSupportedRunner(matches[2]) && !isOSName(matches[2]) {
 		return false, fmt.Errorf("unsupported if condition %q", expr)
 	}
-	result := osFromValue(matches[2]) == targetOS
+	result := config.CanonicalOS(matches[2]) == targetOS
 	if matches[1] == "!=" {
 		return !result, nil
 	}
