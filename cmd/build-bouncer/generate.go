@@ -53,6 +53,9 @@ func stableCheckID(source string, check config.Check) string {
 		normalizeStringListKey(check.OS),
 		normalizeStringListKey(check.Requires),
 	}
+	if check.AllowMissingTools {
+		parts = append(parts, "allowMissingTools")
+	}
 	for _, part := range parts {
 		h.Write([]byte(part))
 		h.Write([]byte{0})

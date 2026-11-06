@@ -4,7 +4,7 @@ BuildBouncer is a cross-platform developer tool that runs configured quality che
 
 ## Product guarantees
 
-- A passing result means the applicable required checks executed and passed. Unavailable mandatory prerequisites, execution errors, and empty applicable suites must block.
+- Never report all checks as passed unless at least one check executed and none failed. An explicitly permissive protection policy may allow noncritical failures; missing required prerequisites and empty applicable suites always block.
 - Report the real status of every check. Never silently treat unavailable dependencies as successful checks.
 - Git hooks offer local feedback; they are bypassable. Trusted CI and repository branch protections are the final enforcement boundary.
 - Treat repository configuration and imported workflows as executable input. Validate boundaries and do not claim full CI equivalence for unsupported workflow features.
