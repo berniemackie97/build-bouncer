@@ -19,9 +19,6 @@ func TestShellRequirementWithSpacesUsesExecutableParser(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, spec := range []string{"\"" + path + "\"", path} {
-		if strings.Contains(spec, " ") && spec[0] != '"' {
-			continue
-		}
 		check := config.Check{Name: "test", Run: "echo ok", Shell: spec}
 		if missing := MissingTools(check); len(missing) != 0 {
 			t.Fatalf("existing executable %q was classified missing: %q", spec, missing)
