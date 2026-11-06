@@ -44,6 +44,7 @@ func TestCISyncAddsChecks(t *testing.T) {
 	workflow := `
 jobs:
   build:
+    runs-on: ubuntu-latest
     steps:
       - run: echo ci
 `
@@ -104,6 +105,7 @@ func TestCISyncReplacesOldCIChecks(t *testing.T) {
 	workflow := `
 jobs:
   build:
+    runs-on: ubuntu-latest
     steps:
       - run: echo ci
 `
@@ -153,7 +155,7 @@ func TestCISyncIsIdempotentAndPreservesUnownedChecks(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	workflow := "jobs:\n  z:\n    steps:\n      - name: lint\n        run: go vet ./...\n  a:\n    steps:\n      - name: test\n        run: go test ./...\n"
+	workflow := "jobs:\n  z:\n    runs-on: ubuntu-latest\n    steps:\n      - name: lint\n        run: go vet ./...\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - name: test\n        run: go test ./...\n"
 	if err := os.WriteFile(filepath.Join(dir, "ci.yml"), []byte(workflow), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +216,7 @@ func TestCISyncRejectedExpressionDoesNotModifyConfig(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	workflow := "jobs:\n  build:\n    steps:\n      - run: echo ${{ github.sha }}\n"
+	workflow := "jobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ github.sha }}\n"
 	if err := os.WriteFile(filepath.Join(dir, "ci.yml"), []byte(workflow), 0o644); err != nil {
 		t.Fatal(err)
 	}

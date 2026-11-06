@@ -33,29 +33,31 @@ func TestImportRejectsUnsupportedWorkflowSemantics(t *testing.T) {
 	cases := []struct {
 		name, workflow, failure string
 	}{
-		{"matrix expression", "jobs:\n  build:\n    steps:\n      - run: echo ${{ matrix.build_type }}\n", "run"},
-		{"github expression", "jobs:\n  build:\n    steps:\n      - run: echo ${{ github.sha }}\n", "run"},
-		{"environment expression", "env:\n  CI: ${{ github.ref }}\njobs:\n  build:\n    steps:\n      - run: echo ok\n", "workflow env"},
-		{"step environment", "jobs:\n  build:\n    steps:\n      - run: echo ok\n        env:\n          TOKEN: ${{ secrets.API_TOKEN }}\n", "env"},
-		{"unknown condition", "jobs:\n  build:\n    if: github.ref == 'refs/heads/main'\n    steps:\n      - run: echo ok\n", "condition"},
-		{"compound condition", "jobs:\n  build:\n    steps:\n      - if: runner.os == 'Windows' && success()\n        run: echo ok\n", "condition"},
-		{"matrix condition", "jobs:\n  build:\n    if: matrix.os == 'ubuntu-latest'\n    steps:\n      - run: echo ok\n", "condition"},
-		{"unknown matrix dimension", "jobs:\n  build:\n    strategy:\n      matrix:\n        build_type: [Release, Debug]\n    steps:\n      - run: echo ok\n", "matrix dimension"},
+		{"matrix expression", "jobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ matrix.build_type }}\n", "run"},
+		{"github expression", "jobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ github.sha }}\n", "run"},
+		{"environment expression", "env:\n  CI: ${{ github.ref }}\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n", "workflow env"},
+		{"step environment", "jobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n        env:\n          TOKEN: ${{ secrets.API_TOKEN }}\n", "env"},
+		{"unknown condition", "jobs:\n  build:\n    runs-on: ubuntu-latest\n    if: github.ref == 'refs/heads/main'\n    steps:\n      - run: echo ok\n", "condition"},
+		{"compound condition", "jobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - if: runner.os == 'Windows' && success()\n        run: echo ok\n", "condition"},
+		{"matrix condition", "jobs:\n  build:\n    runs-on: ubuntu-latest\n    if: matrix.os == 'ubuntu-latest'\n    steps:\n      - run: echo ok\n", "condition"},
+		{"unknown matrix dimension", "jobs:\n  build:\n    runs-on: ubuntu-latest\n    strategy:\n      matrix:\n        build_type: [Release, Debug]\n    steps:\n      - run: echo ok\n", "matrix dimension"},
 		{"duplicate OS matrix", "jobs:\n  build:\n    runs-on: ${{ matrix.os }}\n    strategy:\n      matrix:\n        os: [ubuntu-22.04, ubuntu-24.04]\n    steps:\n      - run: echo ok\n", "multiple runner images"},
-		{"unrecognized action", "jobs:\n  build:\n    steps:\n      - uses: vendor/action@v1\n      - run: echo ok\n", "unsupported action"},
-		{"docker action", "jobs:\n  build:\n    steps:\n      - uses: docker://alpine:latest\n      - run: echo ok\n", "unsupported action"},
-		{"unknown shell", "jobs:\n  build:\n    steps:\n      - run: echo ok\n        shell: 'bash --noprofile {0}'\n", "shell"},
+		{"unrecognized action", "jobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: vendor/action@v1\n      - run: echo ok\n", "unsupported action"},
+		{"docker action", "jobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: docker://alpine:latest\n      - run: echo ok\n", "unsupported action"},
+		{"unknown shell", "jobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n        shell: 'bash --noprofile {0}'\n", "shell"},
 		{"unknown runner", "jobs:\n  build:\n    runs-on: private-runner\n    steps:\n      - run: echo ok\n", "runs-on"},
+		{"missing runner", "jobs:\n  build:\n    steps:\n      - run: echo ok\n", "runs-on is required"},
+		{"unbound OS matrix", "jobs:\n  build:\n    runs-on: ubuntu-latest\n    strategy:\n      matrix:\n        os: [ubuntu-latest, windows-latest]\n    steps:\n      - run: echo ok\n", "matrix.os must determine runs-on"},
 		{"multi-label runner", "jobs:\n  build:\n    runs-on: [self-hosted, linux]\n    steps:\n      - run: echo ok\n", "multi-label"},
-		{"job dependency", "jobs:\n  build:\n    needs: prepare\n    steps:\n      - run: echo ok\n", "dependencies"},
-		{"job container", "jobs:\n  build:\n    container: ubuntu:latest\n    steps:\n      - run: echo ok\n", "containers"},
-		{"job service", "jobs:\n  build:\n    services:\n      db:\n        image: postgres:17\n    steps:\n      - run: echo ok\n", "services"},
-		{"job timeout", "jobs:\n  build:\n    timeout-minutes: 10\n    steps:\n      - run: echo ok\n", "job timeouts"},
-		{"step timeout", "jobs:\n  build:\n    steps:\n      - run: echo ok\n        timeout-minutes: 10\n", "timeouts"},
-		{"continue on error", "jobs:\n  build:\n    steps:\n      - run: echo ok\n        continue-on-error: true\n", "continue-on-error"},
-		{"unknown working directory", "jobs:\n  build:\n    steps:\n      - run: echo ok\n        working-directory: ${{ inputs.path }}\n", "working-directory"},
+		{"job dependency", "jobs:\n  build:\n    runs-on: ubuntu-latest\n    needs: prepare\n    steps:\n      - run: echo ok\n", "dependencies"},
+		{"job container", "jobs:\n  build:\n    runs-on: ubuntu-latest\n    container: ubuntu:latest\n    steps:\n      - run: echo ok\n", "containers"},
+		{"job service", "jobs:\n  build:\n    runs-on: ubuntu-latest\n    services:\n      db:\n        image: postgres:17\n    steps:\n      - run: echo ok\n", "services"},
+		{"job timeout", "jobs:\n  build:\n    runs-on: ubuntu-latest\n    timeout-minutes: 10\n    steps:\n      - run: echo ok\n", "job timeouts"},
+		{"step timeout", "jobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n        timeout-minutes: 10\n", "timeouts"},
+		{"continue on error", "jobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n        continue-on-error: true\n", "continue-on-error"},
+		{"unknown working directory", "jobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n        working-directory: ${{ inputs.path }}\n", "working-directory"},
 		{"invalid runs-on type", "jobs:\n  build:\n    runs-on:\n      group: hosted\n    steps:\n      - run: echo ok\n", "runs-on"},
-		{"nonscalar env", "jobs:\n  build:\n    env:\n      OPTIONS: [one, two]\n    steps:\n      - run: echo ok\n", "scalar"},
+		{"nonscalar env", "jobs:\n  build:\n    runs-on: ubuntu-latest\n    env:\n      OPTIONS: [one, two]\n    steps:\n      - run: echo ok\n", "scalar"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -83,6 +85,7 @@ defaults:
     shell: bash
 jobs:
   zebra:
+    runs-on: ubuntu-latest
     env:
       OVERRIDE: job
     defaults:
@@ -97,6 +100,7 @@ jobs:
         run: echo hello
         working-directory: ${{github.workspace}}/subdir
   alpha:
+    runs-on: ubuntu-latest
     steps:
       - name: step one
         run: go test ./...
@@ -132,11 +136,13 @@ func TestImportRejectsDuplicateCheckNames(t *testing.T) {
 	source := `name: Build
 jobs:
   first:
+    runs-on: ubuntu-latest
     name: compile
     steps:
       - name: tests
         run: go test ./...
   second:
+    runs-on: ubuntu-latest
     name: compile
     steps:
       - name: tests
@@ -151,6 +157,7 @@ jobs:
 func TestImportDoesNotRewriteCommands(t *testing.T) {
 	script := `jobs:
   test:
+    runs-on: ubuntu-latest
     steps:
       - run: echo "$env:VCPKG_ROOT"
       - run: echo "$GITHUB_WORKSPACE"
