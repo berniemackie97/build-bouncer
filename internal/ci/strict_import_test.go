@@ -41,6 +41,7 @@ func TestImportRejectsUnsupportedWorkflowSemantics(t *testing.T) {
 		{"compound condition", "jobs:\n  build:\n    steps:\n      - if: runner.os == 'Windows' && success()\n        run: echo ok\n", "condition"},
 		{"matrix condition", "jobs:\n  build:\n    if: matrix.os == 'ubuntu-latest'\n    steps:\n      - run: echo ok\n", "condition"},
 		{"unknown matrix dimension", "jobs:\n  build:\n    strategy:\n      matrix:\n        build_type: [Release, Debug]\n    steps:\n      - run: echo ok\n", "matrix dimension"},
+		{"duplicate OS matrix", "jobs:\n  build:\n    runs-on: ${{ matrix.os }}\n    strategy:\n      matrix:\n        os: [ubuntu-22.04, ubuntu-24.04]\n    steps:\n      - run: echo ok\n", "multiple runner images"},
 		{"unrecognized action", "jobs:\n  build:\n    steps:\n      - uses: vendor/action@v1\n      - run: echo ok\n", "unsupported action"},
 		{"docker action", "jobs:\n  build:\n    steps:\n      - uses: docker://alpine:latest\n      - run: echo ok\n", "unsupported action"},
 		{"unknown shell", "jobs:\n  build:\n    steps:\n      - run: echo ok\n        shell: 'bash --noprofile {0}'\n", "shell"},

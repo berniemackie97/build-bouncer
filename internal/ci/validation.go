@@ -36,10 +36,16 @@ func validateWorkflowJob(name string, job Job) error {
 			if len(values) == 0 {
 				return fmt.Errorf("job %q: matrix.os has no supported values", name)
 			}
+			seenOS := make(map[string]bool, len(values))
 			for _, value := range values {
 				if !isSupportedRunner(value) {
 					return fmt.Errorf("job %q: unsupported matrix runner %q", name, value)
 				}
+				osName := osFromValue(value)
+				if seenOS[osName] {
+					return fmt.Errorf("job %q: multiple runner images for %s cannot be represented by one local check", name, osName)
+				}
+				seenOS[osName] = true
 			}
 		} else if !isSupportedRunner(target) {
 			return fmt.Errorf("job %q: unsupported runs-on %q", name, target)
