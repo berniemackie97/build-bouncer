@@ -72,6 +72,7 @@ func runDoctor(cfgPath string, ctx cli.Context) int {
 			if err != nil {
 				fmt.Fprintln(ctx.Stdout, "  shell error:", err)
 				unavailableShell = true
+				skipReason = ""
 			} else {
 				fmt.Fprintln(ctx.Stdout, "  executable:", executable)
 			}

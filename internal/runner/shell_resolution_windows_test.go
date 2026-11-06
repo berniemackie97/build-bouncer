@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/berniemackie97/build-bouncer/internal/config"
 )
 
 func TestWindowsGenericBashPrefersGitOverWSL(t *testing.T) {
@@ -38,12 +40,26 @@ func TestWindowsGenericBashPrefersGitOverWSL(t *testing.T) {
 		}
 	}
 
+	check := config.Check{Name: "git-bash", Shell: "bash", Run: "echo ok"}
+	if executable, err := ResolveCheckExecutable(check.Shell, check.Run); err != nil || executable != gitBash {
+		t.Fatalf("runner readiness did not select Git Bash: %q, %v", executable, err)
+	}
+	if reason := SkipReason(check); reason != "" {
+		t.Fatalf("installed Git Bash was misclassified as unavailable: %s", reason)
+	}
+
 	if err := os.Remove(gitBash); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := commandForShell("bash", "echo ok"); err == nil ||
 		!strings.Contains(err.Error(), "WSL launcher") {
 		t.Fatalf("bare bash must reject a WSL-only environment: %v", err)
+	}
+	check.AllowMissingTools = true
+	report, err := RunAllReport(t.TempDir(), &config.Config{Checks: []config.Check{check}}, Options{})
+	if err != nil || len(report.Failures) != 1 || len(report.Skipped) != 0 ||
+		!strings.Contains(report.Unavailable[check.Name], "WSL launcher") {
+		t.Fatalf("WSL-only implicit shell must fail, not skip: %+v, %v", report, err)
 	}
 
 	executable, args, err := commandForShell(wslBash, "echo ok")
