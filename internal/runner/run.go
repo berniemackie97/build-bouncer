@@ -64,15 +64,15 @@ type limitedBuffer struct {
 }
 
 type runOutcome struct {
-	ExitCode int
-	Tail     string
+	ExitCode  int
+	Tail      string
 	LogPath   string
 	Truncated bool
 	TimedOut  bool
-	Timeout  time.Duration
-	Canceled bool
-	Skipped  bool
-	Reason   string
+	Timeout   time.Duration
+	Canceled  bool
+	Skipped   bool
+	Reason    string
 }
 
 type checkJob struct {
@@ -549,7 +549,7 @@ func runOne(
 		}
 		if waitErr == nil {
 			if err := removeFileWithRetries(logPath); err != nil {
-				return runOutcome{ExitCode: 1, Tail: tailBuffer.String(), LogPath: logPath, Reason: "could not remove successful check log: " + err.Error()}, nil
+				return runOutcome{ExitCode: 1, Tail: tailBuffer.String(), LogPath: logPath}, fmt.Errorf("remove successful check log: %w", err)
 			}
 			return runOutcome{ExitCode: 0, Tail: tailBuffer.String()}, nil
 		}

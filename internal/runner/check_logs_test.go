@@ -125,12 +125,12 @@ func TestPruneCheckLogsLeavesUnrelatedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, keep := range map[string]bool{
-		"build-bouncer-stale.log": false,
+		"build-bouncer-stale.log":   false,
 		"build-bouncer-recent1.log": false,
 		"build-bouncer-recent2.log": true,
 		"build-bouncer-recent3.log": true,
-		"personal.log": true,
-		"unrelated.txt": true,
+		"personal.log":              true,
+		"unrelated.txt":             true,
 	} {
 		_, err := os.Stat(filepath.Join(dir, name))
 		if keep && err != nil || !keep && !os.IsNotExist(err) {

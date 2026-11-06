@@ -11,12 +11,12 @@ import (
 )
 
 const (
-	defaultLogBytes    int64 = 4 << 20
-	maxLogBytes        int64 = 64 << 20
-	defaultSavedLogs         = 20
-	maxSavedLogs             = 100
-	defaultRetentionDays     = 7
-	maxRetentionDays         = 365
+	defaultLogBytes      int64 = 4 << 20
+	maxLogBytes          int64 = 64 << 20
+	defaultSavedLogs           = 20
+	maxSavedLogs               = 100
+	defaultRetentionDays       = 7
+	maxRetentionDays           = 365
 )
 
 type logLimits struct {
