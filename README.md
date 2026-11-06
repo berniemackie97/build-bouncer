@@ -313,6 +313,12 @@ Set `banter.enabled: false` to disable banter lines (spinner falls back to neutr
 
 ---
 
+### Config and state safety
+
+`build-bouncer init --go` and other `init` template selections will not replace an existing `.buildbouncer/config.yaml`. Use `--force` to explicitly regenerate the config and the default packs; back up customizations before doing so. `setup` follows the same rule when a template is specified.
+
+Configuration writes use unique temporary files, sync before replacement, and preserve the existing file's permissions. Newly created configs default to 0600 on Unix. Banter and insult state is written through the same atomic storage path, with owner-only state directories (0700) and files (0600) on Unix. On Windows, filesystem ACLs govern access. Symlink destination files are rejected.
+
 ## Logs & debugging
 
 ### Where logs go

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/berniemackie97/build-bouncer/internal/config"
+	"github.com/berniemackie97/build-bouncer/internal/storage"
 )
 
 type insultPack struct {
@@ -171,44 +172,12 @@ func loadInsultState(path string) insultState {
 	return state
 }
 
-// saveInsultState writes a temp file then swaps it in.
-// We try to be safe on Windows too because rename does not overwrite existing files.
 func saveInsultState(path string, state insultState) error {
-	targetDir := filepath.Dir(path)
-	if mkdirErr := os.MkdirAll(targetDir, 0o755); mkdirErr != nil {
-		return mkdirErr
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
 	}
-
-	jsonBytes, marshalErr := json.MarshalIndent(state, "", "  ")
-	if marshalErr != nil {
-		return marshalErr
-	}
-
-	tempPath := path + ".tmp"
-	backupPath := path + ".bak"
-
-	_ = os.Remove(tempPath)
-	if writeErr := os.WriteFile(tempPath, jsonBytes, 0o644); writeErr != nil {
-		return writeErr
-	}
-
-	// If there's an existing file, move it out of the way first.
-	// On Windows, rename over existing is not allowed.
-	_ = os.Remove(backupPath)
-	if renameOldErr := os.Rename(path, backupPath); renameOldErr != nil && !os.IsNotExist(renameOldErr) {
-		_ = os.Remove(tempPath)
-		return renameOldErr
-	}
-
-	if promoteErr := os.Rename(tempPath, path); promoteErr != nil {
-		// Best effort restore.
-		_ = os.Remove(tempPath)
-		_ = os.Rename(backupPath, path)
-		return promoteErr
-	}
-
-	_ = os.Remove(backupPath)
-	return nil
+	return storage.WritePrivateState(path, data)
 }
 
 func baseLocale(locale string) string {

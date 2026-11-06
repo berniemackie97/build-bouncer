@@ -7,12 +7,36 @@ import (
 )
 
 func WriteFile(path string, data []byte, defaultMode os.FileMode) error {
+	return writeExisting(path, data, defaultMode, true)
+}
+
+func WritePrivateState(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("state directory %q must not be a symbolic link", dir)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return err
+	}
+	return writeExisting(path, data, 0o600, false)
+}
+
+func writeExisting(path string, data []byte, defaultMode os.FileMode, preserveMode bool) error {
 	mode := defaultMode
 	if info, err := os.Lstat(path); err == nil {
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("refusing to replace non-regular file %q", path)
 		}
-		mode = info.Mode().Perm()
+		if preserveMode {
+			mode = info.Mode().Perm()
+		}
 	} else if !os.IsNotExist(err) {
 		return err
 	}
