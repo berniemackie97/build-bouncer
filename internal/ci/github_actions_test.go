@@ -422,6 +422,9 @@ jobs:
 }
 
 func TestNormalizeGitHubActionsTemplates(t *testing.T) {
+	vcpkgRoot := filepath.Join(t.TempDir(), "vcpkg")
+	t.Setenv("VCPKG_ROOT", vcpkgRoot)
+
 	tests := []struct {
 		name     string
 		command  string
@@ -456,10 +459,9 @@ func TestNormalizeGitHubActionsTemplates(t *testing.T) {
 			name:    "VCPKG_ROOT env var",
 			command: "cmake -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake",
 			wantFunc: func(got string) bool {
-				// Should either use env var value or common path, or remain unchanged if not found
-				return got != "" && !strings.Contains(got, "$env:VCPKG_ROOT") || got == "cmake -DCMAKE_TOOLCHAIN_FILE=/scripts/buildsystems/vcpkg.cmake"
+				return got == "cmake -DCMAKE_TOOLCHAIN_FILE="+vcpkgRoot+"/scripts/buildsystems/vcpkg.cmake"
 			},
-			wantDesc: "VCPKG_ROOT resolved or removed",
+			wantDesc: "VCPKG_ROOT resolved to the configured value",
 		},
 		{
 			name:    "GITHUB_WORKSPACE env var",

@@ -75,7 +75,7 @@ func InstallPrePushHook(opts InstallOptions) error {
 
 func renderPrePushHook(hasCopiedBinary bool) string {
 	body := `#!/bin/sh
-# build-bouncer pre-push hook v2
+# build-bouncer pre-push hook v3
 set -eu
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
@@ -104,53 +104,12 @@ if [ -z "$bb" ]; then
   fi
 fi
 
-# Detect git push flags and pass them to build-bouncer
-bb_args="check --hook"
-
-# Check GIT_PUSH_OPTION_COUNT for push options (git 2.10+)
-if [ -n "${GIT_PUSH_OPTION_COUNT:-}" ] && [ "${GIT_PUSH_OPTION_COUNT}" -gt 0 ]; then
-  i=0
-  while [ "$i" -lt "${GIT_PUSH_OPTION_COUNT}" ]; do
-    opt_var="GIT_PUSH_OPTION_${i}"
-    eval "opt_val=\$${opt_var}"
-    case "$opt_val" in
-      verbose)
-        bb_args="$bb_args --verbose"
-        ;;
-      force)
-        bb_args="$bb_args --force-push"
-        ;;
-    esac
-    i=$((i + 1))
-  done
-fi
-
-# Fallback: parse command line from ps (less reliable but works for older git)
-if ! echo "$bb_args" | grep -q -- "--verbose" && ! echo "$bb_args" | grep -q -- "--force-push"; then
-  git_push_cmd="$(ps -o args= -p $PPID 2>/dev/null || true)"
-  case "$git_push_cmd" in
-    *--verbose*|*-v*)
-      bb_args="$bb_args --verbose"
-      ;;
-  esac
-  case "$git_push_cmd" in
-    *--force*|*-f*)
-      bb_args="$bb_args --force-push"
-      ;;
-  esac
-fi
-
-# For interactive prompts to work in Git Bash on Windows, we need to explicitly use the terminal
 if [ -t 0 ]; then
-  # stdin is already a terminal
-  eval "$bb $bb_args"
+  "$bb" check --hook
+elif [ -e /dev/tty ]; then
+  "$bb" check --hook < /dev/tty
 else
-  # stdin is not a terminal (common in hooks), redirect from tty
-  if [ -e /dev/tty ]; then
-    eval "$bb $bb_args" < /dev/tty
-  else
-    eval "$bb $bb_args"
-  fi
+  "$bb" check --hook
 fi
 `
 	return body

@@ -34,7 +34,7 @@ It’s intentionally dumb in the right way: **it does not guess your build syste
 - **Hook mode (`--hook`):** same as quiet mode, even if Git/hook output doesn't look like a "real terminal"
 - **Verbose mode (`--verbose`):** streams the full tool output + shows per-check "why it failed"
 - **CI mode (`--ci`):** no spinner/banter, no random insult
-- Skipped checks (missing tools or OS mismatch) show in verbose/CI output.
+- OS-excluded checks are skipped. Missing required tools block by default unless a check explicitly permits the missing-tool skip.
 
 ### Customizable personality (all external files)
 - **Insults pack** (JSON): weighted, category-aware (`tests/lint/build/ci/any`), cooldown/no-repeat, supports placeholders like `{check}`, `{checks}`, `{detail}`
@@ -245,7 +245,8 @@ Each check:
   - `cwd`: run relative to repo root
   - `env`: key/value env vars for just that check
   - `os` / `platforms`: restrict to specific OS (`windows`, `linux`, `macos`)
-  - `requires`: binaries required to run the check (missing tools will be skipped)
+  - `requires`: binaries required to run the check (missing tools block by default)
+  - `allowMissingTools`: opt-in to skipping a check when its required tools are unavailable; a run with no executed checks still fails
   - `timeout`: per-check timeout (example: `30s`, `2m`)
 
 `shell` must be just the executable name or path (no arguments). Use `run` for the actual command.
@@ -334,7 +335,7 @@ A user can bypass local hooks with:
 git push --no-verify
 ```
 
-So: **use build-bouncer for fast local feedback**, and still rely on CI as the final authority.
+Force pushing does not bypass configured checks. Use BuildBouncer for local feedback and trusted CI with branch protection as the final authority.
 
 ---
 
@@ -406,6 +407,10 @@ And if CopySelf is enabled (default), it copies the current executable into:
 The hook prefers that repo-pinned binary first, so everyone on the team gets consistent behavior per repo.
 
 ---
+
+## Engineering and roadmap
+
+See [Engineering standards](docs/engineering.md) and the [modernization tracker](https://github.com/berniemackie97/build-bouncer/issues/16).
 
 ## Roadmap (not implemented yet)
 
