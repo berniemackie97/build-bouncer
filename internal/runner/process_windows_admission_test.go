@@ -24,7 +24,8 @@ func TestWindowsProcessEntersJobBeforeExecution(t *testing.T) {
 		process.close()
 	}()
 
-	handle, err := syscall.OpenProcess(processAssignAccess, false, uint32(command.Process.Pid))
+	const processQueryLimitedInformation = 0x1000
+	handle, err := syscall.OpenProcess(processQueryLimitedInformation, false, uint32(command.Process.Pid))
 	if err != nil {
 		t.Fatal(err)
 	}
