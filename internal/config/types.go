@@ -75,6 +75,9 @@ func (p Protection) ProtectionLevel() string {
 
 // IsInteractive returns whether interactive prompts should be shown
 func (p Protection) IsInteractive() bool {
+	if p.ProtectionLevel() == "strict" {
+		return false
+	}
 	if p.Interactive != nil {
 		return *p.Interactive
 	}

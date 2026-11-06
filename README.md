@@ -242,7 +242,7 @@ Each check:
 - `run`: command string executed via shell (`cmd.exe /C` on Windows, `sh -c` elsewhere)
 - optional:
   - `shell`: override shell (examples: `bash`, `sh`, `powershell`, `pwsh`, `cmd`)
-  - `cwd`: run relative to repo root
+  - `cwd`: run relative to repo root (absolute paths and traversal outside the root are rejected; backslashes normalize to forward slashes)
   - `env`: key/value env vars for just that check
   - `os` / `platforms`: restrict to specific OS (`windows`, `linux`, `macos`)
   - `requires`: binaries required to run the check (missing tools block by default)
@@ -253,6 +253,8 @@ Each check:
 
 If `shell` is omitted, build-bouncer uses the OS default (`cmd` on Windows, `sh` on macOS/Linux).
 Generated checks include explicit shells based on CI defaults or script type; for manual checks, set `shell` if you need `bash` or `pwsh`.
+
+Configuration validation rejects unknown `protection.level` values (`lax`, `moderate`, `strict`) and unknown `insults.mode` values (`polite`, `snarky`, `nuclear`). Case and surrounding whitespace are normalized. Strict protection disables interactive overrides even when `interactive: true` is configured. Environment override keys must not contain whitespace, NUL, or `=`; values must not contain NUL. Validation is shared by `validate`, `check`, `doctor`, `init`, and `ci sync`.
 
 Example with `cwd` + `env`:
 
