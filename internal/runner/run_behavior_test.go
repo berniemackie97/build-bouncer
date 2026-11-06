@@ -1,11 +1,14 @@
 package runner
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/berniemackie97/build-bouncer/internal/config"
 )
@@ -130,5 +133,33 @@ func TestRunAllReportRemovesLogOnSuccess(t *testing.T) {
 	// Make sure success did not sneak into LogFiles.
 	if got := rep.LogFiles["pass"]; got != "" {
 		t.Fatalf("expected no log path recorded for pass, got %q", got)
+	}
+}
+
+func TestRunAllReportSerializesProgressCallbacks(t *testing.T) {
+	var active atomic.Int32
+	var overlapped atomic.Bool
+	checks := make([]config.Check, 16)
+	for i := range checks {
+		checks[i] = config.Check{Name: fmt.Sprintf("check-%d", i), Run: "echo ok"}
+	}
+	report, err := RunAllReport(t.TempDir(), &config.Config{Checks: checks}, Options{
+		MaxParallel: 8,
+		Progress: func(ProgressEvent) {
+			if active.Add(1) != 1 {
+				overlapped.Store(true)
+			}
+			time.Sleep(time.Millisecond)
+			active.Add(-1)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Failures) > 0 || len(report.Skipped) > 0 {
+		t.Fatalf("unexpected check outcomes: %+v", report)
+	}
+	if overlapped.Load() {
+		t.Fatal("progress callback invoked concurrently")
 	}
 }
