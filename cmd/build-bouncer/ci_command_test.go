@@ -81,7 +81,7 @@ func TestCISyncReplacesOldCIChecks(t *testing.T) {
 		Version: 1,
 		Checks: []config.Check{
 			{Name: "local", Run: "echo local"},
-			{Name: "ci:old:step", Run: "echo old"},
+			{Name: "ci:old:step", Run: "echo old", Source: "ci:old"},
 		},
 		Insults: config.Insults{
 			Mode:   "snarky",

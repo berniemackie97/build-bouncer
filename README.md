@@ -180,8 +180,11 @@ By default, removes the installed pre-push hook and its copied executable while 
 - Any cleanup failure produces a nonzero exit code; removal is never reported as successful when cleanup fails.
 
 ### `build-bouncer ci sync`
-Refreshes `ci:` checks from `.github/workflows/*` `run` steps, removes stale CI entries, and skips duplicates against your custom checks.
-Setup actions like `actions/setup-node`/`setup-go`/`setup-python` are mirrored as lightweight checks (ex: `node --version`), and `setup-node` uses `cache` hints to pick npm/yarn/pnpm.
+Imports executable `run` steps from `.github/workflows/*.yml` and `*.yaml` with deterministic ordering. Re-sync replaces only checks with an explicit `source: ci:...` marker and preserves unowned checks, including user checks whose names start with `ci:`.
+
+Supported workflow inputs include literal scripts, scalar workflow/job/step environments, working-directory defaults, explicit shells, simple `runner.os` conditions, and `runs-on` operating-system matrices. Expressions in commands, environments, or unsupported conditions fail the import with an error rather than being stripped or guessed; existing configuration is not changed. `${{ github.workspace }}` is supported as a working-directory prefix.
+
+Checkout, cache and known setup actions are treated as CI environment preparation and **are not executed or replaced with synthetic version checks**. Required tools must already exist locally; unsupported actions fail import. Only jobs matching the OS on which sync runs are currently generated, so a shared configuration synced on one OS does not represent all runner variants. Cross-platform matrix preservation and broader GitHub Actions semantics remain roadmap work.
 
 ---
 
