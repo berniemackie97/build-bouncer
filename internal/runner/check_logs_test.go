@@ -198,6 +198,9 @@ func TestPrepareLogDirDoesNotChangeCustomDirectoryMode(t *testing.T) {
 	if err := os.Mkdir(path, 0o750); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(path, 0o750); err != nil {
+		t.Fatal(err)
+	}
 	if err := prepareLogDir(path, false); err != nil {
 		t.Fatal(err)
 	}
@@ -207,5 +210,23 @@ func TestPrepareLogDirDoesNotChangeCustomDirectoryMode(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o750 {
 		t.Fatalf("custom directory mode changed to %v", info.Mode().Perm())
+	}
+}
+
+func TestLargeOutputUsesBoundedMemoryAndDisk(t *testing.T) {
+	tail := newLimitedBuffer(128 * 1024)
+	var retained bytes.Buffer
+	writer := &boundedLogWriter{writer: &retained, limit: 1 << 20}
+	stream := io.MultiWriter(tail, writer)
+	chunk := bytes.Repeat([]byte("x"), 64<<10)
+	for range 1024 {
+		n, err := stream.Write(chunk)
+		if err != nil || n != len(chunk) {
+			t.Fatalf("large output not fully consumed: n=%d err=%v", n, err)
+		}
+	}
+	if retained.Len() != 1<<20 || len(tail.buffer) != 128*1024 || !writer.truncated || writer.err != nil {
+		t.Fatalf("unexpected retained sizes: disk=%d tail=%d truncated=%v err=%v",
+			retained.Len(), len(tail.buffer), writer.truncated, writer.err)
 	}
 }
