@@ -266,8 +266,8 @@ func TestHookUninstallCleansUpTempFiles(t *testing.T) {
 	if _, err := os.Stat(tmpFile1); !os.IsNotExist(err) {
 		t.Fatalf("tmp file 1 should be removed, stat err=%v", err)
 	}
-	if _, err := os.Stat(tmpFile2); !os.IsNotExist(err) {
-		t.Fatalf("tmp file 2 should be removed, stat err=%v", err)
+	if _, err := os.Stat(tmpFile2); err != nil {
+		t.Fatalf("unrelated temporary file should be preserved: %v", err)
 	}
 }
 
