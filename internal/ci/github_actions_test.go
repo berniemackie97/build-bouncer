@@ -18,6 +18,7 @@ func TestChecksFromGitHubActions(t *testing.T) {
 name: CI
 jobs:
   build:
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: app
@@ -86,18 +87,18 @@ jobs:
 	if err != nil {
 		t.Fatalf("ChecksFromGitHubActions error: %v", err)
 	}
-	if len(checks) != 1 {
-		t.Fatalf("expected 1 check for current OS, got %d", len(checks))
+	if len(checks) != 3 {
+		t.Fatalf("expected all three declared platforms, got %+v", checks)
 	}
-
-	wantJob := map[string]string{
-		"windows": "windows",
-		"linux":   "linux",
-		"macos":   "mac",
-	}[currentRunnerOS()]
-
-	if wantJob != "" && !strings.Contains(checks[0].Name, ":"+wantJob+":") {
-		t.Fatalf("expected check for %s job, got %q", wantJob, checks[0].Name)
+	want := map[string]string{
+		"linux":   "echo linux",
+		"macos":   "echo mac",
+		"windows": "echo windows",
+	}
+	for _, check := range checks {
+		if len(check.OS) != 1 || check.Run != want[check.OS[0]] {
+			t.Fatalf("incorrect platform or script: %+v", check)
+		}
 	}
 }
 
@@ -127,8 +128,16 @@ jobs:
 	if err != nil {
 		t.Fatalf("ChecksFromGitHubActions error: %v", err)
 	}
-	if len(checks) != 1 {
-		t.Fatalf("expected 1 check for current OS, got %d", len(checks))
+	if len(checks) != 3 {
+		t.Fatalf("expected checks for each matrix runner, got %+v", checks)
+	}
+	wantOS := []string{"linux", "windows", "macos"}
+	wantShell := []string{"bash", "pwsh", "bash"}
+	for i, check := range checks {
+		if len(check.OS) != 1 || check.OS[0] != wantOS[i] || check.Shell != wantShell[i] ||
+			!strings.Contains(check.Name, ":"+wantOS[i]+":") {
+			t.Fatalf("wrong matrix variant %d: %+v", i, check)
+		}
 	}
 }
 
@@ -160,12 +169,8 @@ jobs:
 		t.Fatalf("ChecksFromGitHubActions error: %v", err)
 	}
 
-	if currentRunnerOS() == "windows" {
-		if len(checks) != 1 {
-			t.Fatalf("expected 1 check on windows, got %d", len(checks))
-		}
-	} else if len(checks) != 0 {
-		t.Fatalf("expected 0 checks on non-windows, got %d", len(checks))
+	if len(checks) != 1 || len(checks[0].OS) != 1 || checks[0].OS[0] != "windows" {
+		t.Fatalf("expected only the Windows platform check, got %+v", checks)
 	}
 }
 
@@ -198,12 +203,21 @@ jobs:
 		t.Fatalf("ChecksFromGitHubActions error: %v", err)
 	}
 
-	if currentRunnerOS() == "windows" {
-		if len(checks) != 2 {
-			t.Fatalf("expected 2 checks on windows, got %d", len(checks))
+	if len(checks) != 4 {
+		t.Fatalf("expected three unconditional plus Windows-only check, got %+v", checks)
+	}
+	platformCounts := map[string]int{}
+	for _, check := range checks {
+		if len(check.OS) != 1 {
+			t.Fatalf("missing OS: %+v", check)
 		}
-	} else if len(checks) != 1 {
-		t.Fatalf("expected 1 check on non-windows, got %d", len(checks))
+		platformCounts[check.OS[0]]++
+		if check.Run == "echo windows-only" && check.OS[0] != "windows" {
+			t.Fatalf("Windows-only check assigned to %q", check.OS[0])
+		}
+	}
+	if platformCounts["linux"] != 1 || platformCounts["macos"] != 1 || platformCounts["windows"] != 2 {
+		t.Fatalf("incorrect platform counts: %v", platformCounts)
 	}
 }
 
@@ -217,6 +231,7 @@ func TestChecksFromGitHubActionsShellBash(t *testing.T) {
 	content := `
 jobs:
   build:
+    runs-on: ubuntu-latest
     steps:
       - name: Bash step
         shell: bash
@@ -254,6 +269,7 @@ func TestChecksFromGitHubActionsUsesSetupNode(t *testing.T) {
 	content := `
 jobs:
   build:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/setup-node@v4
         with:
@@ -287,6 +303,7 @@ func TestChecksFromGitHubActionsSkipsUnusedSetupAction(t *testing.T) {
 	content := `
 jobs:
   build:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/setup-node@v4
       - run: go test ./...
@@ -396,6 +413,7 @@ func TestChecksFromGitHubActionsWithWorkspaceTemplate(t *testing.T) {
 	content := `
 jobs:
   build:
+    runs-on: ubuntu-latest
     steps:
       - name: Run tests
         run: ctest -C Release --output-on-failure --verbose
