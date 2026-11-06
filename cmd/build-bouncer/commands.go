@@ -302,7 +302,7 @@ func runCheck(args []string, ctx cli.Context) int {
 		LogRetentionDays: cfg.Runner.LogRetentionDays,
 		MaxParallel:      cfg.Runner.MaxParallel,
 		FailFast:         cfg.Runner.FailFast || *failFast,
-		Progress: func(e runner.ProgressEvent) {
+		Progress:         func(e runner.ProgressEvent) {
 			if sp == nil {
 				return
 			}
