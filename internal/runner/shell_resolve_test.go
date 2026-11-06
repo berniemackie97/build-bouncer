@@ -265,3 +265,20 @@ func TestConfiguredShellPathWithSpacesExecutes(t *testing.T) {
 		t.Fatalf("execute shell with spaces: %s %v", result, err)
 	}
 }
+
+func TestExplicitShellPathIsNeverReplaced(t *testing.T) {
+	for _, path := range []string{"/usr/bin/bash", `C:\Windows\System32\bash.exe`, `C:\Program Files\Git\bin\bash.exe`} {
+		selected, err := preferWindowsShell(path)
+		if err != nil || selected != path {
+			t.Fatalf("explicit shell path %q was replaced with %q: %v", path, selected, err)
+		}
+	}
+}
+
+func TestUnavailableShellHasNoFallback(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing-shell")
+	if _, err := ResolveCheckExecutable(path, "echo ok"); err == nil ||
+		!strings.Contains(err.Error(), "unavailable") {
+		t.Fatalf("expected missing shell error, got %v", err)
+	}
+}
