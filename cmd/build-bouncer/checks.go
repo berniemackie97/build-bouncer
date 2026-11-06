@@ -58,10 +58,11 @@ func checkContentKey(c config.Check) string {
 	run := strings.TrimSpace(c.Run)
 	shellSpec := strings.TrimSpace(c.Shell)
 	if shellSpec == "" {
-		if executable, args, matched, err := shell.ParseDirectInvocation(run); matched && err == nil &&
-			len(args) == 2 && (executable == "bash" || executable == "sh") {
-			shellSpec = executable
-			run = args[1]
+		if executable, args, matched, err := shell.ParseDirectInvocation(run); matched && err == nil && len(args) == 2 {
+			if (executable == "bash" && args[0] == "-lc") || (executable == "sh" && args[0] == "-c") {
+				shellSpec = executable
+				run = args[1]
+			}
 		}
 	}
 	cwd := strings.TrimSpace(c.Cwd)
