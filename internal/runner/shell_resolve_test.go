@@ -222,7 +222,8 @@ func TestInvalidExplicitShellDoesNotFallBack(t *testing.T) {
 	}
 }
 
-func TestConfiguredShellPathWithSpacesExecutes(t *testing.T) {
+func copyTestShell(t *testing.T, directory string) (string, string) {
+	t.Helper()
 	var source, targetName, script string
 	if runtime.GOOS == "windows" {
 		source = os.Getenv("ComSpec")
@@ -237,7 +238,6 @@ func TestConfiguredShellPathWithSpacesExecutes(t *testing.T) {
 		targetName = "sh"
 		script = "printf working"
 	}
-	directory := filepath.Join(t.TempDir(), "shell binaries with spaces")
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -258,6 +258,11 @@ func TestConfiguredShellPathWithSpacesExecutes(t *testing.T) {
 	if err := output.Close(); err != nil {
 		t.Fatal(err)
 	}
+	return target, script
+}
+
+func TestConfiguredShellPathWithSpacesExecutes(t *testing.T) {
+	target, script := copyTestShell(t, filepath.Join(t.TempDir(), "shell binaries with spaces"))
 	executable, args, err := resolveCommand("\""+target+"\"", script, "")
 	if err != nil || executable != target {
 		t.Fatalf("shell executable changed: %q != %q: %v", executable, target, err)
@@ -310,40 +315,9 @@ func TestRelativeShellSeparatorsArePortable(t *testing.T) {
 }
 
 func TestRelativeShellPathResolvesFromRepoRoot(t *testing.T) {
-	var source, name, script string
-	if runtime.GOOS == "windows" {
-		source = os.Getenv("ComSpec")
-		name, script = "cmd.exe", "echo working"
-	} else {
-		var err error
-		source, err = exec.LookPath("sh")
-		if err != nil {
-			t.Fatal(err)
-		}
-		name, script = "sh", "printf working"
-	}
 	root := t.TempDir()
-	relative := filepath.Join("bin with spaces", name)
-	absolute := filepath.Join(root, relative)
-	if err := os.MkdirAll(filepath.Dir(absolute), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	input, err := os.Open(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer input.Close()
-	output, err := os.OpenFile(absolute, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := io.Copy(output, input); err != nil {
-		output.Close()
-		t.Fatal(err)
-	}
-	if err := output.Close(); err != nil {
-		t.Fatal(err)
-	}
+	absolute, script := copyTestShell(t, filepath.Join(root, "bin with spaces"))
+	relative := filepath.Join("bin with spaces", filepath.Base(absolute))
 	if err := os.Mkdir(filepath.Join(root, "work"), 0o700); err != nil {
 		t.Fatal(err)
 	}
