@@ -331,9 +331,10 @@ func TestHookUsesConfiguredHooksPath(t *testing.T) {
 	}
 
 	status, err := hooks.GetStatus()
-	if err != nil || status.HookPath != hookPath || !status.Ours {
+	if err != nil || !status.Ours {
 		t.Fatalf("invalid active hook status: %+v err=%v", status, err)
 	}
+	assertSameHookFile(t, status.HookPath, hookPath)
 
 	code, _, stderr = runHookCmd([]string{"uninstall"})
 	if code != exitOK {
@@ -369,14 +370,30 @@ func TestHookUsesSharedDirectoryFromLinkedWorktree(t *testing.T) {
 		t.Fatalf("worktree hook missing in shared Git directory: %v", err)
 	}
 	status, err := hooks.GetStatus()
-	if err != nil || status.HookPath != hookPath || !status.Ours {
+	if err != nil || !status.Ours {
 		t.Fatalf("incorrect worktree hook status: %+v err=%v", status, err)
 	}
+	assertSameHookFile(t, status.HookPath, hookPath)
 	code, _, stderr = runHookCmd([]string{"uninstall"})
 	if code != exitOK {
 		t.Fatalf("worktree uninstall exit=%d stderr=%q", code, stderr)
 	}
 	if _, err := os.Stat(hookPath); !os.IsNotExist(err) {
 		t.Fatalf("worktree hook not removed: %v", err)
+	}
+}
+
+func assertSameHookFile(t *testing.T, actual, expected string) {
+	t.Helper()
+	actualInfo, err := os.Stat(actual)
+	if err != nil {
+		t.Fatalf("stat resolved hook %q: %v", actual, err)
+	}
+	expectedInfo, err := os.Stat(expected)
+	if err != nil {
+		t.Fatalf("stat expected hook %q: %v", expected, err)
+	}
+	if !os.SameFile(actualInfo, expectedInfo) {
+		t.Fatalf("resolved hook %q is not expected hook %q", actual, expected)
 	}
 }
