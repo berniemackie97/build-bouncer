@@ -53,6 +53,7 @@ func writeCIWorkflow(t *testing.T, root, source string) string {
 
 func TestInitDotNetWorksWithUnsupportedGitHubWorkflow(t *testing.T) {
 	root := withTempRepo(t)
+	writeDotNetFixture(t, root, false)
 	workflow := writeCIWorkflow(t, root, complexDotNetWorkflow)
 	var stdout, stderr bytes.Buffer
 	ctx := cli.Context{Stdout: &stdout, Stderr: &stderr}
@@ -65,7 +66,7 @@ func TestInitDotNetWorksWithUnsupportedGitHubWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Meta.Template.ID != "dotnet" || len(cfg.Checks) != 2 {
+	if cfg.Meta.Template.ID != "dotnet" || len(cfg.Checks) != 4 {
 		t.Fatalf("unexpected local .NET configuration: %+v", cfg)
 	}
 	for _, check := range cfg.Checks {
@@ -116,6 +117,7 @@ func TestInitExplicitImportRejectsComplexWorkflowWithoutWrites(t *testing.T) {
 
 func TestInitExplicitImportIncludesSupportedChecks(t *testing.T) {
 	root := withTempRepo(t)
+	writeDotNetFixture(t, root, false)
 	writeCIWorkflow(t, root, "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - name: check\n        run: echo ok\n")
 	var stdout, stderr bytes.Buffer
 	if code := newInitCommand().Run(cli.Context{Stdout: &stdout, Stderr: &stderr}, []string{"--dotnet", "--import-ci"}); code != exitOK {

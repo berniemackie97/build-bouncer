@@ -16,12 +16,13 @@ import (
 func newInitCommand() cli.Command {
 	return cli.Command{
 		Name:    "init",
-		Usage:   "init [--force] [--import-ci] [--template-flag]",
+		Usage:   "init [--force] [--import-ci] [--dotnet --solution PATH | --template-flag]",
 		Summary: "Create .buildbouncer/config.yaml and default insult/banter packs.",
 		Run: func(ctx cli.Context, args []string) int {
 			fs := cli.NewFlagSet(ctx, "init")
 			force := fs.Bool("force", false, "replace existing configuration and default packs")
 			importCI := fs.Bool("import-ci", false, "import supported GitHub Actions checks")
+			solution := fs.String("solution", "", "select a repository-relative .sln or .slnx file with --dotnet")
 			selector := registerTemplateFlags(fs)
 			if err := fs.Parse(args); err != nil {
 				return exitUsage
@@ -36,12 +37,20 @@ func newInitCommand() cli.Command {
 				printInitHelp(ctx)
 				return exitOK
 			}
-			return runInit(*force, *importCI, templateID, ctx)
+			if *solution != "" && templateID != "dotnet" {
+				fmt.Fprintln(ctx.Stderr, "init: --solution requires --dotnet")
+				return exitUsage
+			}
+			return runInitWithSolution(*force, *importCI, templateID, *solution, ctx)
 		},
 	}
 }
 
-func runInit(force, importCI bool, templateID string, ctx cli.Context) (code int) {
+func runInit(force, importCI bool, templateID string, ctx cli.Context) int {
+	return runInitWithSolution(force, importCI, templateID, "", ctx)
+}
+
+func runInitWithSolution(force, importCI bool, templateID, selected string, ctx cli.Context) (code int) {
 	root, err := git.FindRepoRootOrCwd()
 	if err != nil {
 		fmt.Fprintln(ctx.Stderr, "init:", err)
@@ -105,6 +114,15 @@ func runInit(force, importCI bool, templateID string, ctx cli.Context) (code int
 		return exitUsage
 	}
 	adjust := applyTemplateOverrides(root, templateID, cfg.Checks)
+	if templateID == "dotnet" {
+		profile, solution, err := dotnetProfile(root, selected)
+		if err != nil {
+			fmt.Fprintln(ctx.Stderr, "init:", err)
+			return exitUsage
+		}
+		adjust.Checks = profile
+		adjust.Inputs["dotnet.solution"] = solution
+	}
 	cfg.Checks = adjust.Checks
 	if templateID == "dotnet" && adjust.Inputs["dotnet.solution"] != "" {
 		cfg.Runner.MaxParallel = 1
@@ -156,9 +174,6 @@ func runInit(force, importCI bool, templateID string, ctx cli.Context) (code int
 	}
 
 	fmt.Fprintln(ctx.Stdout, "Created:", cfgPath)
-	if templateID == "dotnet" && adjust.Inputs["dotnet.solution"] == "" {
-		fmt.Fprintln(ctx.Stdout, "No unique root .NET solution found; edit your checks or select one with build-bouncer configure --dotnet --solution FILE")
-	}
 	fmt.Fprintln(ctx.Stdout, tui.Check("Insults: "+insultsPath))
 	fmt.Fprintln(ctx.Stdout, tui.Check("Banter: "+banterPath))
 	fmt.Fprintln(ctx.Stdout, "")

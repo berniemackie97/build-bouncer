@@ -42,3 +42,7 @@ BuildBouncer is a cross-platform developer tool that runs configured quality che
 - Correct legitimate review findings and resolve addressed threads without unnecessary replies.
 - Leave PRs open for maintainer review and merging. Close issues only after acceptance criteria are verified and the change is merged.
 - Prefer complete, meaningful slices over many trivial commits, and avoid unrelated refactors.
+
+## Repository-aware .NET initialization
+
+.NET profile discovery is bounded, ignores dependency/build-output directories and does not follow symlinks. A unique nested solution can be selected automatically; ambiguous or missing solutions must fail before initialization writes assets or configuration. Use a repository-relative `.sln`/`.slnx` path with `--solution` to select among multiple targets. A generated check must target the selected file; never silently fall back to root-level `dotnet test` or `dotnet format`. Initial discovery intentionally does not combine independent pnpm/Turbo scripts with .NET checks; mixed-workspace onboarding is a separate reviewed slice.

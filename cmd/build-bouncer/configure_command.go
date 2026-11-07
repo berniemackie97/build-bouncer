@@ -33,8 +33,8 @@ func newConfigureCommand() cli.Command {
 		Run: func(ctx cli.Context, args []string) int {
 			fs := cli.NewFlagSet(ctx, "configure")
 			var opts configureOptions
-			fs.BoolVar(&opts.dotnet, "dotnet", false, "refresh checks from an unambiguous .NET solution")
-			fs.StringVar(&opts.solution, "solution", "", "select a root-level .sln/.slnx file")
+			fs.BoolVar(&opts.dotnet, "dotnet", false, "refresh checks from a selected or unique .NET solution")
+			fs.StringVar(&opts.solution, "solution", "", "select a repository-relative .sln/.slnx path")
 			fs.StringVar(&opts.protection, "protection", "", "set the protection policy: strict, moderate, or lax")
 			fs.StringVar(&opts.parallel, "parallel", "", "maximum simultaneous checks (1-32)")
 			fs.StringVar(&opts.failFast, "fail-fast", "", "cancel remaining checks after failure (true or false)")

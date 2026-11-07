@@ -139,7 +139,7 @@ your-project/
       banter/default.json
 ```
 
-Initialization uses the selected local template, with safe project discovery where available. For .NET projects with one root-level `.sln` or `.slnx`, it derives a restore → format → build → test sequence targeted to that solution. Locked restore is selected only if every discovered project has a `packages.lock.json`. With multiple solutions or none, it retains the generic template and reports that a solution should be selected explicitly. Existing GitHub Actions workflows are left untouched and do not prevent setup. To explicitly import supported workflow checks during initialization, pass `--import-ci` (for example, `build-bouncer init --dotnet --import-ci`). An unsupported workflow then causes the requested import to fail without creating a configuration; it is never partially translated or silently treated as covered. The `--manual` template deliberately contains a **failing placeholder check**; replace it with your real commands before running checks.
+Initialization uses the selected local template, with safe project discovery where available. For .NET repositories with one discoverable `.sln` or `.slnx`, including nested solutions, it derives a restore → format → build → test sequence targeted to that path. Locked restore is selected only if every discovered project has a regular `packages.lock.json`. Discovery skips generated/dependency directories and symlinks, with bounded traversal. With multiple solutions or none, initialization fails **without writing configuration or assets**; select an explicit repository-relative solution with `build-bouncer init --dotnet --solution services/api/Api.slnx`, or choose a different template/custom checks. A project without a solution is not silently treated as a runnable solution. Existing GitHub Actions workflows are left untouched and do not prevent setup. To explicitly import supported workflow checks during initialization, pass `--import-ci` (for example, `build-bouncer init --dotnet --import-ci`). An unsupported workflow then causes the requested import to fail without creating a configuration; it is never partially translated or silently treated as covered. The `--manual` template deliberately contains a **failing placeholder check**; replace it with your real commands before running checks.
 
 **Existing configuration is preserved.** `init` refuses to replace `.buildbouncer/config.yaml` (or the legacy `.buildbouncer.yaml`). Do not use `--force` unless you intend to regenerate and replace the configuration and default packs.
 
@@ -148,14 +148,14 @@ Initialization uses the selected local template, with safe project discovery whe
 Use `build-bouncer doctor` to inspect generated commands and prerequisites. `build-bouncer configure` opens an interactive terminal menu to refresh a .NET profile, set protection, or manage custom checks. You can also use scriptable flags:
 
 ```sh
-build-bouncer configure --dotnet --protection strict --yes
+build-bouncer configure --dotnet --solution services/api/Api.slnx --protection strict --yes
 build-bouncer configure --protection strict --yes
 build-bouncer configure --parallel 1 --fail-fast true --yes
 build-bouncer configure --check lint --run 'dotnet format --verify-no-changes' --yes
 build-bouncer configure --remove-check lint --yes
 ```
 
-For multiple root-level solutions, specify `--solution NAME.slnx` with `--dotnet`. Generated .NET restore, formatting, build and test checks run sequentially with fail-fast enabled; an existing `runner.maxParallel` greater than 1 must be explicitly corrected with `--parallel 1`. Without `--yes`, the proposed configuration is shown and must be confirmed. The command updates only owned generated checks, refuses to overwrite modified or user-owned checks, validates before saving, and preserves unrelated YAML fields and comments. Hand-editing `.buildbouncer/config.yaml` remains fully supported for advanced behavior. Review each generated command: templates are starting points, not guarantees that your project has the corresponding scripts, dependencies, or build layout.
+For multiple or nested solutions, specify `--solution relative/path/NAME.slnx` with `--dotnet`. Generated .NET restore, formatting, build and test checks run sequentially with fail-fast enabled; an existing `runner.maxParallel` greater than 1 must be explicitly corrected with `--parallel 1`. Without `--yes`, the proposed configuration is shown and must be confirmed. The command updates only owned generated checks, refuses to overwrite modified or user-owned checks, validates before saving, and preserves unrelated YAML fields and comments. Hand-editing `.buildbouncer/config.yaml` remains fully supported for advanced behavior. Review each generated command: templates are starting points, not guarantees that your project has the corresponding scripts, dependencies, or build layout.
 
 For example, a .NET repository might use:
 

@@ -81,15 +81,14 @@ func TestDotNetInitDoesNotGuessAcrossMultipleSolutions(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	if code := runInit(false, false, "dotnet", cli.Context{Stdout: &stdout, Stderr: &stderr}); code != exitOK {
-		t.Fatalf("init should retain generic checks on ambiguity: %d %s", code, stderr.String())
+	if code := runInit(false, false, "dotnet", cli.Context{Stdout: &stdout, Stderr: &stderr}); code != exitUsage {
+		t.Fatalf("ambiguous solutions accepted: %d %s", code, stderr.String())
 	}
-	cfg, err := config.Load(config.DefaultConfigPath(root))
-	if err != nil {
-		t.Fatal(err)
+	if !strings.Contains(stderr.String(), "multiple .NET solutions") {
+		t.Fatalf("expected a selection error: %q", stderr.String())
 	}
-	if len(cfg.Checks) != 2 || !strings.Contains(stdout.String(), "No unique root .NET solution") {
-		t.Fatalf("ambiguous solution silently selected: %+v %q", cfg.Checks, stdout.String())
+	if _, err := os.Lstat(config.ConfigDir(root)); !os.IsNotExist(err) {
+		t.Fatalf("ambiguous initialization created managed files: %v", err)
 	}
 }
 
