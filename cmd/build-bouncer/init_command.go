@@ -16,11 +16,12 @@ import (
 func newInitCommand() cli.Command {
 	return cli.Command{
 		Name:    "init",
-		Usage:   "init [--force] [--template-flag]",
+		Usage:   "init [--force] [--import-ci] [--template-flag]",
 		Summary: "Create .buildbouncer/config.yaml and default insult/banter packs.",
 		Run: func(ctx cli.Context, args []string) int {
 			fs := cli.NewFlagSet(ctx, "init")
 			force := fs.Bool("force", false, "replace existing configuration and default packs")
+			importCI := fs.Bool("import-ci", false, "import supported GitHub Actions checks")
 			selector := registerTemplateFlags(fs)
 			if err := fs.Parse(args); err != nil {
 				return exitUsage
@@ -35,12 +36,12 @@ func newInitCommand() cli.Command {
 				printInitHelp(ctx)
 				return exitOK
 			}
-			return runInit(*force, templateID, ctx)
+			return runInit(*force, *importCI, templateID, ctx)
 		},
 	}
 }
 
-func runInit(force bool, templateID string, ctx cli.Context) (code int) {
+func runInit(force, importCI bool, templateID string, ctx cli.Context) (code int) {
 	root, err := git.FindRepoRootOrCwd()
 	if err != nil {
 		fmt.Fprintln(ctx.Stderr, "init:", err)
@@ -89,10 +90,13 @@ func runInit(force bool, templateID string, ctx cli.Context) (code int) {
 		return exitUsage
 	}
 
-	ciChecks, err := ci.ChecksFromGitHubActions(root)
-	if err != nil {
-		fmt.Fprintln(ctx.Stderr, "init:", err)
-		return exitUsage
+	var ciChecks []config.Check
+	if importCI {
+		ciChecks, err = ci.ChecksFromGitHubActions(root)
+		if err != nil {
+			fmt.Fprintln(ctx.Stderr, "init:", err)
+			return exitUsage
+		}
 	}
 
 	cfg, err := config.Parse(templateBytes)

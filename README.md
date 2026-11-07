@@ -128,7 +128,7 @@ your-project/
       banter/default.json
 ```
 
-It may also import supported `run` steps from `.github/workflows`. If workflow translation encounters unsupported expressions or actions, initialization fails rather than guessing. The `--manual` template deliberately contains a **failing placeholder check**; replace it with your real commands before running checks.
+Initialization uses only the selected local template. Existing GitHub Actions workflows are left untouched and do not prevent setup. To explicitly import supported workflow checks during initialization, pass `--import-ci` (for example, `build-bouncer init --dotnet --import-ci`). An unsupported workflow then causes the requested import to fail without creating a configuration; it is never partially translated or silently treated as covered. The `--manual` template deliberately contains a **failing placeholder check**; replace it with your real commands before running checks.
 
 **Existing configuration is preserved.** `init` refuses to replace `.buildbouncer/config.yaml` (or the legacy `.buildbouncer.yaml`). Do not use `--force` unless you intend to regenerate and replace the configuration and default packs.
 
@@ -346,7 +346,7 @@ build-bouncer hook uninstall
 
 ## 6. CI workflow import
 
-On first initialization, BuildBouncer attempts to import supported GitHub Actions `run` steps. To refresh them after workflow changes:
+Local initialization does not import GitHub Actions automatically. Use `build-bouncer init --go --import-ci` or `build-bouncer setup --go --import-ci` to request import when creating a config. To import into an existing configuration or refresh previously imported checks:
 
 ```sh
 build-bouncer ci sync
@@ -356,7 +356,7 @@ build-bouncer check --ci
 
 Import supports literal scripts, supported OS runners and matrices, working-directory defaults, scalar environment values, explicit shells, and certain runner OS conditions. Unsupported workflow expressions, action semantics, or ambiguous matrix configurations are rejected rather than guessed.
 
-`ci sync` replaces only checks explicitly owned by `source: ci:...` and preserves manually authored checks. Imported checks keep their OS restriction, so Windows checks are skipped when running locally on macOS/Linux, and vice versa. Setup/cache actions are **not** replayed locally: install required tools yourself.
+`setup --ci` remains non-interactive check execution; it does not request workflow import. When using `setup --import-ci`, select a template; use `ci sync` to import into an existing configuration. `ci sync` replaces only checks explicitly owned by `source: ci:...` and preserves manually authored checks. Imported checks keep their OS restriction, so Windows checks are skipped when running locally on macOS/Linux, and vice versa. Setup/cache actions are **not** replayed locally: install required tools yourself.
 
 This is not a complete GitHub Actions executor. Keep repository CI as the authoritative check.
 
@@ -395,9 +395,9 @@ Use `build-bouncer uninstall --dry-run` to inspect hook removal first. `build-bo
 | Command | Purpose |
 | --- | --- |
 | `build-bouncer --version` / `build-bouncer help` | Display version or available commands. |
-| `build-bouncer init --go` | Generate a Go config and default assets (other template flags supported). |
+| `build-bouncer init --go [--import-ci]` | Generate a Go config and default assets; import supported CI checks only when requested (other template flags supported). |
 | `build-bouncer init` | List supported templates and aliases. |
-| `build-bouncer setup --go` | Initialize, install the hook, and run checks. |
+| `build-bouncer setup --go [--import-ci]` | Initialize, install the hook, and run checks; CI import requires explicit opt-in. |
 | `build-bouncer check [--verbose] [--ci] [--parallel N] [--fail-fast]` | Run checks with optional diagnostic, CI, concurrency, and cancellation modes. |
 | `build-bouncer validate [--config PATH]` | Validate the selected or discovered config. |
 | `build-bouncer doctor [--config PATH]` | Inspect shell selection, working directories, and prerequisites. |
