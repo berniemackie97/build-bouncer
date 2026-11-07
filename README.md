@@ -26,7 +26,7 @@ BuildBouncer runs your project's tests, linters, builds, and other commands befo
 - **Go**, with a compatible toolchain (the current `go.mod` specifies Go **1.27** and `toolchain go1.27.3`). Install Go from [go.dev/doc/install](https://go.dev/doc/install), then confirm `go version` works. Go may need to download the module's requested toolchain.
 - **Your project's own tools**, such as `dotnet`, `npm`, or `go`. BuildBouncer does not install them.
 
-The release pipeline is being added for GitHub archives, Homebrew and npm. Until the first public release is published and the package registries are configured, install the CLI using Go. Once available, see [versioned installation and upgrades](docs/releases.md).
+The release pipeline builds native GitHub archives and prepares a Homebrew cask. Neither channel has a published release yet. Until licensing, the tap, and release credentials are configured, install using Go. See [native release and upgrade guide](docs/releases.md).
 
 ### macOS / Linux (zsh or Bash)
 
@@ -428,7 +428,7 @@ Exit codes: `0` means success, `2` indicates a configuration/usage error, and `1
 
 ### Upgrade the global executable
 
-For Go-based development installations, run `go install ...@latest` as in [Install](#1-install-buildbouncer) and verify the module revision with `go version -m "$(command -v build-bouncer)"`. Published Homebrew and npm installations should instead be upgraded using their package managers; see [Release and update guide](docs/releases.md). Source builds identify themselves as `dev`, while tagged releases include version and commit metadata.
+For Go-based development installations, run `go install ...@latest` as in [Install](#1-install-buildbouncer) and verify the module revision with `go version -m "$(command -v build-bouncer)"`. Published Homebrew installations should be upgraded using Homebrew; see [Release and update guide](docs/releases.md). Source builds identify themselves as `dev`, while tagged releases include version and commit metadata.
 
 **Important:** If a project's hook was installed with the default copied executable, run the following **from each affected project** to refresh the copied binary:
 
@@ -456,4 +456,4 @@ Only when you want to permanently delete the project's config, packs, and BuildB
 
 ## Engineering, roadmap, and license
 
-See [engineering standards](docs/engineering.md) and the [modernization roadmap](https://github.com/berniemackie97/build-bouncer/issues/16). Release packaging and publishing infrastructure is documented in [Release and update guide](docs/releases.md). A tracked license, publication credentials, and the initial release are still outstanding; see [release engineering issue #13](https://github.com/berniemackie97/build-bouncer/issues/13). Broader CI workflow execution remains separate work.
+See [engineering standards](docs/engineering.md) and the [modernization roadmap](https://github.com/berniemackie97/build-bouncer/issues/16). Native release packaging and publication requirements are documented in [Release and update guide](docs/releases.md). A tracked license, Homebrew tap, publication credentials, and the initial release are still outstanding; see [release engineering issue #13](https://github.com/berniemackie97/build-bouncer/issues/13). Broader CI workflow execution remains separate work.

@@ -1,53 +1,54 @@
 # Releasing BuildBouncer
 
-BuildBouncer publishes one versioned Go binary across GitHub Releases, a Homebrew tap and npm. Homebrew and npm upgrade the global executable; `build-bouncer configure` manages per-repository checks. Neither package manager regenerates a repository's configuration or changes its Git hooks.
+BuildBouncer is a standalone Go CLI. Releases publish native binaries for macOS, Linux and Windows. Homebrew is the planned managed installation method for macOS; the first public tag and Homebrew publication are blocked until the prerequisites below are met. No Node.js runtime or npm registry is needed for installation.
 
-## Supported binaries
+## Artifacts and supported targets
 
-GoReleaser produces macOS, Linux and Windows binaries on amd64 and arm64, bundled in per-platform tarballs or Windows ZIP archives with SHA-256 checksums. The npm package includes all six binaries and a Node launcher, with no installation-time download scripts. The Homebrew cask references the corresponding GitHub release archive.
+GoReleaser produces `darwin`, `linux` and `windows` binaries on `amd64` and `arm64`. macOS and Linux archives are `tar.gz`, and Windows archives are ZIP files. Release archives use SHA-256 checksums; CLI build metadata includes the version and commit.
 
-Version metadata is injected from the release tag and commit. Source builds without that injection report `dev`; a version string on its own is not a substitute for checking an installed binary's origin.
+The Homebrew tap uses a cask for the precompiled binary, as supported by GoReleaser v2. Do not substitute the deprecated GoReleaser `brews` generator. Windows Winget/Scoop and Linux package repositories are follow-up distribution channels, not currently published or tested.
 
-## Prerequisites before the first public release
+## Required before the first public release
 
-1. Choose and commit a `LICENSE` file. Set the matching SPDX expression in `npm/package.json` instead of `UNLICENSED`. The release workflow refuses to publish without both. This repository does not currently have an explicit license; do not assume one.
-2. Create the public GitHub repository `berniemackie97/homebrew-tap` with a default branch. Configure the BuildBouncer repository secret `HOMEBREW_TAP_TOKEN` with **Contents: read/write** permission restricted to that tap. The default `GITHUB_TOKEN` cannot write to a different repository. Prefer a GitHub App installation token when available.
-3. Confirm an npm account controls the `@berniemackie97` scope. The first publish of `@berniemackie97/build-bouncer` needs npm authorization through the repository secret `NPM_TOKEN` or a separately bootstrapped package; the repository cannot create a new npm account/scope. After the package exists, configure npm Trusted Publishing for GitHub repository `berniemackie97/build-bouncer` and workflow filename `release.yml`, authorize publish, and remove `NPM_TOKEN`. npm 11.5.1+ on GitHub-hosted runners supports OIDC; the workflow uses Node 24 and `id-token: write`.
-4. Configure a protected GitHub Actions environment named `release`, with approvals/branch/tag restrictions matching your release policy. Protect `master`, allow trusted tag creation only, and review changes before tagging.
-5. Decide whether to set up Apple code signing and notarization for Homebrew casks. Unsigned downloaded macOS executables may be blocked by Gatekeeper. Do not bypass quarantine or advertise unsigned cask installation as universally reliable.
+1. **License:** Select and commit explicit distribution terms in `LICENSE`. There is no license declaration in the repository yet. Do not infer the owner's permission to redistribute from public source availability.
+2. **Homebrew tap:** Create `berniemackie97/homebrew-tap` with a default branch and grant the release workflow a narrowly scoped `HOMEBREW_TAP_TOKEN` with contents write access to that repository only. The default GitHub Actions token cannot publish into another repository.
+3. **Release authorization:** Configure the protected GitHub Actions `release` environment, tag protection and release approval policy. Release tags must be approved, immutable SemVer tags and point to a commit reachable from `master`.
+4. **macOS distribution:** Choose and validate an Apple signing/notarization strategy before promising that downloaded binaries work under standard Gatekeeper settings. Do not silently strip quarantine attributes.
+5. **First release rehearsal:** Review the generated snapshot archives, cask, checksums, cross-platform installation results, and the release workflow before creating a tag.
 
-## Validation before tagging
+## Validation and publication
 
-The `CI` workflow runs Go formatting, module verification, vet and tests across Linux, macOS and Windows plus a Linux race test. The `Distribution` workflow additionally runs a GoReleaser snapshot, stages the npm package from the exact archive bytes, verifies every checksum, invokes the native npm binary on Linux, and checks the npm package file manifest. Neither workflow publishes.
+The normal CI workflow tests formatting, dependencies, vet and Go tests on Linux, macOS and Windows, plus race tests on Linux.
 
-The release job repeats Go tests and the race test and verifies that the SemVer tag commit is reachable from `master`, the license is present, and the Homebrew tap can be accessed with the publishing token. An invalid or unsupported tag fails before publication.
+The separate **Distribution** workflow runs on pull requests and `master`. It builds an unpublished GoReleaser snapshot and uploads the native archives. Clean Linux, macOS and Windows runners then download that exact artifact, verify their platform archive against the generated SHA-256 checksums, extract it to an isolated temporary directory, execute the installed binary and verify version/commit metadata. Neither workflow publishes anything.
 
-## Publish
+When a `vMAJOR.MINOR.PATCH` (optionally prerelease) tag is pushed, **Release** invokes that same Distribution workflow as a required reusable-workflow gate. The publication job additionally checks the license, tag ancestry, tap token and repository access, then publishes GitHub release assets and the Homebrew cask. A failure after external publication can leave a partially published release; investigate and recover explicitly rather than force-moving a tag.
 
-After merging and confirming the above prerequisites, create and push an approved release tag such as `v0.2.0`. Tags must be `vMAJOR.MINOR.PATCH` optionally followed by a SemVer prerelease. The tag invokes `.github/workflows/release.yml`. GoReleaser creates the GitHub release and publishes the Homebrew cask to the tap, then npm publishes the staged package from those same archives. If publishing to a downstream registry fails after GitHub release creation, treat it as a partial release; investigate and recover rather than reusing a version or force-moving the tag. The release workflow has a concurrency guard for the tag.
+Publishing is intentionally impossible until the license and tap requirements are met. No GitHub release or Homebrew package has been published yet.
 
-The npm bundle is larger than a platform-specific package, intentionally: installing or updating it never requires an opaque postinstall script to fetch binaries.
+## Installation and updates after the first published release
 
-## Install and update after the first published release
-
-### Homebrew
+### macOS Homebrew
 
 ```sh
 brew install --cask berniemackie97/tap/build-bouncer
 brew upgrade --cask berniemackie97/tap/build-bouncer
 ```
 
-### npm
+### Native archives
+
+Download the matching archive and checksum manifest from [GitHub Releases](https://github.com/berniemackie97/build-bouncer/releases). Verify SHA-256 before extracting the executable into a directory on PATH. Platform-specific package-manager integration is not required for native binaries. On macOS, follow the published signing/notarization guidance; do not bypass Gatekeeper by disabling quarantine.
+
+### Go toolchain (source installation)
+
+Developers with a compatible Go toolchain can install a tagged version with:
 
 ```sh
-npm install -g @berniemackie97/build-bouncer
-npm update -g @berniemackie97/build-bouncer
+go install github.com/berniemackie97/build-bouncer/cmd/build-bouncer@vX.Y.Z
 ```
 
-### Direct GitHub release
+Use an actual published tag in place of `vX.Y.Z`. For an unreleased development build, pin a reviewed commit.
 
-Download the archive for the target OS/architecture from the [Releases](https://github.com/berniemackie97/build-bouncer/releases) page. Verify its SHA-256 against the matching checksums file before installing.
+BuildBouncer is installed once globally. Its Git hooks and configurations remain per repository. A hook installed with `--no-copy` uses the resolved global binary; copied hooks must be refreshed separately. Package-manager upgrades should not regenerate project configs or mutate existing hooks.
 
-Do not install BuildBouncer simultaneously from multiple package managers into competing PATH locations. Inspect `command -v build-bouncer` (or `Get-Command build-bouncer` on Windows) if updates appear not to take effect. A project hook installed with `--no-copy` uses the currently resolved global executable. Copied hooks retain their own binary until reinstalled.
-
-No self-update subcommand is part of this release slice. Homebrew and npm upgrades remain under their package managers' control.
+There is no standalone self-updater in this slice. Package managers own their installations, and GitHub archive installations require manual replacement until a separately reviewed update mechanism is available.
