@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
   pull_request:
+  workflow_call:
 
 permissions:
   contents: read
@@ -24,12 +25,6 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Set up Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          package-manager-cache: false
-
       - name: Build release snapshot
         uses: goreleaser/goreleaser-action@v7
         with:
@@ -40,10 +35,33 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           HOMEBREW_TAP_TOKEN: snapshot-only
 
-      - name: Validate npm distribution
-        run: |
-          node scripts/stage-npm.mjs dist
-          node npm/bin/build-bouncer.cjs --version
-          (cd npm && npm pack --dry-run --json) > /tmp/build-bouncer-npm-pack.json
-          node scripts/verify-npm-pack.mjs /tmp/build-bouncer-npm-pack.json
-          node --test scripts/launcher.test.mjs
+      - name: Upload native release archives
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-archives
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  install-smoke:
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout scripts
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Download native release archives
+        uses: actions/download-artifact@v7
+        with:
+          name: native-archives
+          path: dist
+
+      - name: Verify and execute installed binary
+        shell: pwsh
+        run: ./scripts/smoke-release.ps1 -DistDir dist

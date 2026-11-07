@@ -14,7 +14,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/distribution.yml
+
   publish:
+    needs: verify
     if: github.repository == 'berniemackie97/build-bouncer'
     runs-on: ubuntu-latest
     environment: release
@@ -31,13 +37,6 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Set up Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          registry-url: https://registry.npmjs.org
-          package-manager-cache: false
-
       - name: Validate release prerequisites
         shell: bash
         env:
@@ -48,7 +47,6 @@ jobs:
           git fetch --quiet origin master
           git merge-base --is-ancestor "$GITHUB_SHA" origin/master
           test -s LICENSE
-          node -e 'const p=require("./npm/package.json"); if (!p.license || p.license === "UNLICENSED") process.exit(1)'
           test -n "$HOMEBREW_TAP_TOKEN"
           GH_TOKEN="$HOMEBREW_TAP_TOKEN" gh api repos/berniemackie97/homebrew-tap --jq .full_name
 
@@ -59,7 +57,7 @@ jobs:
           go test ./...
           go test -race ./...
 
-      - name: Publish release and Homebrew cask
+      - name: Publish GitHub release and Homebrew cask
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
@@ -68,17 +66,3 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-
-      - name: Stage and validate npm package
-        run: |
-          node scripts/stage-npm.mjs dist
-          node npm/bin/build-bouncer.cjs --version
-          (cd npm && npm pack --dry-run --json) > /tmp/build-bouncer-npm-pack.json
-          node scripts/verify-npm-pack.mjs /tmp/build-bouncer-npm-pack.json
-          node --test scripts/launcher.test.mjs
-
-      - name: Publish npm package
-        working-directory: npm
-        run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
