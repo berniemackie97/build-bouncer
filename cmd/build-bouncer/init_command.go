@@ -106,6 +106,10 @@ func runInit(force, importCI bool, templateID string, ctx cli.Context) (code int
 	}
 	adjust := applyTemplateOverrides(root, templateID, cfg.Checks)
 	cfg.Checks = adjust.Checks
+	if templateID == "dotnet" && adjust.Inputs["dotnet.solution"] != "" {
+		cfg.Runner.MaxParallel = 1
+		cfg.Runner.FailFast = true
+	}
 	cfg.Meta.Template.ID = templateID
 	cfg.Meta.Inputs = mergeInputs(cfg.Meta.Inputs, adjust.Inputs)
 	templateSource := "template:" + templateID
@@ -152,6 +156,9 @@ func runInit(force, importCI bool, templateID string, ctx cli.Context) (code int
 	}
 
 	fmt.Fprintln(ctx.Stdout, "Created:", cfgPath)
+	if templateID == "dotnet" && adjust.Inputs["dotnet.solution"] == "" {
+		fmt.Fprintln(ctx.Stdout, "No unique root .NET solution found; edit your checks or select one with build-bouncer configure --dotnet --solution FILE")
+	}
 	fmt.Fprintln(ctx.Stdout, tui.Check("Insults: "+insultsPath))
 	fmt.Fprintln(ctx.Stdout, tui.Check("Banter: "+banterPath))
 	fmt.Fprintln(ctx.Stdout, "")
