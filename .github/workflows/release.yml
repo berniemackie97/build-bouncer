@@ -55,11 +55,16 @@ jobs:
           git merge-base --is-ancestor "$GITHUB_SHA" origin/master
           test -s LICENSE
           test -n "$HOMEBREW_TAP_TOKEN"
-          GH_TOKEN="$HOMEBREW_TAP_TOKEN" gh api repos/berniemackie97/homebrew-tap --jq .full_name
-          if GH_TOKEN="$GITHUB_TOKEN" gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release already exists for $GITHUB_REF_NAME; refusing to republish" >&2
-            exit 1
-          fi
+          GH_TOKEN="$HOMEBREW_TAP_TOKEN" gh api repos/berniemackie97/homebrew-tap --jq '.permissions.push' | grep -qx true
+          release_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            --header "Authorization: Bearer $GITHUB_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME")"
+          case "$release_status" in
+            404) ;;
+            200) echo "Release already exists for $GITHUB_REF_NAME" >&2; exit 1 ;;
+            *) echo "Release lookup failed with HTTP $release_status" >&2; exit 1 ;;
+          esac
 
       - name: Validate source
         run: |
