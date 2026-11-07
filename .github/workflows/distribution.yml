@@ -103,7 +103,7 @@ jobs:
           ./scripts/render-homebrew-formula.sh "0.0.0" "$GITHUB_SHA" "$archive" "$source_url" "$formula"
           ruby -c "$formula"
           brew install --formula "$tap/build-bouncer"
-          brew test --formula "$tap/build-bouncer"
+          brew test "$tap/build-bouncer"
           test "$("$(brew --prefix)/bin/build-bouncer" --version)" = "build-bouncer v0.0.0 ($GITHUB_SHA)"
 
   tag-rehearsal:
