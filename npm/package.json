@@ -1,0 +1,26 @@
+{
+  "name": "@berniemackie97/build-bouncer",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Git pre-push quality gate for project checks",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/berniemackie97/build-bouncer.git"
+  },
+  "homepage": "https://github.com/berniemackie97/build-bouncer",
+  "bugs": {
+    "url": "https://github.com/berniemackie97/build-bouncer/issues"
+  },
+  "bin": {
+    "build-bouncer": "bin/build-bouncer.cjs"
+  },
+  "files": [
+    "bin/",
+    "platform/",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  }
+}
