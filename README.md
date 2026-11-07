@@ -26,7 +26,7 @@ BuildBouncer runs your project's tests, linters, builds, and other commands befo
 - **Go**, with a compatible toolchain (the current `go.mod` specifies Go **1.27** and `toolchain go1.27.3`). Install Go from [go.dev/doc/install](https://go.dev/doc/install), then confirm `go version` works. Go may need to download the module's requested toolchain.
 - **Your project's own tools**, such as `dotnet`, `npm`, or `go`. BuildBouncer does not install them.
 
-The release pipeline builds native GitHub archives and prepares a Homebrew cask. Neither channel has a published release yet. Until licensing, the tap, and release credentials are configured, install using Go. See [native release and upgrade guide](docs/releases.md).
+The release pipeline builds native GitHub archives and prepares a Homebrew cask. Neither channel has a published release yet. Until the Homebrew tap and release credentials are configured, install using Go. See [native release and upgrade guide](docs/releases.md).
 
 ### macOS / Linux (zsh or Bash)
 
@@ -456,4 +456,4 @@ Only when you want to permanently delete the project's config, packs, and BuildB
 
 ## Engineering, roadmap, and license
 
-See [engineering standards](docs/engineering.md) and the [modernization roadmap](https://github.com/berniemackie97/build-bouncer/issues/16). Native release packaging and publication requirements are documented in [Release and update guide](docs/releases.md). A tracked license, Homebrew tap, publication credentials, and the initial release are still outstanding; see [release engineering issue #13](https://github.com/berniemackie97/build-bouncer/issues/13). Broader CI workflow execution remains separate work.
+See [engineering standards](docs/engineering.md) and the [modernization roadmap](https://github.com/berniemackie97/build-bouncer/issues/16). Native release packaging and publication requirements are documented in [Release and update guide](docs/releases.md). BuildBouncer is licensed under the [MIT License](LICENSE). The Homebrew tap, publication credentials, and initial release are still outstanding; see [release engineering issue #13](https://github.com/berniemackie97/build-bouncer/issues/13). Broader CI workflow execution remains separate work.
