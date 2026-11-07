@@ -20,6 +20,7 @@ func printInitHelp(ctx cli.Context) {
 	fmt.Fprintln(ctx.Stdout, "  build-bouncer init --go")
 	fmt.Fprintln(ctx.Stdout, "  build-bouncer setup --go")
 	fmt.Fprintln(ctx.Stdout, "  build-bouncer init --go --import-ci")
+	fmt.Fprintln(ctx.Stdout, "  build-bouncer init --dotnet --node --solution services/api/Api.slnx")
 }
 
 func formatFlags(flags []string) string {
