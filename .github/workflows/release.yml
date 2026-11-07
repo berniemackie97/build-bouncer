@@ -81,9 +81,17 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
       - name: Attest release archive provenance
         uses: actions/attest@v4
         with:
           subject-checksums: dist/checksums.txt
+
+      - name: Publish source-build Homebrew formula
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          ./scripts/publish-homebrew-formula.sh "dist/build-bouncer_${version}_source.tar.gz"
