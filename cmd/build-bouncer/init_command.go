@@ -33,13 +33,13 @@ func newInitCommand() cli.Command {
 				printInitHelp(ctx)
 				return exitUsage
 			}
-			if templateID == "" {
-				printInitHelp(ctx)
-				return exitOK
-			}
 			if *solution != "" && templateID != "dotnet" {
 				fmt.Fprintln(ctx.Stderr, "init: --solution requires --dotnet")
 				return exitUsage
+			}
+			if templateID == "" {
+				printInitHelp(ctx)
+				return exitOK
 			}
 			return runInitWithSolution(*force, *importCI, templateID, *solution, ctx)
 		},

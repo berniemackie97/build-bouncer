@@ -51,6 +51,25 @@ func TestDotNetInitDiscoversNestedSolutionWithoutRootFallback(t *testing.T) {
 	}
 }
 
+func TestDotNetInitRejectsSolutionWithoutDotNetTemplate(t *testing.T) {
+	for _, args := range [][]string{
+		{"--solution", "Api.slnx"},
+		{"--go", "--solution", "Api.slnx"},
+	} {
+		root := withTempRepo(t)
+		var stdout, stderr bytes.Buffer
+		if code := newInitCommand().Run(cli.Context{Stdout: &stdout, Stderr: &stderr}, args); code != exitUsage {
+			t.Fatalf("invalid option combination accepted: %v (exit %d)", args, code)
+		}
+		if !strings.Contains(stderr.String(), "--solution requires --dotnet") {
+			t.Fatalf("wrong invalid selection error: %q", stderr.String())
+		}
+		if _, err := os.Lstat(config.ConfigDir(root)); !os.IsNotExist(err) {
+			t.Fatalf("invalid selection created managed files: %v", err)
+		}
+	}
+}
+
 func TestDotNetInitFailsWithoutRunnableSolution(t *testing.T) {
 	for _, name := range []string{"no-dotnet", "project-without-solution", "multiple-solutions"} {
 		t.Run(name, func(t *testing.T) {
