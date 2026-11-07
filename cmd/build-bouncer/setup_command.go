@@ -14,7 +14,7 @@ import (
 func newSetupCommand() cli.Command {
 	return cli.Command{
 		Name:    "setup",
-		Usage:   "setup [--force] [--no-copy] [--ci] [--import-ci] [--template-flag]",
+		Usage:   "setup [--force] [--no-copy] [--ci] [--import-ci] [--dotnet [--solution PATH] [--node] | --template-flag]",
 		Summary: "Init config/packs, install hook, then run checks.",
 		Run: func(ctx cli.Context, args []string) int {
 			fs := cli.NewFlagSet(ctx, "setup")
@@ -22,6 +22,7 @@ func newSetupCommand() cli.Command {
 			noCopy := fs.Bool("no-copy", false, "do not copy the build-bouncer binary into .git/hooks/bin")
 			ci := fs.Bool("ci", false, "non-interactive check execution")
 			importCI := fs.Bool("import-ci", false, "import supported GitHub Actions checks during initialization")
+			solution := fs.String("solution", "", "select a repository-relative .sln or .slnx file with --dotnet")
 			selector := registerTemplateFlags(fs)
 			if err := fs.Parse(args); err != nil {
 				return exitUsage
@@ -32,12 +33,20 @@ func newSetupCommand() cli.Command {
 				printInitHelp(ctx)
 				return exitUsage
 			}
-			return runSetup(*force, *noCopy, *ci, *importCI, templateID, ctx)
+			if *solution != "" && templateID != "dotnet" && templateID != "dotnet+node" {
+				fmt.Fprintln(ctx.Stderr, "setup: --solution requires --dotnet")
+				return exitUsage
+			}
+			return runSetupWithSolution(*force, *noCopy, *ci, *importCI, templateID, *solution, ctx)
 		},
 	}
 }
 
 func runSetup(force, noCopy, ci, importCI bool, templateID string, ctx cli.Context) int {
+	return runSetupWithSolution(force, noCopy, ci, importCI, templateID, "", ctx)
+}
+
+func runSetupWithSolution(force, noCopy, ci, importCI bool, templateID, solution string, ctx cli.Context) int {
 	root, err := git.FindRepoRoot()
 	if err != nil {
 		fmt.Fprintln(ctx.Stderr, "setup:", err)
@@ -64,7 +73,7 @@ func runSetup(force, noCopy, ci, importCI bool, templateID string, ctx cli.Conte
 
 	if cfgExists {
 		if templateID != "" {
-			if code := runInit(force, importCI, templateID, "", initContext); code != exitOK {
+			if code := runInit(force, importCI, templateID, solution, initContext); code != exitOK {
 				return code
 			}
 		} else {
@@ -76,7 +85,7 @@ func runSetup(force, noCopy, ci, importCI bool, templateID string, ctx cli.Conte
 			printInitHelp(ctx)
 			return exitUsage
 		}
-		if code := runInit(force, importCI, templateID, "", initContext); code != exitOK {
+		if code := runInit(force, importCI, templateID, solution, initContext); code != exitOK {
 			return code
 		}
 	}
