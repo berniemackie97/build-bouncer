@@ -11,12 +11,25 @@ import (
 	"github.com/berniemackie97/build-bouncer/internal/config"
 )
 
+const (
+	maxDotNetScanEntries = 25000
+	maxDotNetScanDepth   = 12
+	maxDotNetSolutions   = 32
+)
+
+type dotNetWorkspace struct {
+	solutions    []string
+	overflow     bool
+	projectCount int
+	allLocked    bool
+}
+
 func dotnetProfile(root, selected string) ([]config.Check, string, error) {
-	solution, err := dotnetSolution(root, selected)
+	workspace, err := inspectDotNetWorkspace(root)
 	if err != nil {
 		return nil, "", err
 	}
-	locked, err := allDotNetProjectsLocked(root)
+	solution, err := workspace.solution(root, selected)
 	if err != nil {
 		return nil, "", err
 	}
@@ -25,7 +38,7 @@ func dotnetProfile(root, selected string) ([]config.Check, string, error) {
 		target = fmt.Sprintf("%q", target)
 	}
 	restore := "dotnet restore " + target
-	if locked {
+	if workspace.projectCount > 0 && workspace.allLocked {
 		restore += " --locked-mode"
 	}
 	checks := []config.Check{
@@ -37,47 +50,125 @@ func dotnetProfile(root, selected string) ([]config.Check, string, error) {
 	return checks, solution, nil
 }
 
-func dotnetSolution(root, selected string) (string, error) {
-	if selected != "" {
-		if !validSolutionName(selected) {
-			return "", fmt.Errorf("invalid solution filename %q: expected a root-level .sln or .slnx file with a portable filename", selected)
+func inspectDotNetWorkspace(root string) (dotNetWorkspace, error) {
+	workspace := dotNetWorkspace{allLocked: true}
+	scanned := 0
+	err := filepath.WalkDir(root, func(file string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
-		info, err := os.Stat(filepath.Join(root, selected))
+		relative, err := filepath.Rel(root, file)
 		if err != nil {
-			return "", fmt.Errorf("solution %q: %w", selected, err)
+			return err
 		}
-		if !info.Mode().IsRegular() {
-			return "", fmt.Errorf("solution %q is not a regular file", selected)
+		if relative == "." {
+			return nil
 		}
-		return selected, nil
-	}
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return "", err
-	}
-	var solutions []string
-	for _, entry := range entries {
-		if entry.Type().IsRegular() && validSolutionName(entry.Name()) {
-			solutions = append(solutions, entry.Name())
+		depth := strings.Count(filepath.ToSlash(relative), "/") + 1
+		if entry.IsDir() {
+			if ignoredDotNetDirectory(entry.Name()) || depth > maxDotNetScanDepth {
+				return filepath.SkipDir
+			}
 		}
+		scanned++
+		if scanned > maxDotNetScanEntries {
+			return fmt.Errorf(".NET discovery exceeds %d entries; select a smaller workspace", maxDotNetScanEntries)
+		}
+		if !entry.Type().IsRegular() || depth > maxDotNetScanDepth {
+			return nil
+		}
+		if validSolutionName(entry.Name()) {
+			if len(workspace.solutions) < maxDotNetSolutions {
+				workspace.solutions = append(workspace.solutions, filepath.ToSlash(relative))
+			} else {
+				workspace.overflow = true
+			}
+		}
+		switch strings.ToLower(filepath.Ext(entry.Name())) {
+		case ".csproj", ".fsproj", ".vbproj":
+			workspace.projectCount++
+			lock, err := os.Lstat(filepath.Join(filepath.Dir(file), "packages.lock.json"))
+			if os.IsNotExist(err) {
+				workspace.allLocked = false
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if !lock.Mode().IsRegular() {
+				workspace.allLocked = false
+			}
+		}
+		return nil
+	})
+	sort.Strings(workspace.solutions)
+	return workspace, err
+}
+
+func ignoredDotNetDirectory(name string) bool {
+	switch strings.ToLower(name) {
+	case ".git", ".buildbouncer", ".vs", ".idea", ".venv", ".next", ".turbo", ".pnpm",
+		"node_modules", "bin", "obj", "dist", "build", "out", "coverage", "target":
+		return true
 	}
-	sort.Strings(solutions)
-	switch len(solutions) {
+	return false
+}
+
+func (workspace dotNetWorkspace) solution(root, selected string) (string, error) {
+	if selected != "" {
+		return verifyDotNetSolutionPath(root, selected)
+	}
+	if workspace.overflow {
+		return "", fmt.Errorf("more than %d .NET solutions found; select one with --solution PATH", maxDotNetSolutions)
+	}
+	switch len(workspace.solutions) {
 	case 0:
-		return "", fmt.Errorf("no root-level .sln or .slnx file found; choose a solution explicitly or keep custom checks")
+		return "", fmt.Errorf("no .sln or .slnx found in the repository; specify a solution with --solution PATH or use custom checks")
 	case 1:
-		return solutions[0], nil
+		return workspace.solutions[0], nil
 	default:
-		return "", fmt.Errorf("multiple root-level .NET solutions: %s; specify --solution", strings.Join(solutions, ", "))
+		return "", fmt.Errorf("multiple .NET solutions found: %s; specify --solution PATH", strings.Join(workspace.solutions, ", "))
 	}
 }
 
-func validSolutionName(name string) bool {
-	if filepath.Base(name) != name || name == "" || name == "." || name == ".." {
-		return false
+func verifyDotNetSolutionPath(root, selected string) (string, error) {
+	relative := strings.ReplaceAll(selected, "\\", "/")
+	parts := strings.Split(relative, "/")
+	if strings.HasPrefix(relative, "/") || len(parts) == 0 || !validSolutionName(parts[len(parts)-1]) {
+		return "", fmt.Errorf("invalid solution path %q: use a repository-relative .sln or .slnx", selected)
 	}
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." || !validDotNetPathPart(part) || ignoredDotNetDirectory(part) {
+			return "", fmt.Errorf("invalid solution path %q: use a repository-relative path outside generated directories", selected)
+		}
+	}
+	current := root
+	for i, part := range parts {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			return "", fmt.Errorf("solution %q: %w", selected, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("solution %q traverses a symlink", selected)
+		}
+		if i < len(parts)-1 && !info.IsDir() {
+			return "", fmt.Errorf("solution %q has a non-directory path component", selected)
+		}
+		if i == len(parts)-1 && !info.Mode().IsRegular() {
+			return "", fmt.Errorf("solution %q is not a regular file", selected)
+		}
+	}
+	return relative, nil
+}
+
+func validSolutionName(name string) bool {
 	ext := strings.ToLower(filepath.Ext(name))
-	if ext != ".sln" && ext != ".slnx" {
+	return (ext == ".sln" || ext == ".slnx") && validDotNetPathPart(name)
+}
+
+func validDotNetPathPart(name string) bool {
+	if name == "" || name == "." || name == ".." || strings.TrimSpace(name) != name {
 		return false
 	}
 	for _, r := range name {
@@ -88,40 +179,4 @@ func validSolutionName(name string) bool {
 		return false
 	}
 	return true
-}
-
-func allDotNetProjectsLocked(root string) (bool, error) {
-	projectCount := 0
-	locked := true
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() {
-			switch entry.Name() {
-			case ".git", ".buildbouncer", ".vs", "bin", "obj", "node_modules":
-				if path != root {
-					return filepath.SkipDir
-				}
-			}
-			return nil
-		}
-		if !strings.EqualFold(filepath.Ext(entry.Name()), ".csproj") {
-			return nil
-		}
-		projectCount++
-		info, err := os.Stat(filepath.Join(filepath.Dir(path), "packages.lock.json"))
-		if os.IsNotExist(err) {
-			locked = false
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if !info.Mode().IsRegular() {
-			locked = false
-		}
-		return nil
-	})
-	return projectCount > 0 && locked, err
 }
