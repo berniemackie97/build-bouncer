@@ -320,6 +320,9 @@ func (s *templateSelector) Selected() (string, error) {
 	}
 	if len(chosen) > 1 {
 		sort.Strings(chosen)
+		if len(chosen) == 2 && chosen[0] == "dotnet" && chosen[1] == "node" {
+			return "dotnet+node", nil
+		}
 		return "", fmt.Errorf("multiple templates selected: %s", strings.Join(chosen, ", "))
 	}
 	if len(chosen) == 1 {
