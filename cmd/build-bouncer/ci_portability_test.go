@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -20,7 +21,18 @@ func TestCheckedInConfigurationMatchesWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	imported, err := ci.ChecksFromGitHubActions(root)
+	workflows := filepath.Join(t.TempDir(), ".github", "workflows")
+	if err := os.MkdirAll(workflows, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workflows, "ci.yml"), source, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	imported, err := ci.ChecksFromGitHubActions(filepath.Dir(filepath.Dir(workflows)))
 	if err != nil {
 		t.Fatal(err)
 	}

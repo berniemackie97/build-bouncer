@@ -1,0 +1,51 @@
+version: 2
+project_name: build-bouncer
+
+builds:
+  - id: build-bouncer
+    main: ./cmd/build-bouncer
+    binary: build-bouncer
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -buildid= -X main.version=v{{ .Version }} -X main.commit={{ .FullCommit }}
+
+archives:
+  - id: binaries
+    ids:
+      - build-bouncer
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "build-bouncer_{{ .Version }}_checksums.txt"
+  algorithm: sha256
+
+homebrew_casks:
+  - name: build-bouncer
+    ids:
+      - binaries
+    binaries:
+      - build-bouncer
+    homepage: https://github.com/berniemackie97/build-bouncer
+    description: Run project quality checks before Git pushes
+    directory: Casks
+    skip_upload: auto
+    repository:
+      owner: berniemackie97
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
