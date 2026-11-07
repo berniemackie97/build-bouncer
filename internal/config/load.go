@@ -67,6 +67,15 @@ func validateAndDefault(cfg *Config) error {
 		if err != nil {
 			return fmt.Errorf("config: checks[%d] requires: %w", i, err)
 		}
+		for _, required := range requires {
+			executable, err := shell.ParseExecutable(required)
+			if err != nil {
+				return fmt.Errorf("config: checks[%d] requires %q: %w", i, required, err)
+			}
+			if executable == "" {
+				return fmt.Errorf("config: checks[%d] requires contains an empty executable", i)
+			}
+		}
 
 		if c.Timeout < 0 {
 			return fmt.Errorf("config: checks[%d] timeout must be >= 0", i)

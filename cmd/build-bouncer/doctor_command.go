@@ -56,7 +56,7 @@ func runDoctor(cfgPath string, ctx cli.Context) int {
 	fmt.Fprintln(ctx.Stdout, "OS:", runtime.GOOS)
 	fmt.Fprintln(ctx.Stdout, "PATH:", os.Getenv("PATH"))
 
-	unavailableShell := false
+	unavailableTool := false
 	for i, check := range cfg.Checks {
 		fmt.Fprintln(ctx.Stdout, "")
 		fmt.Fprintf(ctx.Stdout, "[%d] %s\n", i+1, check.Name)
@@ -74,7 +74,7 @@ func runDoctor(cfgPath string, ctx cli.Context) int {
 			executable, err := runner.ResolveCheckExecutableAt(cfgDir, check.Shell, check.Run, check.Env)
 			if err != nil {
 				fmt.Fprintln(ctx.Stdout, "  shell error:", err)
-				unavailableShell = true
+				unavailableTool = true
 				skipReason = ""
 			} else {
 				fmt.Fprintln(ctx.Stdout, "  executable:", executable)
@@ -87,15 +87,18 @@ func runDoctor(cfgPath string, ctx cli.Context) int {
 		if len(check.Requires) > 0 {
 			fmt.Fprintln(ctx.Stdout, "  requires:", strings.Join(check.Requires, ","))
 		}
-		if missing := runner.MissingTools(check); len(missing) > 0 {
+		if missing := runner.MissingToolsAt(cfgDir, check); len(missing) > 0 {
 			fmt.Fprintln(ctx.Stdout, "  missing:", strings.Join(missing, ", "))
+			if applies && !check.AllowMissingTools {
+				unavailableTool = true
+			}
 		}
 		if skipReason != "" {
 			fmt.Fprintln(ctx.Stdout, "  skip:", skipReason)
 		}
 	}
 
-	if unavailableShell {
+	if unavailableTool {
 		return exitUsage
 	}
 	return exitOK
