@@ -27,6 +27,13 @@ git clone --quiet --depth 1 --branch main \
   "https://github.com/berniemackie97/homebrew-tap.git" "$tap_dir"
 
 source_url="https://github.com/berniemackie97/build-bouncer/releases/download/$GITHUB_REF_NAME/$(basename "$source_archive")"
+downloaded="$RUNNER_TEMP/build-bouncer-source-check.tar.gz"
+curl --fail --location --retry 3 --silent --show-error --output "$downloaded" "$source_url"
+if ! cmp -s "$source_archive" "$downloaded"; then
+  echo "published source archive differs from the build artifact" >&2
+  exit 1
+fi
+
 ./scripts/render-homebrew-formula.sh \
   "$version" "$GITHUB_SHA" "$source_archive" "$source_url" \
   "$tap_dir/Formula/build-bouncer.rb"
