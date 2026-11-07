@@ -18,8 +18,8 @@ type configureOptions struct {
 	protection string
 	check      string
 	run        string
-	remove    string
-	yes       bool
+	remove     string
+	yes        bool
 }
 
 func newConfigureCommand() cli.Command {
