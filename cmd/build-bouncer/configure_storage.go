@@ -63,6 +63,22 @@ func saveConfigured(path string, before, after *config.Config) error {
 		}
 		replaceMappingValue(mapping, "checks", sequence)
 	}
+	if before.Runner.MaxParallel != after.Runner.MaxParallel || before.Runner.FailFast != after.Runner.FailFast {
+		runner := mappingValue(mapping, "runner")
+		if runner == nil {
+			runner = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+			replaceMappingValue(mapping, "runner", runner)
+		}
+		if runner.Kind != yaml.MappingNode {
+			return fmt.Errorf("runner must be a YAML mapping")
+		}
+		if before.Runner.MaxParallel != after.Runner.MaxParallel {
+			replaceMappingValue(runner, "maxParallel", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: fmt.Sprint(after.Runner.MaxParallel)})
+		}
+		if before.Runner.FailFast != after.Runner.FailFast {
+			replaceMappingValue(runner, "failFast", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: fmt.Sprint(after.Runner.FailFast)})
+		}
+	}
 	if before.Protection.Level != after.Protection.Level {
 		protection := mappingValue(mapping, "protection")
 		if protection == nil {

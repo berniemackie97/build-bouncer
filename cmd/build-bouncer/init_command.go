@@ -106,6 +106,10 @@ func runInit(force, importCI bool, templateID string, ctx cli.Context) (code int
 	}
 	adjust := applyTemplateOverrides(root, templateID, cfg.Checks)
 	cfg.Checks = adjust.Checks
+	if templateID == "dotnet" && adjust.Inputs["dotnet.solution"] != "" {
+		cfg.Runner.MaxParallel = 1
+		cfg.Runner.FailFast = true
+	}
 	cfg.Meta.Template.ID = templateID
 	cfg.Meta.Inputs = mergeInputs(cfg.Meta.Inputs, adjust.Inputs)
 	templateSource := "template:" + templateID

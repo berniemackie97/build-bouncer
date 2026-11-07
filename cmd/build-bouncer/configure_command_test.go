@@ -46,6 +46,9 @@ func TestDotNetInitDetectsSolutionAndLockedProjects(t *testing.T) {
 	if cfg.Meta.Inputs["dotnet.solution"] != "OpenConquer.Client.slnx" || len(cfg.Checks) != 4 {
 		t.Fatalf("solution detection failed: %+v", cfg)
 	}
+	if cfg.Runner.MaxParallel != 1 || !cfg.Runner.FailFast {
+		t.Fatalf("dependent checks were not configured sequentially: %+v", cfg.Runner)
+	}
 	want := []string{
 		"dotnet restore OpenConquer.Client.slnx --locked-mode",
 		"dotnet format OpenConquer.Client.slnx --verify-no-changes --no-restore",

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/berniemackie97/build-bouncer/internal/cli"
@@ -16,6 +17,8 @@ type configureOptions struct {
 	dotnet     bool
 	solution   string
 	protection string
+	parallel   string
+	failFast   string
 	check      string
 	run        string
 	remove     string
@@ -25,7 +28,7 @@ type configureOptions struct {
 func newConfigureCommand() cli.Command {
 	return cli.Command{
 		Name:    "configure",
-		Usage:   "configure [--dotnet] [--solution FILE] [--protection LEVEL] [--check NAME --run CMD | --remove-check NAME] [--yes]",
+		Usage:   "configure [--dotnet] [--solution FILE] [--protection LEVEL] [--parallel N] [--fail-fast true|false] [--check NAME --run CMD | --remove-check NAME] [--yes]",
 		Summary: "Review and update repository checks and protection without editing YAML.",
 		Run: func(ctx cli.Context, args []string) int {
 			fs := cli.NewFlagSet(ctx, "configure")
@@ -33,6 +36,8 @@ func newConfigureCommand() cli.Command {
 			fs.BoolVar(&opts.dotnet, "dotnet", false, "refresh checks from an unambiguous .NET solution")
 			fs.StringVar(&opts.solution, "solution", "", "select a root-level .sln/.slnx file")
 			fs.StringVar(&opts.protection, "protection", "", "set the protection policy: strict, moderate, or lax")
+			fs.StringVar(&opts.parallel, "parallel", "", "maximum simultaneous checks (1-32)")
+			fs.StringVar(&opts.failFast, "fail-fast", "", "cancel remaining checks after failure (true or false)")
 			fs.StringVar(&opts.check, "check", "", "create or update a user-owned check")
 			fs.StringVar(&opts.run, "run", "", "command for --check")
 			fs.StringVar(&opts.remove, "remove-check", "", "remove a user-owned check")
@@ -50,7 +55,7 @@ func newConfigureCommand() cli.Command {
 }
 
 func runConfigure(opts configureOptions, ctx cli.Context, input *bufio.Reader) int {
-	if !opts.dotnet && opts.solution == "" && opts.protection == "" &&
+	if !opts.dotnet && opts.solution == "" && opts.protection == "" && opts.parallel == "" && opts.failFast == "" &&
 		opts.check == "" && opts.run == "" && opts.remove == "" && !opts.yes {
 		var err error
 		opts, err = interactiveConfigure(ctx, input)
@@ -58,7 +63,7 @@ func runConfigure(opts configureOptions, ctx cli.Context, input *bufio.Reader) i
 			fmt.Fprintln(ctx.Stderr, "configure:", err)
 			return exitUsage
 		}
-		if !opts.dotnet && opts.protection == "" && opts.check == "" && opts.remove == "" {
+		if !opts.dotnet && opts.protection == "" && opts.parallel == "" && opts.failFast == "" && opts.check == "" && opts.remove == "" {
 			return exitOK
 		}
 	}
@@ -91,6 +96,12 @@ func runConfigure(opts configureOptions, ctx cli.Context, input *bufio.Reader) i
 		}
 		after.Checks = updated
 		after.Meta.Inputs = mergeInputs(before.Meta.Inputs, map[string]string{"dotnet.solution": solution})
+		if after.Runner.MaxParallel == 0 && opts.parallel == "" {
+			after.Runner.MaxParallel = 1
+		}
+		if !after.Runner.FailFast && opts.failFast == "" {
+			after.Runner.FailFast = true
+		}
 	}
 	if opts.check != "" {
 		if err := upsertCustomCheck(&after, opts.check, opts.run); err != nil {
@@ -107,6 +118,17 @@ func runConfigure(opts configureOptions, ctx cli.Context, input *bufio.Reader) i
 	if opts.protection != "" {
 		after.Protection.Level = opts.protection
 	}
+	if opts.parallel != "" {
+		parallel, _ := strconv.Atoi(opts.parallel)
+		after.Runner.MaxParallel = parallel
+	}
+	if opts.failFast != "" {
+		after.Runner.FailFast = opts.failFast == "true"
+	}
+	if opts.dotnet && after.Runner.MaxParallel != 1 {
+		fmt.Fprintln(ctx.Stderr, "configure: .NET restore/build/test checks require --parallel 1")
+		return exitUsage
+	}
 	if reflect.DeepEqual(before, &after) {
 		fmt.Fprintln(ctx.Stdout, "Configuration is already up to date.")
 		return exitOK
@@ -116,6 +138,7 @@ func runConfigure(opts configureOptions, ctx cli.Context, input *bufio.Reader) i
 		fmt.Fprintf(ctx.Stdout, "  %s: %s\n", check.Name, check.Run)
 	}
 	fmt.Fprintf(ctx.Stdout, "  protection: %s\n", after.Protection.ProtectionLevel())
+	fmt.Fprintf(ctx.Stdout, "  runner: parallel=%d, failFast=%t\n", after.Runner.MaxParallel, after.Runner.FailFast)
 	if !opts.yes {
 		fmt.Fprint(ctx.Stdout, "Apply changes? [y/N]: ")
 		answer, err := input.ReadString('\n')
@@ -161,8 +184,17 @@ func validateConfigureOptions(opts configureOptions) error {
 	if opts.protection != "" && opts.protection != "strict" && opts.protection != "moderate" && opts.protection != "lax" {
 		return fmt.Errorf("protection must be strict, moderate, or lax")
 	}
-	if actions == 0 && opts.protection == "" {
-		return fmt.Errorf("choose --dotnet, --protection, --check, or --remove-check")
+	if opts.parallel != "" {
+		max, err := strconv.Atoi(opts.parallel)
+		if err != nil || max < 1 || max > 32 {
+			return fmt.Errorf("--parallel must be between 1 and 32")
+		}
+	}
+	if opts.failFast != "" && opts.failFast != "true" && opts.failFast != "false" {
+		return fmt.Errorf("--fail-fast must be true or false")
+	}
+	if actions == 0 && opts.protection == "" && opts.parallel == "" && opts.failFast == "" {
+		return fmt.Errorf("choose a check operation, --protection, --parallel, or --fail-fast")
 	}
 	return nil
 }

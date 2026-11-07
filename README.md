@@ -139,11 +139,12 @@ Use `build-bouncer doctor` to inspect generated commands and prerequisites. `bui
 ```sh
 build-bouncer configure --dotnet --protection strict --yes
 build-bouncer configure --protection strict --yes
+build-bouncer configure --parallel 1 --fail-fast true --yes
 build-bouncer configure --check lint --run 'dotnet format --verify-no-changes' --yes
 build-bouncer configure --remove-check lint --yes
 ```
 
-For multiple root-level solutions, specify `--solution NAME.slnx` with `--dotnet`. Without `--yes`, the proposed configuration is shown and must be confirmed. The command updates only owned generated checks, refuses to overwrite modified or user-owned checks, validates before saving, and preserves unrelated YAML fields and comments. Hand-editing `.buildbouncer/config.yaml` remains fully supported for advanced behavior. Review each generated command: templates are starting points, not guarantees that your project has the corresponding scripts, dependencies, or build layout.
+For multiple root-level solutions, specify `--solution NAME.slnx` with `--dotnet`. Generated .NET restore, formatting, build and test checks run sequentially with fail-fast enabled; an existing `runner.maxParallel` greater than 1 must be explicitly corrected with `--parallel 1`. Without `--yes`, the proposed configuration is shown and must be confirmed. The command updates only owned generated checks, refuses to overwrite modified or user-owned checks, validates before saving, and preserves unrelated YAML fields and comments. Hand-editing `.buildbouncer/config.yaml` remains fully supported for advanced behavior. Review each generated command: templates are starting points, not guarantees that your project has the corresponding scripts, dependencies, or build layout.
 
 For example, a .NET repository might use:
 
