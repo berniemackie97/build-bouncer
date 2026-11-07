@@ -125,9 +125,13 @@ func runConfigure(opts configureOptions, ctx cli.Context, input *bufio.Reader) i
 	if opts.failFast != "" {
 		after.Runner.FailFast = opts.failFast == "true"
 	}
-	if opts.dotnet && after.Runner.MaxParallel != 1 {
-		fmt.Fprintln(ctx.Stderr, "configure: .NET restore/build/test checks require --parallel 1")
-		return exitUsage
+	if after.Runner.MaxParallel > 1 {
+		for _, check := range after.Checks {
+			if check.Source == "template:dotnet" && strings.Contains(check.Run, "--no-restore") {
+				fmt.Fprintln(ctx.Stderr, "configure: dependent .NET checks require --parallel 1")
+				return exitUsage
+			}
+		}
 	}
 	if reflect.DeepEqual(before, &after) {
 		fmt.Fprintln(ctx.Stdout, "Configuration is already up to date.")

@@ -20,7 +20,7 @@ func TestConfigureUpgradesExistingTwoCheckDotNetTemplate(t *testing.T) {
 		{Name: "format", Run: "dotnet format --verify-no-changes"},
 	}, "template:dotnet")
 	cfg := &config.Config{
-		Checks: append(old, config.Check{Name: "custom", Run: "echo keep"}),
+		Checks:     append(old, config.Check{Name: "custom", Run: "echo keep"}),
 		Protection: config.Protection{Level: "strict"},
 	}
 	if err := config.Save(path, cfg); err != nil {
@@ -83,6 +83,18 @@ func TestConfigureRefusesConcurrentDotNetProfile(t *testing.T) {
 	}
 	if cfg.Runner.MaxParallel != 1 || !cfg.Runner.FailFast || len(cfg.Checks) != 5 {
 		t.Fatalf("unexpected sequential profile: %+v", cfg)
+	}
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stderr.Reset()
+	if code := runConfigure(configureOptions{parallel: "4", yes: true}, ctx, bufio.NewReader(strings.NewReader(""))); code != exitUsage {
+		t.Fatalf("dependent check concurrency was accepted: %d", code)
+	}
+	afterReject, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(current, afterReject) {
+		t.Fatalf("rejected parallel configuration was written: %v", err)
 	}
 }
 
