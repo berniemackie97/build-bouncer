@@ -82,8 +82,17 @@ func TestHookSelectsCopiedBinaryForHost(t *testing.T) {
 			case "windows":
 				want = windowsPath
 			}
-			if got := strings.TrimSpace(string(output)); got != want {
+			got := strings.TrimSpace(string(output))
+			if got == want {
+				return
+			}
+			if want == "build-bouncer" {
 				t.Fatalf("selected %q, want %q", got, want)
+			}
+			actual, actualErr := os.Stat(got)
+			expected, expectedErr := os.Stat(want)
+			if actualErr != nil || expectedErr != nil || !os.SameFile(actual, expected) {
+				t.Fatalf("selected %q, want %q (stat errors: %v, %v)", got, want, actualErr, expectedErr)
 			}
 		})
 	}
