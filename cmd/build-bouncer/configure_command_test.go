@@ -81,7 +81,7 @@ func TestDotNetInitDoesNotGuessAcrossMultipleSolutions(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	if code := runInit(false, false, "dotnet", cli.Context{Stdout: &stdout, Stderr: &stderr}); code != exitUsage {
+	if code := runInit(false, false, "dotnet", "", cli.Context{Stdout: &stdout, Stderr: &stderr}); code != exitUsage {
 		t.Fatalf("ambiguous solutions accepted: %d %s", code, stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "multiple .NET solutions") {
@@ -97,7 +97,7 @@ func TestConfigureUpdatesOwnedChecksAndPreservesCustomData(t *testing.T) {
 	writeDotNetFixture(t, root, true)
 	var stdout, stderr bytes.Buffer
 	ctx := cli.Context{Stdout: &stdout, Stderr: &stderr}
-	if code := runInit(false, false, "dotnet", ctx); code != exitOK {
+	if code := runInit(false, false, "dotnet", "", ctx); code != exitOK {
 		t.Fatalf("init failed: %d %s", code, stderr.String())
 	}
 	path := config.DefaultConfigPath(root)

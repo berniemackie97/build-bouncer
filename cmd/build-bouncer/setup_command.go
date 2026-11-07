@@ -64,7 +64,7 @@ func runSetup(force, noCopy, ci, importCI bool, templateID string, ctx cli.Conte
 
 	if cfgExists {
 		if templateID != "" {
-			if code := runInit(force, importCI, templateID, initContext); code != exitOK {
+			if code := runInit(force, importCI, templateID, "", initContext); code != exitOK {
 				return code
 			}
 		} else {
@@ -76,7 +76,7 @@ func runSetup(force, noCopy, ci, importCI bool, templateID string, ctx cli.Conte
 			printInitHelp(ctx)
 			return exitUsage
 		}
-		if code := runInit(force, importCI, templateID, initContext); code != exitOK {
+		if code := runInit(force, importCI, templateID, "", initContext); code != exitOK {
 			return code
 		}
 	}

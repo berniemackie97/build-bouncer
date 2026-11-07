@@ -51,7 +51,7 @@ func TestInitRollsBackInvalidImportedWorkingDirectory(t *testing.T) {
 	}
 	writeInvalidDirectoryWorkflow(t, root)
 	var stdout, stderr bytes.Buffer
-	code := runInit(true, true, "go", cli.Context{Stdout: &stdout, Stderr: &stderr})
+	code := runInit(true, true, "go", "", cli.Context{Stdout: &stdout, Stderr: &stderr})
 	if code != exitUsage || !strings.Contains(stderr.String(), "cwd") {
 		t.Fatalf("expected unsafe-directory validation failure, exit=%d stderr=%q", code, stderr.String())
 	}

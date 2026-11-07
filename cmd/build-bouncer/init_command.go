@@ -41,16 +41,12 @@ func newInitCommand() cli.Command {
 				printInitHelp(ctx)
 				return exitOK
 			}
-			return runInitWithSolution(*force, *importCI, templateID, *solution, ctx)
+			return runInit(*force, *importCI, templateID, *solution, ctx)
 		},
 	}
 }
 
-func runInit(force, importCI bool, templateID string, ctx cli.Context) int {
-	return runInitWithSolution(force, importCI, templateID, "", ctx)
-}
-
-func runInitWithSolution(force, importCI bool, templateID, selected string, ctx cli.Context) (code int) {
+func runInit(force, importCI bool, templateID, selected string, ctx cli.Context) (code int) {
 	root, err := git.FindRepoRootOrCwd()
 	if err != nil {
 		fmt.Fprintln(ctx.Stderr, "init:", err)
