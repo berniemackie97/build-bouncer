@@ -21,7 +21,7 @@ func TestSetupRestoresNewConfigAfterForeignHookRejection(t *testing.T) {
 	}
 	var stdout, stderr bytes.Buffer
 	ctx := cli.Context{Stdout: &stdout, Stderr: &stderr}
-	if code := runSetup(false, false, false, "go", ctx); code != exitUsage {
+	if code := runSetup(false, false, false, false, "go", ctx); code != exitUsage {
 		t.Fatalf("setup should fail for foreign hook, exit=%d stderr=%q", code, stderr.String())
 	}
 	if _, err := os.Lstat(config.ConfigDir(repo)); !os.IsNotExist(err) {
@@ -68,7 +68,7 @@ func TestSetupRestoresExistingFilesWhenBinaryCannotBeInstalled(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	if code := runSetup(true, false, false, "go", cli.Context{Stdout: &stdout, Stderr: &stderr}); code != exitUsage {
+	if code := runSetup(true, false, false, false, "go", cli.Context{Stdout: &stdout, Stderr: &stderr}); code != exitUsage {
 		t.Fatalf("setup should fail when binary destination is a directory, exit=%d stderr=%q", code, stderr.String())
 	}
 	for path, expected := range original {
@@ -98,7 +98,7 @@ func TestInitRejectsSymlinkedManagedDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	if code := runInit(false, "go", cli.Context{Stdout: &stdout, Stderr: &stderr}); code != exitUsage {
+	if code := runInit(false, false, "go", cli.Context{Stdout: &stdout, Stderr: &stderr}); code != exitUsage {
 		t.Fatalf("expected refusal for symlinked config directory, exit=%d stderr=%q", code, stderr.String())
 	}
 	entries, err := os.ReadDir(outside)
@@ -110,7 +110,7 @@ func TestInitRejectsSymlinkedManagedDirectory(t *testing.T) {
 func TestInitFailsBeforeWritingWhenTemplateIsInvalid(t *testing.T) {
 	repo := withTempRepo(t)
 	var stdout, stderr bytes.Buffer
-	if code := runInit(false, "unrecognized-template", cli.Context{Stdout: &stdout, Stderr: &stderr}); code != exitUsage {
+	if code := runInit(false, false, "unrecognized-template", cli.Context{Stdout: &stdout, Stderr: &stderr}); code != exitUsage {
 		t.Fatalf("expected unsupported template rejection, exit=%d", code)
 	}
 	if _, err := os.Lstat(config.ConfigDir(repo)); !os.IsNotExist(err) {

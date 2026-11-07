@@ -29,7 +29,7 @@ func TestInitPreservesExistingConfigAndPacks(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	if code := runInit(false, "go", cli.Context{Stdout: &stdout, Stderr: &stderr}); code != exitUsage {
+	if code := runInit(false, false, "go", cli.Context{Stdout: &stdout, Stderr: &stderr}); code != exitUsage {
 		t.Fatalf("expected explicit-force error, got %d, stderr=%q", code, stderr.String())
 	}
 	data, err := os.ReadFile(path)
@@ -52,7 +52,7 @@ func TestInitRequiresForceToReplaceConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	if code := runInit(true, "go", cli.Context{Stdout: &stdout, Stderr: &stderr}); code != exitOK {
+	if code := runInit(true, false, "go", cli.Context{Stdout: &stdout, Stderr: &stderr}); code != exitOK {
 		t.Fatalf("force init failed: exit=%d stderr=%q", code, stderr.String())
 	}
 	cfg, err := config.Load(path)
@@ -74,7 +74,7 @@ func TestInitPreservesLegacyConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	if code := runInit(false, "go", cli.Context{Stdout: &stdout, Stderr: &stderr}); code != exitUsage {
+	if code := runInit(false, false, "go", cli.Context{Stdout: &stdout, Stderr: &stderr}); code != exitUsage {
 		t.Fatalf("expected refusal for existing legacy config, got %d stderr=%q", code, stderr.String())
 	}
 	data, err := os.ReadFile(path)
