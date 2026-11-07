@@ -44,6 +44,6 @@ jobs:
         run: |
           node scripts/stage-npm.mjs dist
           node npm/bin/build-bouncer.cjs --version
-          npm pack --dry-run --json --prefix npm > /tmp/build-bouncer-npm-pack.json
+          (cd npm && npm pack --dry-run --json) > /tmp/build-bouncer-npm-pack.json
           node scripts/verify-npm-pack.mjs /tmp/build-bouncer-npm-pack.json
           node --test scripts/launcher.test.mjs
