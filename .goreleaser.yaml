@@ -32,7 +32,7 @@ archives:
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
-  name_template: "build-bouncer_{{ .Version }}_checksums.txt"
+  name_template: "checksums.txt"
   algorithm: sha256
 
 homebrew_casks:

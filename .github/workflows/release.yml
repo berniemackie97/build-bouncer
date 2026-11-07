@@ -6,8 +6,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -18,12 +17,19 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/distribution.yml
+    with:
+      tagged: true
 
   publish:
     needs: verify
     if: github.repository == 'berniemackie97/build-bouncer'
     runs-on: ubuntu-latest
     environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -41,6 +47,7 @@ jobs:
         shell: bash
         env:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           [[ "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]]
@@ -49,6 +56,10 @@ jobs:
           test -s LICENSE
           test -n "$HOMEBREW_TAP_TOKEN"
           GH_TOKEN="$HOMEBREW_TAP_TOKEN" gh api repos/berniemackie97/homebrew-tap --jq .full_name
+          if GH_TOKEN="$GITHUB_TOKEN" gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists for $GITHUB_REF_NAME; refusing to republish" >&2
+            exit 1
+          fi
 
       - name: Validate source
         run: |
@@ -66,3 +77,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Attest release archive provenance
+        uses: actions/attest@v4
+        with:
+          subject-checksums: dist/checksums.txt

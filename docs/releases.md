@@ -10,9 +10,9 @@ The Homebrew tap uses a cask for the precompiled binary, as supported by GoRelea
 
 ## Required before the first public release
 
-1. **License:** Select and commit explicit distribution terms in `LICENSE`. There is no license declaration in the repository yet. Do not infer the owner's permission to redistribute from public source availability.
-2. **Homebrew tap:** Create `berniemackie97/homebrew-tap` with a default branch and grant the release workflow a narrowly scoped `HOMEBREW_TAP_TOKEN` with contents write access to that repository only. The default GitHub Actions token cannot publish into another repository.
-3. **Release authorization:** Configure the protected GitHub Actions `release` environment, tag protection and release approval policy. Release tags must be approved, immutable SemVer tags and point to a commit reachable from `master`.
+1. **License:** Select and commit explicit distribution terms in `LICENSE`. There is no license declaration in the repository yet. Do not infer the owner's permission to redistribute from public source availability. The workflow refuses to publish with a missing or empty license.
+2. **Homebrew tap:** Create `berniemackie97/homebrew-tap` with a default branch. The GitHub CLI command `gh repo create berniemackie97/homebrew-tap --public --add-readme --description 'Homebrew tap for BuildBouncer'` can create it when authenticated as the owner. Provision a fine-grained token scoped only to that tap with **Contents: read/write** access and save it as `HOMEBREW_TAP_TOKEN` in the BuildBouncer `release` environment. Never put the token into source or chat. The default GitHub Actions token cannot write to another repository.
+3. **Release authorization:** Configure the protected GitHub Actions `release` environment under **Settings → Environments**, with appropriate reviewer approvals and tag restrictions; protect `v*` tags using repository rulesets. Merely referencing an environment in YAML does not configure protection. Release tags must be approved, immutable SemVer tags and point to a commit reachable from `master`.
 4. **macOS distribution:** Choose and validate an Apple signing/notarization strategy before promising that downloaded binaries work under standard Gatekeeper settings. Do not silently strip quarantine attributes.
 5. **First release rehearsal:** Review the generated snapshot archives, cask, checksums, cross-platform installation results, and the release workflow before creating a tag.
 
@@ -20,11 +20,24 @@ The Homebrew tap uses a cask for the precompiled binary, as supported by GoRelea
 
 The normal CI workflow tests formatting, dependencies, vet and Go tests on Linux, macOS and Windows, plus race tests on Linux.
 
-The separate **Distribution** workflow runs on pull requests and `master`. It builds an unpublished GoReleaser snapshot and uploads the native archives. Clean Linux, macOS and Windows runners then download that exact artifact, verify their platform archive against the generated SHA-256 checksums, extract it to an isolated temporary directory, execute the installed binary and verify version/commit metadata. Neither workflow publishes anything.
+The separate **Distribution** workflow runs on pull requests and `master`. It builds an unpublished GoReleaser snapshot and uploads the native archives. Clean Linux, macOS and Windows runners independently verify SHA-256 checksums for all six archives, extract the appropriate platform binary to an isolated temporary directory, execute it and verify version/commit metadata. A separate rehearsal job creates an unpushed temporary SemVer prerelease tag and builds versioned archives with `goreleaser release --skip=publish`, verifying tagged-release behavior before the first public tag. Neither workflow publishes anything.
 
-When a `vMAJOR.MINOR.PATCH` (optionally prerelease) tag is pushed, **Release** invokes that same Distribution workflow as a required reusable-workflow gate. The publication job additionally checks the license, tag ancestry, tap token and repository access, then publishes GitHub release assets and the Homebrew cask. A failure after external publication can leave a partially published release; investigate and recover explicitly rather than force-moving a tag.
+When a `vMAJOR.MINOR.PATCH` (optionally prerelease) tag is pushed, **Release** invokes that same Distribution workflow in exact-tag mode (`goreleaser release --skip=publish --clean`), verifying the tagged archives before publication. The publication job checks the license, tag ancestry, tap token, repository access and an existing release, then publishes GitHub release assets and the Homebrew cask. The release uses `checksums.txt` and attaches signed GitHub artifact provenance attestations for published archives. A failure during Homebrew publication or subsequent attestation can leave a partially published release; investigate and recover explicitly rather than force-moving a tag.
 
 Publishing is intentionally impossible until the license and tap requirements are met. No GitHub release or Homebrew package has been published yet.
+
+## First tagged release
+
+After merging a green PR and configuring the above prerequisites, choose the first version (for example `v0.1.0`). From a clean, up-to-date `master`, create one annotated tag and push it:
+
+```sh
+git switch master
+git pull --ff-only
+git tag -a v0.1.0 -m 'BuildBouncer v0.1.0'
+git push origin v0.1.0
+```
+
+Do not push a release tag before the license and tap are configured. Check the GitHub Release, `checksums.txt`, archive digests, the signed provenance and the resulting `Casks/build-bouncer.rb` in the tap after the release job. To verify a downloaded release archive's provenance, use `gh attestation verify FILE -R berniemackie97/build-bouncer` after verifying its SHA-256.
 
 ## Installation and updates after the first published release
 

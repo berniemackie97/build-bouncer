@@ -5,6 +5,11 @@ on:
     branches: [master]
   pull_request:
   workflow_call:
+    inputs:
+      tagged:
+        description: Build the exact tag without publishing
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -25,12 +30,12 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Build release snapshot
+      - name: Build archives without publishing
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: v2.20.0
-          args: release --snapshot --clean
+          args: ${{ inputs.tagged && 'release --skip=publish --clean' || 'release --snapshot --clean' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
           HOMEBREW_TAP_TOKEN: snapshot-only
@@ -63,5 +68,42 @@ jobs:
           path: dist
 
       - name: Verify and execute installed binary
+        shell: pwsh
+        run: ./scripts/smoke-release.ps1 -DistDir dist
+
+  tag-rehearsal:
+    if: ${{ !inputs.tagged }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Create unpushed rehearsal tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -c user.name="BuildBouncer CI" -c user.email="build-bouncer-ci@users.noreply.github.com" \
+            tag -a "v0.0.0-ci.${GITHUB_RUN_ID}" -m "Release rehearsal"
+
+      - name: Build tagged release without publishing
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: v2.20.0
+          args: release --skip=publish --clean
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HOMEBREW_TAP_TOKEN: rehearsal-only
+
+      - name: Verify tagged archive contents
         shell: pwsh
         run: ./scripts/smoke-release.ps1 -DistDir dist
