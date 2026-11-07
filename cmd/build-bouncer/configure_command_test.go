@@ -189,7 +189,7 @@ func TestConfigureCliCustomCheckAndInteractiveProtection(t *testing.T) {
 	if code := runConfigure(configureOptions{check: "lint", run: "echo lint", yes: true}, ctx, bufio.NewReader(strings.NewReader(""))); code != exitOK {
 		t.Fatalf("add custom check failed: %d %s", code, stderr.String())
 	}
-	if code := runConfigure(configureOptions{}, ctx, bufio.NewReader(strings.NewReader("2\nstrict\ny\n"))); code != exitOK {
+	if code := runConfigure(configureOptions{}, ctx, bufio.NewReader(strings.NewReader("4\nstrict\ny\n"))); code != exitOK {
 		t.Fatalf("interactive protection failed: %d %s", code, stderr.String())
 	}
 	if code := runConfigure(configureOptions{remove: "lint", yes: true}, ctx, bufio.NewReader(strings.NewReader(""))); code != exitOK {
