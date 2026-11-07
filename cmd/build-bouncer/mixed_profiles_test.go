@@ -88,8 +88,8 @@ func TestMixedInitSelectsRootScriptsAndNestedSolution(t *testing.T) {
 
 func TestMixedInitFailsClosedOnAmbiguityAndInvalidRootPackage(t *testing.T) {
 	tests := []struct {
-		name     string
-		manifest string
+		name      string
+		manifest  string
 		solutions []string
 	}{
 		{"missing package", "", []string{"services/api/Api.slnx"}},
