@@ -30,6 +30,11 @@ func applyTemplateOverrides(root string, templateID string, checks []config.Chec
 	source := ""
 
 	switch templateID {
+	case "dotnet":
+		if profile, solution, err := dotnetProfile(root, ""); err == nil {
+			out = profile
+			inputs["dotnet.solution"] = solution
+		}
 	case "node", "react", "vue", "angular", "svelte", "nextjs", "nuxt", "astro":
 		if nodeChecks, nodeInputs := nodeChecksFromScripts(root, templateID); len(nodeChecks) > 0 {
 			out = nodeChecks

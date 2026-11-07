@@ -128,13 +128,22 @@ your-project/
       banter/default.json
 ```
 
-Initialization uses only the selected local template. Existing GitHub Actions workflows are left untouched and do not prevent setup. To explicitly import supported workflow checks during initialization, pass `--import-ci` (for example, `build-bouncer init --dotnet --import-ci`). An unsupported workflow then causes the requested import to fail without creating a configuration; it is never partially translated or silently treated as covered. The `--manual` template deliberately contains a **failing placeholder check**; replace it with your real commands before running checks.
+Initialization uses the selected local template, with safe project discovery where available. For .NET projects with one root-level `.sln` or `.slnx`, it derives a restore → format → build → test sequence targeted to that solution. Locked restore is selected only if every discovered project has a `packages.lock.json`. With multiple solutions or none, it retains the generic template and reports that a solution should be selected explicitly. Existing GitHub Actions workflows are left untouched and do not prevent setup. To explicitly import supported workflow checks during initialization, pass `--import-ci` (for example, `build-bouncer init --dotnet --import-ci`). An unsupported workflow then causes the requested import to fail without creating a configuration; it is never partially translated or silently treated as covered. The `--manual` template deliberately contains a **failing placeholder check**; replace it with your real commands before running checks.
 
 **Existing configuration is preserved.** `init` refuses to replace `.buildbouncer/config.yaml` (or the legacy `.buildbouncer.yaml`). Do not use `--force` unless you intend to regenerate and replace the configuration and default packs.
 
-### Step 2 — Edit the checks
+### Step 2 — Review and customize the checks
 
-Open `.buildbouncer/config.yaml` in your editor. Review each generated command: templates are starting points, not guarantees that your project has the corresponding scripts, dependencies, or build layout.
+Use `build-bouncer doctor` to inspect generated commands and prerequisites. `build-bouncer configure` opens an interactive terminal menu to refresh a .NET profile, set protection, or manage custom checks. You can also use scriptable flags:
+
+```sh
+build-bouncer configure --dotnet --protection strict --yes
+build-bouncer configure --protection strict --yes
+build-bouncer configure --check lint --run 'dotnet format --verify-no-changes' --yes
+build-bouncer configure --remove-check lint --yes
+```
+
+For multiple root-level solutions, specify `--solution NAME.slnx` with `--dotnet`. Without `--yes`, the proposed configuration is shown and must be confirmed. The command updates only owned generated checks, refuses to overwrite modified or user-owned checks, validates before saving, and preserves unrelated YAML fields and comments. Hand-editing `.buildbouncer/config.yaml` remains fully supported for advanced behavior. Review each generated command: templates are starting points, not guarantees that your project has the corresponding scripts, dependencies, or build layout.
 
 For example, a .NET repository might use:
 
@@ -198,6 +207,8 @@ For a fresh repository with a suitable template:
 ```sh
 build-bouncer setup --go
 ```
+
+For a .NET repository with one root-level solution, `build-bouncer setup --dotnet --no-copy` detects its local checks, initializes the configuration, installs a PATH-based hook, and runs checks. Run `build-bouncer configure --protection strict --yes` to enforce a strict blocking policy. Review the proposed checks before relying on the hook.
 
 `setup` runs initialization, installs the hook, and immediately executes the checks. A failing check makes `setup` return a failure **but does not undo a successfully installed hook**. If a config already exists, `build-bouncer setup` (without a template selection) uses it; selecting a template again requires explicit replacement using `--force`.
 
@@ -402,6 +413,7 @@ Use `build-bouncer uninstall --dry-run` to inspect hook removal first. `build-bo
 | `build-bouncer validate [--config PATH]` | Validate the selected or discovered config. |
 | `build-bouncer doctor [--config PATH]` | Inspect shell selection, working directories, and prerequisites. |
 | `build-bouncer ci sync` | Refresh supported GitHub Actions checks. |
+| `build-bouncer configure [--dotnet] [--protection LEVEL] [--yes]` | Interactively or noninteractively manage local checks and protection without hand-editing YAML. |
 | `build-bouncer hook install [--no-copy] [--force]` | Install the pre-push hook. |
 | `build-bouncer hook status` | Inspect the active hook and copied binary. |
 | `build-bouncer hook uninstall [--force]` | Remove the hook, requiring force for another tool's hook. |

@@ -28,6 +28,7 @@ func registerCommands(app *cli.App) {
 	app.Register(newValidateCommand())
 	app.Register(newDoctorCommand())
 	app.Register(newCICommand())
+	app.Register(newConfigureCommand())
 	app.Register(newHookCommand())
 	app.Register(newUninstallCommand())
 }
