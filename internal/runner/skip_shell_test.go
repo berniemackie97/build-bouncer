@@ -48,7 +48,7 @@ func TestMissingShellCannotBeMarkedReady(t *testing.T) {
 
 func TestRequiredExecutableResolvesFromRepositoryRoot(t *testing.T) {
 	root := t.TempDir()
-	executable, script := copyTestShell(t, filepath.Join(root, "tools with spaces"))
+	executable, script := testShellPath(t, filepath.Join(root, "tools with spaces"))
 	relative := filepath.ToSlash(filepath.Join("tools with spaces", filepath.Base(executable)))
 	if err := os.Mkdir(filepath.Join(root, "work"), 0o700); err != nil {
 		t.Fatal(err)

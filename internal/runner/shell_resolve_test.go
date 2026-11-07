@@ -159,7 +159,7 @@ func TestInvalidExplicitShellDoesNotFallBack(t *testing.T) {
 	}
 }
 
-func copyTestShell(t *testing.T, directory string) (string, string) {
+func testShellPath(t *testing.T, directory string) (string, string) {
 	t.Helper()
 	var source, targetName, script string
 	if runtime.GOOS == "windows" {
@@ -179,6 +179,12 @@ func copyTestShell(t *testing.T, directory string) (string, string) {
 		t.Fatal(err)
 	}
 	target := filepath.Join(directory, targetName)
+	if runtime.GOOS != "windows" {
+		if err := os.Symlink(source, target); err != nil {
+			t.Fatal(err)
+		}
+		return target, script
+	}
 	input, err := os.Open(source)
 	if err != nil {
 		t.Fatal(err)
@@ -199,7 +205,7 @@ func copyTestShell(t *testing.T, directory string) (string, string) {
 }
 
 func TestConfiguredShellPathWithSpacesExecutes(t *testing.T) {
-	target, script := copyTestShell(t, filepath.Join(t.TempDir(), "shell binaries with spaces"))
+	target, script := testShellPath(t, filepath.Join(t.TempDir(), "shell binaries with spaces"))
 	executable, args, err := resolveCommand("\""+target+"\"", script, "")
 	if err != nil || executable != target {
 		t.Fatalf("shell executable changed: %q != %q: %v", executable, target, err)
@@ -253,7 +259,7 @@ func TestRelativeShellSeparatorsArePortable(t *testing.T) {
 
 func TestRelativeShellPathResolvesFromRepoRoot(t *testing.T) {
 	root := t.TempDir()
-	absolute, script := copyTestShell(t, filepath.Join(root, "bin with spaces"))
+	absolute, script := testShellPath(t, filepath.Join(root, "bin with spaces"))
 	relative := filepath.Join("bin with spaces", filepath.Base(absolute))
 	if err := os.Mkdir(filepath.Join(root, "work"), 0o700); err != nil {
 		t.Fatal(err)

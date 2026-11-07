@@ -159,11 +159,18 @@ bb=""
 
 	if hasCopiedBinary {
 		body += `
-if [ -x "$hook_dir/bin/build-bouncer" ]; then
-  bb="$hook_dir/bin/build-bouncer"
-elif [ -x "$hook_dir/bin/build-bouncer.exe" ]; then
-  bb="$hook_dir/bin/build-bouncer.exe"
-fi
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*)
+    if [ -x "$hook_dir/bin/build-bouncer.exe" ]; then
+      bb="$hook_dir/bin/build-bouncer.exe"
+    fi
+    ;;
+  *)
+    if [ -x "$hook_dir/bin/build-bouncer" ]; then
+      bb="$hook_dir/bin/build-bouncer"
+    fi
+    ;;
+esac
 `
 	}
 
