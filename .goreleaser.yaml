@@ -35,17 +35,7 @@ checksum:
   name_template: "checksums.txt"
   algorithm: sha256
 
-homebrew_casks:
-  - name: build-bouncer
-    ids:
-      - binaries
-    binaries:
-      - build-bouncer
-    homepage: https://github.com/berniemackie97/build-bouncer
-    description: Run project quality checks before Git pushes
-    directory: Casks
-    skip_upload: auto
-    repository:
-      owner: berniemackie97
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+source:
+  enabled: true
+  name_template: "{{ .ProjectName }}_{{ .Version }}_source"
+  format: tar.gz

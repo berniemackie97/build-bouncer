@@ -38,7 +38,6 @@ jobs:
           args: ${{ inputs.tagged && 'release --skip=publish --clean' || 'release --snapshot --clean' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          HOMEBREW_TAP_TOKEN: snapshot-only
 
       - name: Upload native release archives
         uses: actions/upload-artifact@v7
@@ -71,6 +70,40 @@ jobs:
         shell: pwsh
         run: ./scripts/smoke-release.ps1 -DistDir dist
 
+  homebrew-formula-smoke:
+    needs: package
+    runs-on: macos-latest
+    steps:
+      - name: Checkout formula tools
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Download release archives
+        uses: actions/download-artifact@v7
+        with:
+          name: native-archives
+          path: dist
+
+      - name: Build and test through Homebrew
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          archives=(dist/build-bouncer_*_source.tar.gz)
+          if [ "${#archives[@]}" -ne 1 ]; then
+            echo "Expected exactly one source archive" >&2
+            exit 1
+          fi
+          archive="${archives[0]}"
+          source_url="file://$(pwd)/$archive"
+          formula="$RUNNER_TEMP/build-bouncer.rb"
+          ./scripts/render-homebrew-formula.sh "0.0.0" "$GITHUB_SHA" "$archive" "$source_url" "$formula"
+          ruby -c "$formula"
+          brew install --formula "$formula"
+          brew test --formula "$formula"
+          test "$("$(brew --prefix)/bin/build-bouncer" --version)" = "build-bouncer v0.0.0 ($GITHUB_SHA)"
+
   tag-rehearsal:
     if: ${{ !inputs.tagged }}
     runs-on: ubuntu-latest
@@ -102,7 +135,6 @@ jobs:
           args: release --skip=publish --clean
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          HOMEBREW_TAP_TOKEN: rehearsal-only
 
       - name: Verify tagged archive contents
         shell: pwsh

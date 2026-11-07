@@ -26,7 +26,18 @@ BuildBouncer runs your project's tests, linters, builds, and other commands befo
 - **Go**, with a compatible toolchain (the current `go.mod` specifies Go **1.27** and `toolchain go1.27.3`). Install Go from [go.dev/doc/install](https://go.dev/doc/install), then confirm `go version` works. Go may need to download the module's requested toolchain.
 - **Your project's own tools**, such as `dotnet`, `npm`, or `go`. BuildBouncer does not install them.
 
-The release pipeline builds native GitHub archives and prepares a Homebrew cask. Neither channel has a published release yet. Until the Homebrew tap and release credentials are configured, install using Go. See [native release and upgrade guide](docs/releases.md).
+BuildBouncer v0.1.0 is published on [GitHub Releases](https://github.com/berniemackie97/build-bouncer/releases), but its precompiled Homebrew cask fails macOS Gatekeeper and must not be used as an installation method. The next release replaces it with a Homebrew formula that builds from checksummed source. Until that version is published and verified, use the Go installation below. See [release and upgrade guide](docs/releases.md).
+
+### Homebrew formula (available after the next release)
+
+The planned source-build formula installs without the blocked precompiled macOS cask. Once the updated release and tap are published:
+
+```sh
+brew install --formula berniemackie97/tap/build-bouncer
+/opt/homebrew/bin/build-bouncer --version
+```
+
+For existing v0.1.0 cask installations, uninstall that cask **before** installing the formula to avoid a conflicting binary link. If a Go-installed copy takes precedence, run the Homebrew executable by its actual path or adjust PATH deliberately; do not delete unrelated installations automatically.
 
 ### macOS / Linux (zsh or Bash)
 
