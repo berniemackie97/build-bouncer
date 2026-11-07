@@ -97,11 +97,13 @@ jobs:
           fi
           archive="${archives[0]}"
           source_url="file://$(pwd)/$archive"
-          formula="$RUNNER_TEMP/build-bouncer.rb"
+          tap="berniemackie97/build-bouncer-ci"
+          brew tap-new "$tap"
+          formula="$(brew --repository "$tap")/Formula/build-bouncer.rb"
           ./scripts/render-homebrew-formula.sh "0.0.0" "$GITHUB_SHA" "$archive" "$source_url" "$formula"
           ruby -c "$formula"
-          brew install --formula "$formula"
-          brew test --formula "$formula"
+          brew install --formula "$tap/build-bouncer"
+          brew test --formula "$tap/build-bouncer"
           test "$("$(brew --prefix)/bin/build-bouncer" --version)" = "build-bouncer v0.0.0 ($GITHUB_SHA)"
 
   tag-rehearsal:
