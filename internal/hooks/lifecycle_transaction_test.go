@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -244,4 +245,40 @@ func TestModifiedV3HookStillRequiresForce(t *testing.T) {
 		}
 		assertLifecycleArtifact(t, hookPath, modified)
 	}
+}
+
+func TestV4CopiedHookBlocksRealGitPush(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows executable invocation is covered by the mixed-workspace Git-push smoke")
+	}
+	hooksDir := newLifecycleRepo(t)
+	repo := filepath.Dir(filepath.Dir(hooksDir))
+	bare := filepath.Join(t.TempDir(), "remote.git")
+	for _, args := range [][]string{
+		{"init", "-q", "--bare", bare},
+		{"-C", repo, "-c", "user.name=Test", "-c", "user.email=test@example.com",
+			"commit", "--allow-empty", "-m", "initial"},
+		{"-C", repo, "remote", "add", "origin", bare},
+	} {
+		if output, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+	binary := hostCopiedBinaryPath(hooksDir)
+	if err := os.MkdirAll(filepath.Dir(binary), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf checked > .hook-invoked\nexit 17\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hookPath := filepath.Join(hooksDir, "pre-push")
+	if err := os.WriteFile(hookPath, []byte(renderPrePushHook(true)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("git", "-C", repo, "push", "origin", "HEAD:refs/heads/verification")
+	output, err := command.CombinedOutput()
+	if err == nil {
+		t.Fatalf("push unexpectedly succeeded despite failing copied hook: %s", output)
+	}
+	assertLifecycleArtifact(t, filepath.Join(repo, ".hook-invoked"), []byte("checked"))
 }
