@@ -92,7 +92,7 @@ func existingHook(path string, force bool) ([]byte, os.FileMode, bool, error) {
 	if err != nil {
 		return nil, 0, false, err
 	}
-	if !strings.Contains(string(data), prePushMarker) && !force {
+	if !ownedPrePushHook(data) && !force {
 		return nil, 0, false, fmt.Errorf("pre-push hook exists but was not installed by build-bouncer (use --force to overwrite)")
 	}
 	return data, info.Mode().Perm(), true, nil
