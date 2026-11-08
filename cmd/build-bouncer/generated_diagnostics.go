@@ -36,7 +36,8 @@ func generatedFindings(root string, cfg *config.Config) []generatedFinding {
 			dotnet = append(dotnet, check)
 		case "detector:node-scripts":
 			node = append(node, check)
-		case "template:node":
+		case "template:node", "template:react", "template:vue", "template:angular",
+			"template:svelte", "template:nextjs", "template:nuxt", "template:astro":
 			legacyNode = append(legacyNode, check)
 		}
 	}
