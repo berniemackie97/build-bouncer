@@ -368,6 +368,8 @@ func runHook(args []string, ctx cli.Context) int {
 			fmt.Fprintln(ctx.Stdout, "pre-push hook: foreign hook present")
 		case !st.Current:
 			fmt.Fprintln(ctx.Stdout, "pre-push hook: outdated or modified; inspect and use --force to reinstall")
+		case st.UsesCopiedBinary && (!st.CopiedBinary || !st.CopiedBinaryMatchesRecord):
+			fmt.Fprintln(ctx.Stdout, "pre-push hook: copied executable missing or unverified (PATH fallback may apply)")
 		default:
 			fmt.Fprintln(ctx.Stdout, "pre-push hook: installed")
 		}
@@ -376,6 +378,9 @@ func runHook(args []string, ctx cli.Context) int {
 		fmt.Fprintln(ctx.Stdout, "current build-bouncer hook:", st.Current)
 		fmt.Fprintln(ctx.Stdout, "executable by Git:", st.Executable)
 		fmt.Fprintln(ctx.Stdout, "copied binary present for this OS:", st.CopiedBinary)
+		if st.UsesCopiedBinary {
+			fmt.Fprintln(ctx.Stdout, "copied binary matches ownership record:", st.CopiedBinaryMatchesRecord)
+		}
 		return exitOK
 
 	case "uninstall":
