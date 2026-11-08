@@ -198,6 +198,13 @@ func generatedAdmission(root string, cfg *config.Config) error {
 func hookAdmission(root string) error {
 	path, exists := config.FindConfigInRoot(root)
 	if !exists {
+		for _, candidate := range []string{config.DefaultConfigPath(root), config.LegacyConfigPath(root)} {
+			if _, err := os.Lstat(candidate); err == nil {
+				return fmt.Errorf("configuration path %q is unusable", candidate)
+			} else if !os.IsNotExist(err) {
+				return fmt.Errorf("inspect configuration %q: %w", candidate, err)
+			}
+		}
 		return nil
 	}
 	cfg, err := config.Load(path)
