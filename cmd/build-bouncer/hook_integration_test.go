@@ -419,6 +419,9 @@ func TestHookUninstallPreservesHookWhenBinaryCleanupFails(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		binary += ".exe"
 	}
+	if err := os.Remove(binary); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(binary, 0o755); err != nil {
 		t.Fatal(err)
 	}
