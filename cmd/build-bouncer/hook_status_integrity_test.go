@@ -139,3 +139,48 @@ func TestHookStatusCopiedBinaryMatchesCurrentOSAndFileType(t *testing.T) {
 	}
 	assertCopy(false)
 }
+
+func TestHookStatusDetectsModifiedAndLegacyInstallation(t *testing.T) {
+	root := withTempRepo(t)
+	if code, _, stderr := runHookCmd([]string{"install", "--no-copy"}); code != exitOK {
+		t.Fatalf("install: %s", stderr)
+	}
+	hookPath := filepath.Join(root, ".git", "hooks", "pre-push")
+	original, err := os.ReadFile(hookPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := hooks.GetStatus()
+	if err != nil || !st.Ours || !st.Current {
+		t.Fatalf("current hook misidentified: %+v, %v", st, err)
+	}
+	for _, tc := range []struct {
+		name string
+		body []byte
+	}{
+		{name: "modified current hook", body: append(append([]byte(nil), original...), []byte("# changed\n")...)},
+		{name: "legacy hook", body: []byte("#!/bin/sh\n# build-bouncer pre-push hook v1\necho previous\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.WriteFile(hookPath, tc.body, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			st, err := hooks.GetStatus()
+			if err != nil || !st.Ours || st.Current {
+				t.Fatalf("outdated hook incorrectly reported current: %+v, %v", st, err)
+			}
+			if code, out, stderr := runHookCmd([]string{"status"}); code != exitOK ||
+				!strings.Contains(out, "outdated or modified") ||
+				!strings.Contains(out, "current build-bouncer hook: false") {
+				t.Fatalf("missing outdated-hook diagnostic: %d %q %q", code, out, stderr)
+			}
+		})
+	}
+	if code, _, stderr := runHookCmd([]string{"install", "--no-copy"}); code != exitOK {
+		t.Fatalf("reinstall existing owned hook: %s", stderr)
+	}
+	st, err = hooks.GetStatus()
+	if err != nil || !st.Ours || !st.Current {
+		t.Fatalf("reinstall did not restore current hook: %+v, %v", st, err)
+	}
+}
