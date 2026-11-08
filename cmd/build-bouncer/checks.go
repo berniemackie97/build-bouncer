@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/berniemackie97/build-bouncer/internal/config"
@@ -17,14 +19,18 @@ type mergeResult struct {
 const manualPlaceholderName = "manual:configure"
 const manualPlaceholderSnippet = "TODO: configure build-bouncer checks"
 
-func mergeChecks(existing []config.Check, additions []config.Check) mergeResult {
-	seenID := make(map[string]struct{}, len(existing))
+func mergeChecks(existing []config.Check, additions []config.Check) (mergeResult, error) {
+	seenID := make(map[string]string, len(existing))
 	seenContent := make(map[string]struct{}, len(existing))
 	for _, c := range existing {
+		key := checkContentKey(c)
 		if id := strings.TrimSpace(c.ID); id != "" {
-			seenID[id] = struct{}{}
+			if previous, ok := seenID[id]; ok && previous != key {
+				return mergeResult{}, fmt.Errorf("check ID %q has conflicting content", id)
+			}
+			seenID[id] = key
 		}
-		seenContent[checkContentKey(c)] = struct{}{}
+		seenContent[key] = struct{}{}
 	}
 
 	merged := append([]config.Check{}, existing...)
@@ -32,26 +38,29 @@ func mergeChecks(existing []config.Check, additions []config.Check) mergeResult 
 	var skipped []config.Check
 
 	for _, c := range additions {
+		key := checkContentKey(c)
 		if id := strings.TrimSpace(c.ID); id != "" {
-			if _, ok := seenID[id]; ok {
+			if previous, ok := seenID[id]; ok {
+				if previous != key {
+					return mergeResult{}, fmt.Errorf("check ID %q has conflicting content", id)
+				}
 				skipped = append(skipped, c)
 				continue
 			}
 		}
-		key := checkContentKey(c)
 		if _, ok := seenContent[key]; ok {
 			skipped = append(skipped, c)
 			continue
 		}
 		if id := strings.TrimSpace(c.ID); id != "" {
-			seenID[id] = struct{}{}
+			seenID[id] = key
 		}
 		seenContent[key] = struct{}{}
 		merged = append(merged, c)
 		added = append(added, c)
 	}
 
-	return mergeResult{Merged: merged, Added: added, Skipped: skipped}
+	return mergeResult{Merged: merged, Added: added, Skipped: skipped}, nil
 }
 
 func checkContentKey(c config.Check) string {
@@ -65,13 +74,44 @@ func checkContentKey(c config.Check) string {
 			}
 		}
 	}
-	cwd := strings.TrimSpace(c.Cwd)
-	env := normalizeEnvKey(c.Env)
-	key := shellSpec + "\n" + run + "\n" + cwd + "\n" + env + "\n" + normalizeStringListKey(c.OS)
-	if c.AllowMissingTools {
-		key += "\nallowMissingTools"
+
+	var key strings.Builder
+	for _, part := range []string{shellSpec, run, strings.TrimSpace(c.Cwd)} {
+		appendContentKeyPart(&key, part)
 	}
-	return key
+	envKeys := make([]string, 0, len(c.Env))
+	for name := range c.Env {
+		envKeys = append(envKeys, name)
+	}
+	sort.Strings(envKeys)
+	appendContentKeyPart(&key, strconv.Itoa(len(envKeys)))
+	for _, name := range envKeys {
+		appendContentKeyPart(&key, name)
+		appendContentKeyPart(&key, c.Env[name])
+	}
+	for _, values := range []config.StringList{c.OS, c.Requires} {
+		normalized := make([]string, 0, len(values))
+		for _, value := range values {
+			if value = strings.TrimSpace(value); value != "" {
+				normalized = append(normalized, value)
+			}
+		}
+		sort.Strings(normalized)
+		appendContentKeyPart(&key, strconv.Itoa(len(normalized)))
+		for _, value := range normalized {
+			appendContentKeyPart(&key, value)
+		}
+	}
+	appendContentKeyPart(&key, strconv.FormatBool(c.AllowMissingTools))
+	appendContentKeyPart(&key, strconv.FormatBool(c.AllowFailure))
+	appendContentKeyPart(&key, strconv.FormatInt(int64(c.Timeout), 10))
+	return key.String()
+}
+
+func appendContentKeyPart(key *strings.Builder, value string) {
+	key.WriteString(strconv.Itoa(len(value)))
+	key.WriteByte(':')
+	key.WriteString(value)
 }
 
 func normalizeEnvKey(env map[string]string) string {
@@ -104,17 +144,20 @@ func stripManualPlaceholder(checks []config.Check) []config.Check {
 	return out
 }
 
-func stripCIChecks(checks []config.Check) ([]config.Check, int) {
+func stripCIChecks(checks []config.Check) ([]config.Check, int, error) {
 	out := make([]config.Check, 0, len(checks))
 	removed := 0
 	for _, c := range checks {
 		if isCICheck(c) {
+			if c.ID != "" && c.ID != stableCheckID(c.Source, c) {
+				return nil, 0, fmt.Errorf("CI-derived check %q has been modified; preserve it as a custom check before syncing", c.Name)
+			}
 			removed++
 			continue
 		}
 		out = append(out, c)
 	}
-	return out, removed
+	return out, removed, nil
 }
 
 func isCICheck(c config.Check) bool {

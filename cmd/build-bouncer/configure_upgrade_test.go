@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/berniemackie97/build-bouncer/internal/cli"
 	"github.com/berniemackie97/build-bouncer/internal/config"
@@ -129,5 +130,39 @@ func TestConfigureRunnerMenuAndInvalidLimits(t *testing.T) {
 	after, err := os.ReadFile(path)
 	if err != nil || !bytes.Equal(original, after) {
 		t.Fatalf("invalid runner settings changed file: %v", err)
+	}
+}
+
+func TestConfigureRefusesEditedGeneratedEnforcementPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*config.Check)
+	}{
+		{name: "allow failure", change: func(c *config.Check) { c.AllowFailure = true }},
+		{name: "timeout", change: func(c *config.Check) { c.Timeout = time.Minute }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := withTempRepo(t)
+			writeDotNetFixture(t, root, true)
+			path := config.DefaultConfigPath(root)
+			generated := stampGeneratedChecks([]config.Check{{Name: "tests", Run: "dotnet test -c Release"}}, "template:dotnet")
+			tc.change(&generated[0])
+			if err := config.Save(path, &config.Config{Checks: generated}); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+			ctx := cli.Context{Stdout: &stdout, Stderr: &stderr}
+			if code := runConfigure(configureOptions{dotnet: true, yes: true}, ctx, bufio.NewReader(strings.NewReader(""))); code != exitUsage || !strings.Contains(stderr.String(), "has been modified") {
+				t.Fatalf("refresh accepted edited policy: exit=%d stderr=%q", code, stderr.String())
+			}
+			after, err := os.ReadFile(path)
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatalf("rejected refresh changed configuration: %v", err)
+			}
+		})
 	}
 }

@@ -150,7 +150,11 @@ func runInit(force, importCI bool, templateID, selected string, ctx cli.Context)
 		cfg.Checks = stripManualPlaceholder(cfg.Checks)
 	}
 	ciChecks = stampGeneratedChecks(ciChecks, "ci")
-	merge := mergeChecks(cfg.Checks, ciChecks)
+	merge, err := mergeChecks(cfg.Checks, ciChecks)
+	if err != nil {
+		fmt.Fprintln(ctx.Stderr, "init:", err)
+		return exitUsage
+	}
 	cfg.Checks = merge.Merged
 	modified = true
 	if err := os.MkdirAll(filepath.Dir(insultsPath), 0o755); err != nil {
