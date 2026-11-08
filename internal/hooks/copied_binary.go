@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/berniemackie97/build-bouncer/internal/storage"
 )
 
 func hostCopiedBinaryPath(hooksDir string) string {
@@ -107,10 +109,17 @@ func persistCopiedBinaryProof(binaryPath, digest string) error {
 	path := copiedBinaryProofPath(binaryPath)
 	data := []byte(digest + "\n")
 	if _, err := os.Lstat(path); err == nil {
-		return storageCopyProofWrite(path, data, false)
+		return storage.WriteFile(path, data, 0o600)
 	} else if os.IsNotExist(err) {
-		return storageCopyProofWrite(path, data, true)
+		return storage.CreateFile(path, data, 0o600)
 	} else {
 		return err
 	}
+}
+
+func restoreCopiedBinaryProof(binaryPath, previous string, existed bool) error {
+	if !existed {
+		return removeOwnedFile(copiedBinaryProofPath(binaryPath))
+	}
+	return persistCopiedBinaryProof(binaryPath, previous)
 }
