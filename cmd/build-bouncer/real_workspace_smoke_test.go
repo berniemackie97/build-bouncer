@@ -7,7 +7,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/berniemackie97/build-bouncer/internal/config"
 )
@@ -159,5 +158,3 @@ func assertSmokeHook(t *testing.T, path string, before []byte) {
 	}
 }
 
-// Keep the integration test opt-in so ordinary Go test runs require only Go and Git.
-var _ = time.Second
