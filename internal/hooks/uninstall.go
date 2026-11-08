@@ -29,7 +29,7 @@ func UninstallPrePushHook(force bool) error {
 		return err
 	}
 	ours := ownedPrePushHook(data)
-	if !generatedPrePushHook(data) && !force {
+	if !knownGeneratedPrePushHook(data) && !force {
 		if ours {
 			return fmt.Errorf("pre-push hook has modified or older build-bouncer content (inspect it and use --force to remove)")
 		}
@@ -38,7 +38,9 @@ func UninstallPrePushHook(force bool) error {
 	if !ours {
 		return removeFileWithRetries(hookPath)
 	}
-	if !bytes.Equal(data, []byte(renderPrePushHook(true))) {
+	copied := bytes.Equal(data, []byte(renderPrePushHook(true)))
+	legacyCopied := bytes.Equal(data, []byte(renderLegacyPrePushHook(true)))
+	if !copied && !legacyCopied {
 		return removeFileWithRetries(hookPath)
 	}
 
@@ -52,6 +54,9 @@ func UninstallPrePushHook(force bool) error {
 	}
 
 	binaryPath := hostCopiedBinaryPath(hooksDir)
+	if legacyCopied {
+		binaryPath = hostLegacyCopiedBinaryPath(hooksDir)
+	}
 	exists, owned, err := copiedBinaryOwnership(binaryPath)
 	if err != nil {
 		return err
