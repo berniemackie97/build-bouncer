@@ -16,11 +16,12 @@ func TestExplicitFailureClassification(t *testing.T) {
 		check             config.Check
 		expectAllowed     bool
 		expectUnavailable bool
+		expectTimedOut bool
 	}{
 		{name: "default fail closed", check: config.Check{Name: "lint", Run: "exit 7"}},
 		{name: "allowed ordinary failure", check: config.Check{Name: "lint", Run: "exit 7", AllowFailure: true}, expectAllowed: true},
 		{name: "unavailable required tool", check: config.Check{Name: "lint", Run: "echo never", AllowFailure: true, Requires: config.StringList{missingTestTool}}, expectUnavailable: true},
-		{name: "timeout is never allowed", check: config.Check{Name: "lint", Run: sleepCommand(2), AllowFailure: true, Timeout: 100 * time.Millisecond}},
+		{name: "timeout is never allowed", check: config.Check{Name: "lint", Run: sleepCommand(2), AllowFailure: true, Timeout: 100 * time.Millisecond}, expectTimedOut: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -36,6 +37,9 @@ func TestExplicitFailureClassification(t *testing.T) {
 			}
 			if (len(report.Unavailable) != 0) != tc.expectUnavailable {
 				t.Fatalf("unexpected unavailable classification: %+v", report)
+			}
+			if (len(report.TimedOut) != 0) != tc.expectTimedOut {
+				t.Fatalf("unexpected timeout classification: %+v", report)
 			}
 		})
 	}

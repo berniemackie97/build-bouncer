@@ -30,7 +30,7 @@ func AskOverride(stdin io.Reader, stdout, stderr io.Writer, report runner.Report
 	}
 
 	// Protection-level-specific handling
-	if protectionLevel == "strict" {
+	if !CanOverride(report, protectionLevel) {
 		FormatPrompt(stderr, report, protectionLevel)
 		return Result{Override: false, Abort: true}, nil
 	}
@@ -77,7 +77,7 @@ func categorizeFailures(report runner.Report) map[string]int {
 }
 
 func hasBlockingFailures(report runner.Report) bool {
-	if len(report.Unavailable) > 0 || len(report.Canceled) > 0 {
+	if len(report.Unavailable) > 0 || len(report.Canceled) > 0 || len(report.TimedOut) > 0 {
 		return true
 	}
 	for _, name := range report.Failures {
@@ -88,8 +88,14 @@ func hasBlockingFailures(report runner.Report) bool {
 	return false
 }
 
+func CanOverride(report runner.Report, protectionLevel string) bool {
+	return (protectionLevel == "moderate" || protectionLevel == "lax") &&
+		len(report.Failures) > 0 && len(report.Unavailable) == 0 &&
+		len(report.Canceled) == 0 && len(report.TimedOut) == 0
+}
+
 func ShouldBlock(report runner.Report, protectionLevel string) bool {
-	if len(report.Unavailable) > 0 || len(report.Canceled) > 0 {
+	if len(report.Unavailable) > 0 || len(report.Canceled) > 0 || len(report.TimedOut) > 0 {
 		return true
 	}
 	if protectionLevel == "lax" {
