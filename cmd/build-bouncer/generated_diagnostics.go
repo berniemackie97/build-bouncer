@@ -43,7 +43,7 @@ func generatedFindings(root string, cfg *config.Config) []generatedFinding {
 
 	validateDotNetGenerated(root, cfg.Meta.Inputs["dotnet.solution"], dotnet, add)
 	validateNodeGenerated(root, node, add)
-	validateLegacyNodeGenerated(root, legacyNode, add)
+	validateNodeGenerated(root, legacyNode, add)
 	return findings
 }
 
@@ -52,12 +52,31 @@ func validateDotNetGenerated(root, solution string, checks []config.Check, add f
 		return
 	}
 	if solution != "" {
-		expected, _, err := dotnetProfile(root, solution)
+		target, err := verifyDotNetSolutionPath(root, solution)
 		if err != nil {
 			add(checks[0].Name, fmt.Sprintf("dotnet.solution %q: %v", solution, err))
 			return
 		}
-		checkGeneratedCommands(checks, expected, add)
+		if strings.Contains(target, " ") {
+			target = fmt.Sprintf("%q", target)
+		}
+		for _, check := range checks {
+			var verb string
+			switch check.Name {
+			case "restore":
+				verb = "restore"
+			case "format":
+				verb = "format"
+			case "build":
+				verb = "build"
+			case "tests":
+				verb = "test"
+			}
+			prefix := "dotnet " + verb + " " + target
+			if verb == "" || check.Run != prefix && !strings.HasPrefix(check.Run, prefix+" ") {
+				add(check.Name, "generated .NET command does not target the recorded solution; refresh the profile")
+			}
+		}
 		return
 	}
 	count, err := rootDotNetTargets(root)
@@ -90,44 +109,28 @@ func validateNodeGenerated(root string, checks []config.Check, add func(string, 
 		add(checks[0].Name, fmt.Sprintf("root Node profile: %v", err))
 		return
 	}
-	checkGeneratedCommands(checks, expected, add)
-}
-
-func validateLegacyNodeGenerated(root string, checks []config.Check, add func(string, string)) {
-	if len(checks) == 0 {
-		return
-	}
-	expected, _, err := rootNodeProfile(root, false)
-	if err != nil {
-		add(checks[0].Name, fmt.Sprintf("root Node profile: %v", err))
-		return
-	}
-	for _, check := range checks {
-		matched := false
-		for _, valid := range expected {
-			if valid.Name != check.Name {
-				continue
-			}
-			matched = check.Run == valid.Run ||
-				valid.Run == "npm run test" && check.Run == "npm test"
-			break
-		}
-		if !matched {
-			add(check.Name, "root package script or selected package manager no longer matches this generated check; refresh the profile")
-		}
-	}
-}
-
-func checkGeneratedCommands(actual, expected []config.Check, add func(string, string)) {
 	known := make(map[string]string, len(expected))
 	for _, check := range expected {
 		known[check.Name] = check.Run
 	}
-	for _, check := range actual {
-		if known[check.Name] != check.Run {
-			add(check.Name, "generated command no longer matches its selected target; refresh the profile")
+	for _, check := range checks {
+		if !matchesGeneratedNodeCommand(check.Run, known[check.Name]) {
+			add(check.Name, "root package script no longer matches this generated check; refresh the profile")
 		}
 	}
+}
+
+func matchesGeneratedNodeCommand(actual, expected string) bool {
+	index := strings.Index(expected, " run ")
+	if index < 0 {
+		return false
+	}
+	for _, manager := range []string{"npm", "pnpm", "yarn", "bun"} {
+		if actual == manager+expected[index:] {
+			return true
+		}
+	}
+	return expected[index:] == " run test" && actual == "npm test"
 }
 
 func generatedDirectory(root, relative string) error {
