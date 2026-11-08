@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,13 +9,15 @@ import (
 )
 
 type Status struct {
-	RepoRoot     string
-	HookPath     string
-	Installed    bool
-	Ours         bool
-	Current      bool
-	Executable   bool
-	CopiedBinary bool
+	RepoRoot                  string
+	HookPath                  string
+	Installed                 bool
+	Ours                      bool
+	Current                   bool
+	Executable                bool
+	CopiedBinary              bool
+	UsesCopiedBinary          bool
+	CopiedBinaryMatchesRecord bool
 }
 
 func GetStatus() (Status, error) {
@@ -37,21 +40,25 @@ func GetStatus() (Status, error) {
 		st.Installed = true
 		st.Ours = ownedPrePushHook(data)
 		st.Current = generatedPrePushHook(data)
+		st.UsesCopiedBinary = bytes.Equal(data, []byte(renderPrePushHook(true)))
 		st.Executable = runtime.GOOS == "windows" || info.Mode().Perm()&0o111 != 0
 	} else if !os.IsNotExist(err) {
 		return st, err
 	}
 
-	unixPath, windowsPath := copiedBinaryPaths(hooksDir)
-	binaryPath := unixPath
-	if runtime.GOOS == "windows" {
-		binaryPath = windowsPath
-	}
+	binaryPath := hostCopiedBinaryPath(hooksDir)
 	binary, err := os.Lstat(binaryPath)
 	if err == nil {
 		st.CopiedBinary = binary.Mode().IsRegular() && (runtime.GOOS == "windows" || binary.Mode().Perm()&0o111 != 0)
 	} else if !os.IsNotExist(err) {
 		return st, err
+	}
+	if st.UsesCopiedBinary {
+		_, owned, err := copiedBinaryOwnership(binaryPath)
+		if err != nil {
+			return st, fmt.Errorf("inspect copied executable ownership: %w", err)
+		}
+		st.CopiedBinaryMatchesRecord = owned
 	}
 	return st, nil
 }
