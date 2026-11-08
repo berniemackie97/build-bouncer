@@ -157,4 +157,3 @@ func assertSmokeHook(t *testing.T, path string, before []byte) {
 		t.Fatalf("refused admission modified installed hook: %v", err)
 	}
 }
-
