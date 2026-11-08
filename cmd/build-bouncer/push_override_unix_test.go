@@ -3,13 +3,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -58,22 +61,78 @@ func TestInteractiveGitPushOverrideEnforcement(t *testing.T) {
 				args = []string{"-q", "-e", "-c", commandText, "/dev/null"}
 			}
 			command := exec.CommandContext(ctx, "script", args...)
-			command.Stdin = strings.NewReader(tc.response)
+			stdin, input, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer stdin.Close()
+			defer input.Close()
+			terminal := &pushTerminalOutput{ready: make(chan struct{})}
+			command.Stdin = stdin
+			command.Stdout = terminal
+			command.Stderr = terminal
 			command.Env = append(os.Environ(), "TERM=dumb")
-			output, err := command.CombinedOutput()
+			if err := command.Start(); err != nil {
+				t.Fatal(err)
+			}
+			finished := make(chan error, 1)
+			go func() { finished <- command.Wait() }()
+			select {
+			case <-terminal.ready:
+				_, writeErr := io.WriteString(input, tc.response)
+				input.Close()
+				err = <-finished
+				if tc.allowed && writeErr != nil {
+					t.Fatalf("send terminal response: %v", writeErr)
+				}
+			case err = <-finished:
+			case <-ctx.Done():
+				input.Close()
+				err = <-finished
+			}
+			output := terminal.String()
 			if ctx.Err() != nil {
 				t.Fatalf("interactive push did not terminate: %v\n%s", ctx.Err(), output)
 			}
 			if tc.allowed && err != nil {
 				t.Fatalf("accepted push failed: %v\n%s", err, output)
 			}
-			if got := strings.Contains(string(output), "Push anyway?"); got != tc.wantPrompt {
+			if got := strings.Contains(output, "Push anyway?"); got != tc.wantPrompt {
 				t.Fatalf("interactive prompt present=%t want=%t; push error=%v\n%s", got, tc.wantPrompt, err, output)
 			}
-			if tc.allowed && !strings.Contains(string(output), "Override accepted") {
+			if tc.allowed && !strings.Contains(output, "Override accepted") {
 				t.Fatalf("accepted override not reported: %s", output)
 			}
 			assertPolicyRemoteRef(t, remote, tc.allowed)
 		})
 	}
+}
+
+type pushTerminalOutput struct {
+	mu       sync.Mutex
+	buffer   bytes.Buffer
+	ready    chan struct{}
+	notified bool
+}
+
+func (o *pushTerminalOutput) Write(p []byte) (int, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	n, err := o.buffer.Write(p)
+	if !o.notified {
+		output := o.buffer.String()
+		if strings.Contains(output, "Push anyway?") ||
+			strings.Contains(output, "Push blocked: unavailable") ||
+			strings.Contains(output, "no checks executed") {
+			o.notified = true
+			close(o.ready)
+		}
+	}
+	return n, err
+}
+
+func (o *pushTerminalOutput) String() string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.buffer.String()
 }
