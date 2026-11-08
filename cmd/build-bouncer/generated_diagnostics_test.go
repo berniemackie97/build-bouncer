@@ -290,3 +290,22 @@ func TestGeneratedDotNetCommandMustTargetRecordedSolution(t *testing.T) {
 		t.Fatalf("generated target mismatch accepted: %d %s", code, report)
 	}
 }
+
+func TestFrontendTemplateFallbackRequiresRootScripts(t *testing.T) {
+	root := withTempRepo(t)
+	checks := stampGeneratedChecks([]config.Check{
+		{Name: "lint", Run: "npm run lint"},
+		{Name: "tests", Run: "npm test"},
+		{Name: "build", Run: "npm run build"},
+	}, "template:react")
+	if err := config.Save(config.DefaultConfigPath(root), &config.Config{Checks: checks}); err != nil {
+		t.Fatal(err)
+	}
+	if code, report := runGeneratedValidate(""); code != exitUsage || !strings.Contains(report, "root Node profile") {
+		t.Fatalf("missing frontend root scripts accepted: %d %s", code, report)
+	}
+	writeMixedFile(t, root, "package.json", `{"scripts":{"lint":"eslint .","test":"vitest","build":"vite build"}}`)
+	if code, report := runGeneratedValidate(""); code != exitOK {
+		t.Fatalf("valid existing npm frontend template rejected: %d %s", code, report)
+	}
+}
