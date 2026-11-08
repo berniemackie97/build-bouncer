@@ -33,11 +33,7 @@ func TestWindowsGrandchildHelper(t *testing.T) {
 	if err := os.WriteFile(ready, []byte("ready"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	delay := 3 * time.Second
-	if os.Getenv("BUILD_BOUNCER_WINDOWS_LONG_CHILD") == "1" {
-		delay = 7 * time.Second
-	}
-	time.Sleep(delay)
+	time.Sleep(3 * time.Second)
 	if err := os.WriteFile(marker, []byte("survived"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -52,25 +48,94 @@ func windowsChildEnv(root string) (string, string, map[string]string) {
 	}
 }
 
-func TestWindowsTimeoutTerminatesDescendant(t *testing.T) {
-	root := t.TempDir()
-	ready, marker, env := windowsChildEnv(root)
-	env["BUILD_BOUNCER_WINDOWS_LONG_CHILD"] = "1"
-	start := time.Now()
-	outcome, err := runOne(context.Background(), root, root, 0, "powershell-child",
-		windowsNestedCheckScript(t), "powershell", env, 5*time.Second, Options{})
-	if err != nil || !outcome.TimedOut {
-		t.Fatalf("timeout did not stop check: %+v %v", outcome, err)
+type windowsCheckResult struct {
+	outcome runOutcome
+	err     error
+}
+
+func waitForWindowsChild(t *testing.T, ready string, done <-chan windowsCheckResult) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			return
+		} else if !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		select {
+		case finished := <-done:
+			t.Fatalf("check exited before child reached ready state: %+v %v", finished.outcome, finished.err)
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("child did not become ready")
+		}
+		time.Sleep(15 * time.Millisecond)
 	}
-	if elapsed := time.Since(start); elapsed > 8*time.Second {
+}
+
+type triggeredDeadlineContext struct {
+	context.Context
+	done chan struct{}
+}
+
+func (c *triggeredDeadlineContext) Done() <-chan struct{} {
+	return c.done
+}
+
+func (c *triggeredDeadlineContext) Err() error {
+	select {
+	case <-c.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
+func TestWindowsPerCheckTimeout(t *testing.T) {
+	root := t.TempDir()
+	start := time.Now()
+	outcome, err := runOne(context.Background(), root, root, 0, "powershell-timeout",
+		"Start-Sleep -Seconds 10", "powershell", nil, 350*time.Millisecond, Options{})
+	if err != nil || !outcome.TimedOut {
+		t.Fatalf("per-check timeout was not reported: %+v %v", outcome, err)
+	}
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
 		t.Fatalf("timeout cleanup took %s", elapsed)
 	}
-	if _, err := os.Stat(ready); err != nil {
-		t.Fatalf("child was never started before timeout: %v", err)
+}
+
+func TestWindowsDeadlineTerminatesReadyDescendant(t *testing.T) {
+	root := t.TempDir()
+	ready, marker, env := windowsChildEnv(root)
+	script := windowsNestedCheckScript(t)
+	parent := &triggeredDeadlineContext{Context: context.Background(), done: make(chan struct{})}
+	defer func() {
+		select {
+		case <-parent.done:
+		default:
+			close(parent.done)
+		}
+	}()
+	done := make(chan windowsCheckResult, 1)
+	go func() {
+		outcome, err := runOne(parent, root, root, 0, "started-child",
+			script, "powershell", env, time.Minute, Options{})
+		done <- windowsCheckResult{outcome, err}
+	}()
+	waitForWindowsChild(t, ready, done)
+	close(parent.done)
+	select {
+	case finished := <-done:
+		if finished.err != nil || !finished.outcome.TimedOut {
+			t.Fatalf("deadline did not terminate ready child: %+v %v", finished.outcome, finished.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("deadline check did not terminate promptly")
 	}
-	time.Sleep(7200 * time.Millisecond)
+	time.Sleep(3200 * time.Millisecond)
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Fatalf("descendant survived timeout: %v", err)
+		t.Fatalf("descendant survived deadline: %v", err)
 	}
 }
 
@@ -80,32 +145,13 @@ func TestWindowsCancelTerminatesStartedDescendant(t *testing.T) {
 	script := windowsNestedCheckScript(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	type result struct {
-		outcome runOutcome
-		err     error
-	}
-	done := make(chan result, 1)
+	done := make(chan windowsCheckResult, 1)
 	go func() {
 		outcome, err := runOne(ctx, root, root, 0, "started-child",
 			script, "powershell", env, time.Minute, Options{})
-		done <- result{outcome, err}
+		done <- windowsCheckResult{outcome, err}
 	}()
-	deadline := time.Now().Add(15 * time.Second)
-	for {
-		if _, err := os.Stat(ready); err == nil {
-			break
-		}
-		select {
-		case finished := <-done:
-			t.Fatalf("check exited before child reached ready state: %+v %v", finished.outcome, finished.err)
-		default:
-		}
-		if time.Now().After(deadline) {
-			cancel()
-			t.Fatal("child did not become ready")
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
+	waitForWindowsChild(t, ready, done)
 	cancel()
 	select {
 	case finished := <-done:
