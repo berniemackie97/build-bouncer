@@ -11,6 +11,7 @@ import (
 
 	"github.com/berniemackie97/build-bouncer/internal/cli"
 	"github.com/berniemackie97/build-bouncer/internal/config"
+	"github.com/berniemackie97/build-bouncer/internal/git"
 
 	"github.com/berniemackie97/build-bouncer/internal/hooks"
 	"github.com/berniemackie97/build-bouncer/internal/prompt"
@@ -327,6 +328,15 @@ func runHook(args []string, ctx cli.Context) int {
 			return exitUsage
 		}
 
+		root, err := git.FindRepoRoot()
+		if err != nil {
+			fmt.Fprintln(ctx.Stderr, "hook install:", err)
+			return exitUsage
+		}
+		if err := hookAdmission(root); err != nil {
+			fmt.Fprintln(ctx.Stderr, "hook install:", err)
+			return exitUsage
+		}
 		opts := hooks.InstallOptions{
 			CopySelf: !*noCopy,
 			Force:    *force,
