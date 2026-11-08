@@ -273,3 +273,48 @@ checks:
 		t.Fatalf("quoted required executable changed: %+v", cfg.Checks[0].Requires)
 	}
 }
+
+func TestRunnerBudgetsRejectedDuringConfigValidation(t *testing.T) {
+	cases := []struct {
+		name   string
+		field  string
+		change func(*Config)
+	}{
+		{"check timeout", "timeout", func(c *Config) { c.Checks[0].Timeout = MaxCheckTimeout + 1 }},
+		{"parallel workers", "runner.maxParallel", func(c *Config) { c.Runner.MaxParallel = MaxParallelChecks + 1 }},
+		{"log bytes", "runner.maxLogBytes", func(c *Config) { c.Runner.MaxLogBytes = MaxLogBytes + 1 }},
+		{"saved logs", "runner.maxSavedLogs", func(c *Config) { c.Runner.MaxSavedLogs = MaxSavedLogs + 1 }},
+		{"retention days", "runner.logRetentionDays", func(c *Config) { c.Runner.LogRetentionDays = MaxLogRetentionDays + 1 }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{Checks: []Check{{Name: "test", Run: "echo ok"}}}
+			tc.change(cfg)
+			if err := validateAndDefault(cfg); err == nil || !strings.Contains(err.Error(), tc.field) {
+				t.Fatalf("invalid %s accepted: %v", tc.field, err)
+			}
+		})
+	}
+	valid := &Config{
+		Checks: []Check{{Name: "test", Run: "echo ok", Timeout: MaxCheckTimeout}},
+		Runner: Runner{
+			MaxParallel: MaxParallelChecks, MaxLogBytes: MaxLogBytes,
+			MaxSavedLogs: MaxSavedLogs, LogRetentionDays: MaxLogRetentionDays,
+		},
+	}
+	if err := validateAndDefault(valid); err != nil {
+		t.Fatalf("maximum supported budgets rejected: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	original := []byte("user-owned config\n")
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	valid.Runner.MaxSavedLogs++
+	if err := Save(path, valid); err == nil {
+		t.Fatal("invalid budget must not overwrite existing config")
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != string(original) {
+		t.Fatalf("failed validation changed saved config: %q %v", got, err)
+	}
+}

@@ -302,7 +302,7 @@ runner:
   logRetentionDays: 7
 ```
 
-`maxParallel` allows 1–32 concurrent checks. `failFast` cancels remaining work after a failure. Log settings bound retained failure output; zero uses the built-in defaults.
+`maxParallel` allows 1–32 concurrent checks. `failFast` cancels remaining work after a failure. Log limits are at most 64 MiB per file, 100 saved files, and 365 days; zero uses the built-in defaults. Invalid runtime budgets are rejected when configuration is loaded or saved, before checks begin.
 
 ### Protection policy
 
@@ -387,7 +387,7 @@ Set `banter.enabled: false` for neutral progress messaging. You can replace the 
 
 Run these from your project or a subdirectory where configuration discovery can find the repository's config file.
 
-When tests fail, fix them and rerun `check --verbose`. Successful checks do not retain their logs; failed checks normally write logs under the Git-resolved `build-bouncer/logs` state directory (commonly `.git/build-bouncer/logs`). The default retained output is bounded (4 MiB per log, up to 20 saved logs, 7-day retention). Tool output can contain secrets; avoid emitting credentials into logs.
+When tests fail, fix them and rerun `check --verbose`. Successful checks do not retain their logs; failed checks normally write logs under the Git-resolved `build-bouncer/logs` state directory (commonly `.git/build-bouncer/logs`). The default retained output is bounded (4 MiB per log, up to 20 saved logs, 7-day retention). Active check logs use a `.pending` filename and cannot be pruned as completed failure logs by another BuildBouncer process. On failure the closed log is published as `.log`; interrupted pending logs expire under the same age-based retention policy. Tool output can contain secrets; avoid emitting credentials into logs.
 
 With `--verbose` or `--ci`, runner progress and subprocess output use the command's output stream and are serialized across concurrently running checks. Interactive spinner rendering is synchronized with shutdown, including repeated stop requests. Optional banter history is stored in a private state file; concurrent processes coordinate writes through a short-lived `.lock` directory beside that file. An interrupted process may leave the lock behind, in which case persistence reports the lock's path for manual inspection rather than discarding another process's data. Corrupt history is preserved and reported instead of being silently reset.
 

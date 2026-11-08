@@ -77,8 +77,8 @@ func validateAndDefault(cfg *Config) error {
 			}
 		}
 
-		if c.Timeout < 0 {
-			return fmt.Errorf("config: checks[%d] timeout must be >= 0", i)
+		if c.Timeout < 0 || c.Timeout > MaxCheckTimeout {
+			return fmt.Errorf("config: checks[%d] timeout must be between 0 and %s", i, MaxCheckTimeout)
 		}
 
 		if err := validateEnvOverrides(c.Env); err != nil {
@@ -99,11 +99,17 @@ func validateAndDefault(cfg *Config) error {
 		cfg.Checks[i] = c
 	}
 
-	if cfg.Runner.MaxParallel < 0 {
-		return errors.New("config: runner.maxParallel must be >= 0")
+	if cfg.Runner.MaxParallel < 0 || cfg.Runner.MaxParallel > MaxParallelChecks {
+		return fmt.Errorf("config: runner.maxParallel must be between 0 and %d", MaxParallelChecks)
 	}
-	if cfg.Runner.MaxLogBytes < 0 || cfg.Runner.MaxSavedLogs < 0 || cfg.Runner.LogRetentionDays < 0 {
-		return errors.New("config: runner log limits must be >= 0")
+	if cfg.Runner.MaxLogBytes < 0 || cfg.Runner.MaxLogBytes > MaxLogBytes {
+		return fmt.Errorf("config: runner.maxLogBytes must be between 0 and %d", MaxLogBytes)
+	}
+	if cfg.Runner.MaxSavedLogs < 0 || cfg.Runner.MaxSavedLogs > MaxSavedLogs {
+		return fmt.Errorf("config: runner.maxSavedLogs must be between 0 and %d", MaxSavedLogs)
+	}
+	if cfg.Runner.LogRetentionDays < 0 || cfg.Runner.LogRetentionDays > MaxLogRetentionDays {
+		return fmt.Errorf("config: runner.logRetentionDays must be between 0 and %d", MaxLogRetentionDays)
 	}
 
 	cfg.Protection.Level = strings.ToLower(strings.TrimSpace(cfg.Protection.Level))
