@@ -5,25 +5,30 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"errors"
 	"runtime"
 )
 
 type Status struct {
-	RepoRoot                  string
-	HookPath                  string
-	Installed                 bool
-	Ours                      bool
-	Current                   bool
-	Executable                bool
-	CopiedBinary              bool
-	UsesCopiedBinary          bool
-	LegacyGenerated           bool
-	CopiedBinaryMatchesRecord bool
+	RepoRoot                   string
+	HookPath                   string
+	Installed                  bool
+	Ours                       bool
+	Current                    bool
+	Executable                 bool
+	CopiedBinary               bool
+	UsesCopiedBinary           bool
+	LegacyGenerated            bool
+	CopiedBinaryMatchesRecord  bool
+	CopiedBinaryRecordOrphaned bool
 }
 
 func GetStatus() (Status, error) {
 	repoRoot, hooksDir, err := repoHooksDir()
 	if err != nil {
+		return Status{}, err
+	}
+	if err := ensureLifecycleUnlocked(hooksDir); err != nil {
 		return Status{}, err
 	}
 
@@ -58,10 +63,15 @@ func GetStatus() (Status, error) {
 	}
 	if st.UsesCopiedBinary {
 		_, owned, err := copiedBinaryOwnership(binaryPath)
-		if err != nil {
+		if errors.Is(err, errOrphanedCopiedBinary) {
+			st.CopiedBinaryRecordOrphaned = true
+		} else if err != nil {
 			return st, fmt.Errorf("inspect copied executable ownership: %w", err)
 		}
 		st.CopiedBinaryMatchesRecord = owned
+	}
+	if err := ensureLifecycleUnlocked(hooksDir); err != nil {
+		return st, err
 	}
 	return st, nil
 }

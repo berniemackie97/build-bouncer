@@ -20,6 +20,17 @@ func uninstallPrePushHook(force bool, removeHook func(string) error) error {
 	if err != nil {
 		return err
 	}
+	if _, err := os.Lstat(hooksDir); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	return withLifecycleLock(hooksDir, func() error {
+		return uninstallPrePushHookLocked(hooksDir, force, removeHook)
+	})
+}
+
+func uninstallPrePushHookLocked(hooksDir string, force bool, removeHook func(string) error) error {
 	hookPath := filepath.Join(hooksDir, "pre-push")
 	info, err := os.Lstat(hookPath)
 	if os.IsNotExist(err) {
@@ -65,6 +76,16 @@ func uninstallPrePushHook(force bool, removeHook func(string) error) error {
 		binaryPath = hostLegacyCopiedBinaryPath(hooksDir)
 	}
 	exists, owned, err := copiedBinaryOwnership(binaryPath)
+	if errors.Is(err, errOrphanedCopiedBinary) && force {
+		if err := removeHook(hookPath); err != nil {
+			return fmt.Errorf("remove hook: %w", err)
+		}
+		if err := removeOwnedFile(copiedBinaryProofPath(binaryPath)); err != nil {
+			return errors.Join(fmt.Errorf("remove orphaned ownership record: %w", err),
+				restoreDeletedHook(hookPath, data, info.Mode().Perm()))
+		}
+		return removeDirIfEmpty(binDir)
+	}
 	if err != nil {
 		return err
 	}

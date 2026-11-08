@@ -28,7 +28,12 @@ func installPrePushHook(opts InstallOptions, publishHook func(string, []byte, bo
 	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 		return err
 	}
+	return withLifecycleLock(hooksDir, func() error {
+		return installPrePushHookLocked(hooksDir, opts, publishHook)
+	})
+}
 
+func installPrePushHookLocked(hooksDir string, opts InstallOptions, publishHook func(string, []byte, bool) error) error {
 	hookPath := filepath.Join(hooksDir, "pre-push")
 	previous, mode, existed, err := existingHook(hookPath, opts.Force)
 	if err != nil {
