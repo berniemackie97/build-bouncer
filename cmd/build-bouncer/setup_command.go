@@ -94,8 +94,12 @@ func runSetupWithSolution(force, noCopy, ci, importCI bool, templateID, solution
 		CopySelf: !noCopy,
 		Force:    force,
 	}
-	if err := hooks.InstallPrePushHook(opts); err != nil {
-		fmt.Fprintln(ctx.Stderr, tui.Error("setup: "+err.Error()))
+	installErr := hookAdmission(root)
+	if installErr == nil {
+		installErr = hooks.InstallPrePushHook(opts)
+	}
+	if installErr != nil {
+		fmt.Fprintln(ctx.Stderr, tui.Error("setup: "+installErr.Error()))
 		if before != nil {
 			if rollbackErr := before.restore(); rollbackErr != nil {
 				fmt.Fprintln(ctx.Stderr, "setup rollback:", rollbackErr)

@@ -24,9 +24,10 @@ func newValidateCommand() cli.Command {
 }
 
 func runValidate(cfgPath string, ctx cli.Context) int {
+	root := configRootForPath(cfgPath)
 	if cfgPath == "" {
 		var err error
-		cfgPath, _, err = config.FindConfigFromCwd()
+		cfgPath, root, err = config.FindConfigFromCwd()
 		if err != nil {
 			fmt.Fprintln(ctx.Stderr, "validate:", err)
 			return exitUsage
@@ -35,6 +36,10 @@ func runValidate(cfgPath string, ctx cli.Context) int {
 
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
+		fmt.Fprintln(ctx.Stderr, "validate:", err)
+		return exitUsage
+	}
+	if err := generatedAdmission(root, cfg); err != nil {
 		fmt.Fprintln(ctx.Stderr, "validate:", err)
 		return exitUsage
 	}

@@ -39,10 +39,7 @@ func runDoctor(cfgPath string, ctx cli.Context) int {
 			return exitUsage
 		}
 	} else {
-		cfgDir = filepath.Dir(cfgPath)
-		if filepath.Base(cfgDir) == config.ConfigDirName {
-			cfgDir = filepath.Dir(cfgDir)
-		}
+		cfgDir = configRootForPath(cfgPath)
 	}
 
 	cfg, err := config.Load(cfgPath)
@@ -56,7 +53,12 @@ func runDoctor(cfgPath string, ctx cli.Context) int {
 	fmt.Fprintln(ctx.Stdout, "OS:", runtime.GOOS)
 	fmt.Fprintln(ctx.Stdout, "PATH:", os.Getenv("PATH"))
 
-	unavailableTool := false
+	findings := generatedFindings(cfgDir, cfg)
+	byCheck := make(map[string][]string, len(findings))
+	for _, finding := range findings {
+		byCheck[finding.check] = append(byCheck[finding.check], finding.message)
+	}
+	unavailableTool := len(findings) > 0
 	for i, check := range cfg.Checks {
 		fmt.Fprintln(ctx.Stdout, "")
 		fmt.Fprintf(ctx.Stdout, "[%d] %s\n", i+1, check.Name)
@@ -81,6 +83,9 @@ func runDoctor(cfgPath string, ctx cli.Context) int {
 			}
 		}
 		fmt.Fprintln(ctx.Stdout, "  cwd:", resolvedCwd(cfgDir, check.Cwd))
+		for _, message := range byCheck[check.Name] {
+			fmt.Fprintln(ctx.Stdout, "  generated target:", message)
+		}
 		if len(check.OS) > 0 {
 			fmt.Fprintln(ctx.Stdout, "  os:", strings.Join(check.OS, ","))
 		}
