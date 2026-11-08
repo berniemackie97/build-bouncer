@@ -9,14 +9,14 @@ import (
 )
 
 type Status struct {
-	RepoRoot     string
-	HookPath     string
-	Installed    bool
-	Ours         bool
-	Current      bool
-	Executable   bool
-	CopiedBinary             bool
-	UsesCopiedBinary         bool
+	RepoRoot                  string
+	HookPath                  string
+	Installed                 bool
+	Ours                      bool
+	Current                   bool
+	Executable                bool
+	CopiedBinary              bool
+	UsesCopiedBinary          bool
 	CopiedBinaryMatchesRecord bool
 }
 
