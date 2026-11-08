@@ -143,6 +143,14 @@ Initialization uses the selected local template, with safe project discovery whe
 
 **Existing configuration is preserved.** `init` refuses to replace `.buildbouncer/config.yaml` (or the legacy `.buildbouncer.yaml`). Do not use `--force` unless you intend to regenerate and replace the configuration and default packs.
 
+### Generated profile validation and hook admission
+
+`build-bouncer validate` checks YAML and known generated targets without executing any configured command. For selected .NET profiles it verifies that the solution is still present and that generated commands match the selected target. It checks root package scripts for generated Node profiles, and checks generated working directories for missing paths and symlinks. Legacy root-level .NET template commands require a single root solution or project; otherwise reselect the target using `build-bouncer configure --dotnet --solution PATH --yes`.
+
+`build-bouncer doctor` shows the same static findings alongside executable and prerequisite diagnostics. `build-bouncer hook install` and `setup` refuse to install or replace a hook when a recognized generated configuration is invalid. Refusal leaves an existing hook untouched; setup also restores newly generated configuration and packs if preflight rejects them. User-owned checks (without generated `source` / `id` metadata) remain manually managed: their commands are not executed during validation and directories they may create later are not guessed. When taking ownership of an edited generated check, clear both `source` and `id` and review the command manually.
+
+Static admission cannot certify successful execution, all GitHub Actions behavior, arbitrary shell scripts, or externally installed tools. Run `build-bouncer check --verbose` and trusted repository CI to verify those independently.
+
 ### Step 2 — Review and customize the checks
 
 Use `build-bouncer doctor` to inspect generated commands and prerequisites. `build-bouncer configure` opens an interactive terminal menu to refresh .NET checks, root Node scripts, or both, set protection, or manage custom checks. You can also use scriptable flags:
