@@ -41,6 +41,8 @@ func GetStatus() (Status, error) {
 		st.Installed = true
 		st.Ours = ownedPrePushHook(data)
 		st.Current = generatedPrePushHook(data)
+		st.LegacyGenerated = bytes.Equal(data, []byte(renderLegacyPrePushHook(false))) ||
+			bytes.Equal(data, []byte(renderLegacyPrePushHook(true)))
 		st.UsesCopiedBinary = bytes.Equal(data, []byte(renderPrePushHook(true)))
 		st.Executable = runtime.GOOS == "windows" || info.Mode().Perm()&0o111 != 0
 	} else if !os.IsNotExist(err) {
