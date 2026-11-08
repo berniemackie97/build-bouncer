@@ -104,7 +104,7 @@ func existingHook(path string, force bool) ([]byte, os.FileMode, bool, error) {
 	if err != nil {
 		return nil, 0, false, err
 	}
-	if !generatedPrePushHook(data) && !force {
+	if !knownGeneratedPrePushHook(data) && !force {
 		if ownedPrePushHook(data) {
 			return nil, 0, false, fmt.Errorf("pre-push hook has modified or older build-bouncer content (inspect it and use --force to overwrite)")
 		}
