@@ -200,8 +200,16 @@ func TestLegacyV3HookUpgradeAndCleanup(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			before, err := GetStatus()
+			if err != nil || !before.Ours || !before.LegacyGenerated || before.Current {
+				t.Fatalf("pristine v3 hook not identified as upgradeable: %+v %v", before, err)
+			}
 			if err := InstallPrePushHook(InstallOptions{CopySelf: copied}); err != nil {
 				t.Fatalf("pristine v3 must upgrade unforced: %v", err)
+			}
+			after, err := GetStatus()
+			if err != nil || !after.Current || after.LegacyGenerated {
+				t.Fatalf("v4 hook not recognized after upgrade: %+v %v", after, err)
 			}
 			assertLifecycleArtifact(t, hookPath, []byte(renderPrePushHook(copied)))
 			if copied {
