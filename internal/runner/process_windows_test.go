@@ -72,6 +72,7 @@ func TestWindowsTimeoutTerminatesDescendant(t *testing.T) {
 func TestWindowsCancelTerminatesStartedDescendant(t *testing.T) {
 	root := t.TempDir()
 	ready, marker, env := windowsChildEnv(root)
+	script := windowsNestedCheckScript(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	type result struct {
@@ -81,7 +82,7 @@ func TestWindowsCancelTerminatesStartedDescendant(t *testing.T) {
 	done := make(chan result, 1)
 	go func() {
 		outcome, err := runOne(ctx, root, root, 0, "started-child",
-			windowsNestedCheckScript(t), "powershell", env, time.Minute, Options{})
+			script, "powershell", env, time.Minute, Options{})
 		done <- result{outcome, err}
 	}()
 	deadline := time.Now().Add(15 * time.Second)
