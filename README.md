@@ -313,9 +313,22 @@ protection:
 
 - `strict`: block a push for any failed/unavailable required check, without interactive override. Recommended for an enforced local quality gate.
 - `moderate`: block failures by default, but a push hook can offer an interactive `Push anyway?` override when interactive input is available. This is the default when no level is set.
-- `lax`: permits some noncritical failures. Do not use it for required quality gates.
+- `lax`: blocks failures by default, including failures of checks named "lint" or "test". To allow one *executed* check to fail without blocking a local push, explicitly set `allowFailure: true` on that check. Missing required tools, invalid prerequisites, timeouts, canceled checks, and unexecuted suites still block. Use `strict` for an enforced gate.
 
-`protection.interactive: false` disables the interactive override in non-strict modes. `check --ci` always blocks failures regardless of the configured protection level.
+`protection.interactive: false` disables the interactive override in non-strict modes. `check --ci` always blocks failures, including `allowFailure: true` checks, regardless of the configured protection level. The old `protection.criticalPatterns` field was never enforced and is now rejected instead of silently ignored; use per-check `allowFailure` for explicit lax-mode exceptions.
+
+For an explicitly non-blocking local check:
+
+```yaml
+checks:
+  - name: formatting-report
+    run: "npm run lint"
+    allowFailure: true
+protection:
+  level: lax
+```
+
+The check still runs, appears in failure reports, and fails CI. The exception applies only to local lax-mode enforcement. Renaming a check never changes whether its failure blocks a push.
 
 ### Choosing a shell
 

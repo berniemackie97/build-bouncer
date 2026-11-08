@@ -157,7 +157,8 @@ func runCheck(args []string, ctx cli.Context) int {
 	}
 	if err != nil {
 		fmt.Fprintln(ctx.Stderr, "check:", err)
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+			errors.Is(err, runner.ErrNoChecksExecuted) {
 			return exitRunFailed
 		}
 		return exitUsage
@@ -250,10 +251,9 @@ func runCheck(args []string, ctx cli.Context) int {
 			}
 		}
 
-		// If lax mode and no critical failures, allow push
-		if !shouldBlock {
+				if !shouldBlock {
 			fmt.Fprintln(ctx.Stdout, "")
-			fmt.Fprintln(ctx.Stdout, "Lax mode: No critical failures detected. Allowing push.")
+			fmt.Fprintln(ctx.Stdout, "Lax mode: explicitly allowed check failures. Allowing push.")
 			return exitOK
 		}
 

@@ -76,40 +76,24 @@ func categorizeFailures(report runner.Report) map[string]int {
 	return categories
 }
 
-// hasCriticalFailures determines if any failures are critical (build/compilation errors)
-func hasCriticalFailures(report runner.Report) bool {
+func hasBlockingFailures(report runner.Report) bool {
+	if len(report.Unavailable) > 0 || len(report.Canceled) > 0 {
+		return true
+	}
 	for _, name := range report.Failures {
-		nameLower := strings.ToLower(name)
-		if strings.Contains(nameLower, "build") || strings.Contains(nameLower, "compile") {
+		if !report.AllowedFailures[name] {
 			return true
 		}
 	}
 	return false
 }
 
-// ShouldBlock determines if failures should block the push based on protection level
 func ShouldBlock(report runner.Report, protectionLevel string) bool {
-	if len(report.Unavailable) > 0 {
+	if len(report.Unavailable) > 0 || len(report.Canceled) > 0 {
 		return true
 	}
-	if len(report.Failures) == 0 {
-		return false
+	if protectionLevel == "lax" {
+		return hasBlockingFailures(report)
 	}
-
-	switch protectionLevel {
-	case "lax":
-		// Only block on critical failures (build/compile errors)
-		return hasCriticalFailures(report)
-
-	case "strict":
-		// Block on any failure
-		return true
-
-	case "moderate":
-		fallthrough
-	default:
-		// Block on build errors, tests, CI checks
-		// Basically anything that's not just linting/style
-		return true
-	}
+	return len(report.Failures) > 0
 }

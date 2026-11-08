@@ -107,6 +107,9 @@ func validateAndDefault(cfg *Config) error {
 	}
 
 	cfg.Protection.Level = strings.ToLower(strings.TrimSpace(cfg.Protection.Level))
+	if len(cfg.Protection.CriticalPatterns) > 0 {
+		return errors.New("config: protection.criticalPatterns has no enforcement semantics; remove it and explicitly configure checks[].allowFailure for lax mode")
+	}
 	switch cfg.Protection.Level {
 	case "", "lax", "moderate", "strict":
 	default:

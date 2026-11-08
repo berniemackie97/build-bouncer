@@ -48,6 +48,7 @@ type Options struct {
 
 type Report struct {
 	Failures         []string
+	AllowedFailures  map[string]bool
 	FailureTails     map[string]string // checkName -> output tail
 	FailureHeadlines map[string]string // checkName -> headline
 	Unavailable      map[string]string // checkName -> missing required tools
@@ -117,9 +118,12 @@ func (buf *limitedBuffer) String() string {
 	return string(buf.buffer)
 }
 
+var ErrNoChecksExecuted = errors.New("no checks executed")
+
 func RunAllReport(repoRoot string, configuration *config.Config, options Options) (Report, error) {
 	report := Report{
 		Failures:         []string{},
+		AllowedFailures:  map[string]bool{},
 		FailureTails:     map[string]string{},
 		FailureHeadlines: map[string]string{},
 		Unavailable:      map[string]string{},
@@ -362,6 +366,10 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 
 		if result.outcome.ExitCode != 0 || result.outcome.TimedOut {
 			report.Failures = append(report.Failures, result.name)
+			if configuration.Checks[result.index].AllowFailure &&
+				!result.outcome.TimedOut && result.outcome.Reason == "" {
+				report.AllowedFailures[result.name] = true
+			}
 			report.FailureTails[result.name] = result.outcome.Tail
 
 			if strings.TrimSpace(result.outcome.LogPath) != "" {
@@ -430,7 +438,7 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 		return report, err
 	}
 	if len(report.Skipped) == totalChecks {
-		return report, fmt.Errorf("no checks executed: all %d configured checks were skipped", totalChecks)
+		return report, fmt.Errorf("%w: all %d configured checks were skipped", ErrNoChecksExecuted, totalChecks)
 	}
 
 	return report, nil
