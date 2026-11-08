@@ -98,11 +98,10 @@ func TestHookStatusCopiedBinaryMatchesCurrentOSAndFileType(t *testing.T) {
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	unixPath := filepath.Join(binDir, "build-bouncer")
-	windowsPath := unixPath + ".exe"
-	host, foreign := unixPath, windowsPath
+	host := hookCopiedBinaryPath(root)
+	foreign := filepath.Join(binDir, "build-bouncer")
 	if runtime.GOOS == "windows" {
-		host, foreign = windowsPath, unixPath
+		foreign += ".exe"
 	}
 	if err := os.WriteFile(foreign, []byte("foreign platform"), 0o755); err != nil {
 		t.Fatal(err)
@@ -235,10 +234,7 @@ func TestRefusedModificationLeavesCopiedExecutableUntouched(t *testing.T) {
 		t.Fatalf("install copied hook: %d %s", code, stderr)
 	}
 	hookPath := filepath.Join(repo, ".git", "hooks", "pre-push")
-	binary := filepath.Join(repo, ".git", "hooks", "bin", "build-bouncer")
-	if runtime.GOOS == "windows" {
-		binary += ".exe"
-	}
+	binary := hookCopiedBinaryPath(repo)
 	beforeBinary, err := os.Stat(binary)
 	if err != nil {
 		t.Fatal(err)
