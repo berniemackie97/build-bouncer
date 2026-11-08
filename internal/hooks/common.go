@@ -31,6 +31,11 @@ func ownedPrePushHook(data []byte) bool {
 	return false
 }
 
+func generatedPrePushHook(data []byte) bool {
+	return bytes.Equal(data, []byte(renderPrePushHook(false))) ||
+		bytes.Equal(data, []byte(renderPrePushHook(true)))
+}
+
 func repoHooksDir() (repoRoot string, hooksDir string, err error) {
 	root, err := git.FindRepoRoot()
 	if err != nil {

@@ -292,10 +292,16 @@ func TestHookReinstallRemovesPushBypass(t *testing.T) {
 		t.Fatalf("write old hook: %v", err)
 	}
 
-	// Reinstall updates the hook contract
 	code, _, stderr := runHookCmd([]string{"install"})
+	if code != exitUsage || !strings.Contains(stderr, "modified or older") {
+		t.Fatalf("unverified legacy hook should require --force: %d %q", code, stderr)
+	}
+	if data, err := os.ReadFile(hookPath); err != nil || string(data) != oldHook {
+		t.Fatalf("refused legacy replacement changed hook: %v", err)
+	}
+	code, _, stderr = runHookCmd([]string{"install", "--force"})
 	if code != exitOK {
-		t.Fatalf("reinstall exit=%d stderr=%q", code, stderr)
+		t.Fatalf("explicit legacy upgrade failed: %d %q", code, stderr)
 	}
 
 	hookBytes, err := os.ReadFile(hookPath)

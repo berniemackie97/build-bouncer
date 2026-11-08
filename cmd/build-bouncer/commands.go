@@ -323,7 +323,7 @@ func runHook(args []string, ctx cli.Context) int {
 	case "install":
 		fs := cli.NewFlagSet(ctx, "hook install")
 		noCopy := fs.Bool("no-copy", false, "do not copy the build-bouncer binary into .git/hooks/bin")
-		force := fs.Bool("force", false, "overwrite existing hook even if not installed by build-bouncer")
+		force := fs.Bool("force", false, "overwrite foreign, modified, or older hooks")
 		if err := fs.Parse(args[1:]); err != nil {
 			return exitUsage
 		}
@@ -367,7 +367,7 @@ func runHook(args []string, ctx cli.Context) int {
 		case !st.Ours:
 			fmt.Fprintln(ctx.Stdout, "pre-push hook: foreign hook present")
 		case !st.Current:
-			fmt.Fprintln(ctx.Stdout, "pre-push hook: outdated or modified; reinstall to update")
+			fmt.Fprintln(ctx.Stdout, "pre-push hook: outdated or modified; inspect and use --force to reinstall")
 		default:
 			fmt.Fprintln(ctx.Stdout, "pre-push hook: installed")
 		}
@@ -380,7 +380,7 @@ func runHook(args []string, ctx cli.Context) int {
 
 	case "uninstall":
 		fs := cli.NewFlagSet(ctx, "hook uninstall")
-		force := fs.Bool("force", false, "remove hook even if it wasn't installed by build-bouncer")
+		force := fs.Bool("force", false, "remove foreign, modified, or older hooks")
 		if err := fs.Parse(args[1:]); err != nil {
 			return exitUsage
 		}
