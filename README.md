@@ -389,6 +389,8 @@ Run these from your project or a subdirectory where configuration discovery can 
 
 When tests fail, fix them and rerun `check --verbose`. Successful checks do not retain their logs; failed checks normally write logs under the Git-resolved `build-bouncer/logs` state directory (commonly `.git/build-bouncer/logs`). The default retained output is bounded (4 MiB per log, up to 20 saved logs, 7-day retention). Tool output can contain secrets; avoid emitting credentials into logs.
 
+With `--verbose` or `--ci`, runner progress and subprocess output use the command's output stream and are serialized across concurrently running checks. Interactive spinner rendering is synchronized with shutdown, including repeated stop requests. Optional banter history is stored in a private state file; concurrent processes coordinate writes through a short-lived `.lock` directory beside that file. An interrupted process may leave the lock behind, in which case persistence reports the lock's path for manual inspection rather than discarding another process's data. Corrupt history is preserved and reported instead of being silently reset.
+
 ## 5. Git hooks and protection
 
 `build-bouncer hook install` writes the `pre-push` hook to Git's **effective** hooks directory. This handles normal repositories, linked worktrees, and Git's `core.hooksPath` setting; the path is not necessarily the visible `.git/hooks` directory.
