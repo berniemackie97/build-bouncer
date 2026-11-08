@@ -69,6 +69,9 @@ func TestHookSubcommandsInstallStatusUninstall(t *testing.T) {
 	if !strings.Contains(stdout, "installed by build-bouncer: true") {
 		t.Fatalf("expected status ours true, got %q", stdout)
 	}
+	if !strings.Contains(stdout, "current build-bouncer hook: true") {
+		t.Fatalf("expected current installed hook, got %q", stdout)
+	}
 	if !strings.Contains(stdout, "executable by Git: true") {
 		t.Fatalf("expected executable active hook, got %q", stdout)
 	}
