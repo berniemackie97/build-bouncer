@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 const spinnerTickDuration = 100 * time.Millisecond
@@ -89,7 +90,7 @@ func (spinner *Spinner) Start(initialMessage string) {
 				spinner.mutex.Lock()
 				previousLineLength := spinner.lastRenderedLength
 
-				renderedVisibleLength := len(renderedLine) - 1
+				renderedVisibleLength := utf8.RuneCountInString(renderedLine) - 1
 				if renderedVisibleLength < previousLineLength {
 					paddingLength := previousLineLength - renderedVisibleLength
 					renderedLine += strings.Repeat(" ", paddingLength)
@@ -137,6 +138,10 @@ func (spinner *Spinner) Stop() {
 	<-doneSignal
 
 	spinner.mutex.Lock()
+	if spinner.doneSignal != doneSignal {
+		spinner.mutex.Unlock()
+		return
+	}
 	clearLength := spinner.lastRenderedLength
 
 	spinner.lastRenderedLength = 0
@@ -145,14 +150,13 @@ func (spinner *Spinner) Stop() {
 
 	spinner.stopSignal = make(chan struct{})
 	spinner.doneSignal = make(chan struct{})
-	spinner.mutex.Unlock()
 
-	// Clear exactly what we drew last time.
 	_, _ = fmt.Fprint(spinner.outputWriter, "\r")
 	if clearLength > 0 {
 		_, _ = fmt.Fprint(spinner.outputWriter, strings.Repeat(" ", clearLength))
 		_, _ = fmt.Fprint(spinner.outputWriter, "\r")
 	}
+	spinner.mutex.Unlock()
 }
 
 func IsTerminal(file *os.File) bool {

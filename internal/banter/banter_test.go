@@ -1,12 +1,15 @@
 package banter
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestPickerRespectsLocaleAndSavesState(t *testing.T) {
@@ -220,5 +223,153 @@ func TestPickDefersStatePersistence(t *testing.T) {
 	}
 	if _, err := os.Stat(resolveStatePath(root)); err != nil {
 		t.Fatalf("Flush must persist state: %v", err)
+	}
+}
+
+func TestPickerFlushAcrossProcesses(t *testing.T) {
+	root := t.TempDir()
+	data, err := json.Marshal(Pack{Entries: []Entry{
+		{ID: "parent", Type: "intro", Text: "hello"},
+		{ID: "child", Type: "success", Text: "done"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "banter.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	picker, err := Load(root, Config{File: "banter.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if picker.Pick("intro") != "hello" {
+		t.Fatal("parent did not select a phrase")
+	}
+	lockPath := resolveStatePath(root) + ".lock"
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(lockPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(lockPath) })
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready := filepath.Join(root, "child-ready")
+	finished := filepath.Join(root, "child-finished")
+	cmd := exec.Command(executable, "-test.run=^TestPickerFlushChild$")
+	cmd.Env = append(os.Environ(), "BUILD_BOUNCER_BANTER_CHILD="+root)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill() }()
+	deadline := time.Now().Add(8 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("child did not reach banter state flush")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if _, err := os.Stat(finished); !os.IsNotExist(err) {
+		t.Fatalf("child ignored cross-process state lock: %v", err)
+	}
+	if err := os.Remove(lockPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := picker.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("child state flush failed: %v", err)
+	}
+	state, err := loadState(resolveStatePath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Recent["intro"]) != 1 || state.Recent["intro"][0] != "parent" ||
+		len(state.Recent["success"]) != 1 || state.Recent["success"][0] != "child" {
+		t.Fatalf("lost updates from parallel processes: %+v", state.Recent)
+	}
+}
+
+func TestPickerFlushChild(t *testing.T) {
+	root := os.Getenv("BUILD_BOUNCER_BANTER_CHILD")
+	if root == "" {
+		return
+	}
+	picker, err := Load(root, Config{File: "banter.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if picker.Pick("success") != "done" {
+		t.Fatal("child selection failed")
+	}
+	if err := os.WriteFile(filepath.Join(root, "child-ready"), []byte("ready"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := picker.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "child-finished"), []byte("done"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPickerPreservesInvalidPersistedState(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "banter.json"), []byte(`{"entries":[{"id":"intro","type":"intro","text":"hello"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	statePath := resolveStatePath(root)
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	invalid := []byte("{incomplete")
+	if err := os.WriteFile(statePath, invalid, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(root, Config{File: "banter.json"}); err == nil || !strings.Contains(err.Error(), "parse banter state") {
+		t.Fatalf("corrupted state silently reset: %v", err)
+	}
+	current, err := os.ReadFile(statePath)
+	if err != nil || !bytes.Equal(current, invalid) {
+		t.Fatalf("corrupted state overwritten: %v", err)
+	}
+}
+
+func TestPickerFlushRetainsPendingAfterStateFailure(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "banter.json"), []byte(`{"entries":[{"id":"intro","type":"intro","text":"hello"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	picker, err := Load(root, Config{File: "banter.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if picker.Pick("intro") != "hello" {
+		t.Fatal("missing pending selection")
+	}
+	statePath := resolveStatePath(root)
+	if err := os.MkdirAll(statePath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := picker.Flush(); err == nil {
+		t.Fatal("failed state write must be reported")
+	}
+	if err := os.Remove(statePath); err != nil {
+		t.Fatal(err)
+	}
+	if err := picker.Flush(); err != nil {
+		t.Fatalf("pending state lost after retry: %v", err)
+	}
+	saved, err := loadState(statePath)
+	if err != nil || len(saved.Recent["intro"]) != 1 {
+		t.Fatalf("retry did not preserve selection: %+v %v", saved, err)
 	}
 }

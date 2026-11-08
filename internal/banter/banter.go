@@ -2,6 +2,8 @@ package banter
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -40,7 +42,6 @@ type State struct {
 
 type Picker struct {
 	mu        sync.Mutex
-	root      string
 	cfg       Config
 	pack      Pack
 	state     State
@@ -48,13 +49,8 @@ type Picker struct {
 	pending   map[string][]string
 }
 
-var stateFlushMutex sync.Mutex
-
 func Load(root string, cfg Config) (*Picker, error) {
-	p := &Picker{
-		root: root,
-		cfg:  cfg,
-	}
+	p := &Picker{cfg: cfg}
 
 	packPath := filepath.Join(root, filepath.FromSlash(cfg.File))
 	b, err := os.ReadFile(packPath)
@@ -77,9 +73,9 @@ func Load(root string, cfg Config) (*Picker, error) {
 	}
 
 	p.statePath = resolveStatePath(root)
-	p.state = loadState(p.statePath)
-	if p.state.Recent == nil {
-		p.state.Recent = map[string][]string{}
+	p.state, err = loadState(p.statePath)
+	if err != nil {
+		return nil, err
 	}
 
 	return p, nil
@@ -135,17 +131,7 @@ func (p *Picker) Flush() error {
 		return nil
 	}
 
-	stateFlushMutex.Lock()
-	state := loadState(p.statePath)
-	for entryType, selected := range pending {
-		history := append(append([]string{}, selected...), state.Recent[entryType]...)
-		if len(history) > p.pack.MaxHistory {
-			history = history[:p.pack.MaxHistory]
-		}
-		state.Recent[entryType] = history
-	}
-	err := saveState(p.statePath, state)
-	stateFlushMutex.Unlock()
+	err := p.flushPending(pending)
 
 	if err != nil {
 		p.mu.Lock()
@@ -161,6 +147,45 @@ func (p *Picker) Flush() error {
 		p.mu.Unlock()
 	}
 	return err
+}
+
+func (p *Picker) flushPending(pending map[string][]string) (err error) {
+	unlock, err := lockStateFile(p.statePath)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, unlock()) }()
+	state, err := loadState(p.statePath)
+	if err != nil {
+		return err
+	}
+	for entryType, selected := range pending {
+		history := append(append([]string{}, selected...), state.Recent[entryType]...)
+		if len(history) > p.pack.MaxHistory {
+			history = history[:p.pack.MaxHistory]
+		}
+		state.Recent[entryType] = history
+	}
+	return saveState(p.statePath, state)
+}
+
+func lockStateFile(statePath string) (func() error, error) {
+	lockPath := statePath + ".lock"
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		return nil, err
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if err := os.Mkdir(lockPath, 0o700); err == nil {
+			return func() error { return os.Remove(lockPath) }, nil
+		} else if !errors.Is(err, os.ErrExist) {
+			return nil, fmt.Errorf("lock banter state: %w", err)
+		}
+		if !time.Now().Before(deadline) {
+			return nil, fmt.Errorf("banter state lock %q is busy or left by an interrupted process; inspect before removing it", lockPath)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 }
 
 func (p *Picker) filter(entryType string, enforceCooldown bool) []Entry {
@@ -260,22 +285,25 @@ func resolveStatePath(root string) string {
 	return filepath.Join(root, ".buildbouncer", "state", "banter_state.json")
 }
 
-func loadState(path string) State {
-	b, err := os.ReadFile(path)
+func loadState(path string) (State, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return State{Version: 1, Recent: map[string][]string{}}, nil
+	}
 	if err != nil {
-		return State{Version: 1, Recent: map[string][]string{}}
+		return State{}, fmt.Errorf("read banter state: %w", err)
 	}
-	var st State
-	if err := json.Unmarshal(b, &st); err != nil {
-		return State{Version: 1, Recent: map[string][]string{}}
+	var state State
+	if err := json.Unmarshal(data, &state); err != nil {
+		return State{}, fmt.Errorf("parse banter state %q: %w", path, err)
 	}
-	if st.Version <= 0 {
-		st.Version = 1
+	if state.Version <= 0 {
+		state.Version = 1
 	}
-	if st.Recent == nil {
-		st.Recent = map[string][]string{}
+	if state.Recent == nil {
+		state.Recent = map[string][]string{}
 	}
-	return st
+	return state, nil
 }
 
 func saveState(path string, st State) error {

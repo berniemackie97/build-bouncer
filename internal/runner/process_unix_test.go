@@ -109,3 +109,17 @@ func TestParallelFailFastTerminatesDescendants(t *testing.T) {
 		t.Fatalf("descendant survived fail-fast cancellation: %v", err)
 	}
 }
+
+func TestSuccessfulParentExitCleansUpBackgroundDescendants(t *testing.T) {
+	root := t.TempDir()
+	marker := filepath.Join(root, "survived")
+	commandText := fmt.Sprintf("(sleep 1; echo survived > %q) >/dev/null 2>&1 & exit 0", marker)
+	outcome, err := runOne(context.Background(), root, root, 0, "completed-parent", commandText, "sh", nil, time.Minute, Options{})
+	if err != nil || outcome.ExitCode != 0 {
+		t.Fatalf("parent should exit successfully: %+v %v", outcome, err)
+	}
+	time.Sleep(1100 * time.Millisecond)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("background child survived successful parent exit: %v", err)
+	}
+}

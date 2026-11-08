@@ -44,6 +44,7 @@ type Options struct {
 	MaxParallel      int
 	FailFast         bool
 	Progress         func(e ProgressEvent)
+	Output           io.Writer
 }
 
 type Report struct {
@@ -57,6 +58,17 @@ type Report struct {
 	SkipReasons      map[string]string // checkName -> reason
 	LogFiles         map[string]string // checkName -> full log (only on failure)
 	LogTruncated     map[string]bool
+}
+
+type serializedWriter struct {
+	mu     sync.Mutex
+	writer io.Writer
+}
+
+func (w *serializedWriter) Write(data []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.writer.Write(data)
 }
 
 type limitedBuffer struct {
@@ -175,6 +187,11 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 	}
 	runContext, cancelRun := context.WithCancel(parentContext)
 	defer cancelRun()
+	writer := options.Output
+	if writer == nil {
+		writer = os.Stdout
+	}
+	options.Output = &serializedWriter{writer: writer}
 
 	jobsChannel := make(chan checkJob)
 	resultsChannel := make(chan checkResult)
@@ -183,7 +200,6 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 	dispatchDone := make(chan struct{})
 
 	var workerGroup sync.WaitGroup
-	var outputMutex sync.Mutex
 	var progressMutex sync.Mutex
 	emitProgress := func(event ProgressEvent) {
 		if options.Progress == nil {
@@ -232,13 +248,11 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 					ExitCode: outcome.ExitCode,
 				})
 				if options.Verbose {
-					outputMutex.Lock()
 					if unavailable {
-						fmt.Printf("!! %s unavailable (%s)\n\n", checkName, reason)
+						fmt.Fprintf(options.Output, "!! %s unavailable (%s)\n\n", checkName, reason)
 					} else {
-						fmt.Printf("~~ %s skipped (%s)\n\n", checkName, reason)
+						fmt.Fprintf(options.Output, "~~ %s skipped (%s)\n\n", checkName, reason)
 					}
-					outputMutex.Unlock()
 				}
 				if unavailable && options.FailFast {
 					stopAll()
@@ -248,9 +262,7 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 			}
 
 			if options.Verbose {
-				outputMutex.Lock()
-				fmt.Printf("==> %s\n", checkName)
-				outputMutex.Unlock()
+				fmt.Fprintf(options.Output, "==> %s\n", checkName)
 			}
 
 			workingDirectory := repoRoot
@@ -283,20 +295,18 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 			})
 
 			if options.Verbose {
-				outputMutex.Lock()
 				switch {
 				case runErr != nil:
-					fmt.Printf("!! %s error: %v\n\n", checkName, runErr)
+					fmt.Fprintf(options.Output, "!! %s error: %v\n\n", checkName, runErr)
 				case outcome.Canceled:
-					fmt.Printf("!! %s canceled\n\n", checkName)
+					fmt.Fprintf(options.Output, "!! %s canceled\n\n", checkName)
 				case outcome.TimedOut:
-					fmt.Printf("!! %s timed out\n\n", checkName)
+					fmt.Fprintf(options.Output, "!! %s timed out\n\n", checkName)
 				case outcome.ExitCode != 0:
-					fmt.Printf("!! %s failed (exit %d)\n\n", checkName, outcome.ExitCode)
+					fmt.Fprintf(options.Output, "!! %s failed (exit %d)\n\n", checkName, outcome.ExitCode)
 				default:
-					fmt.Printf("OK %s\n\n", checkName)
+					fmt.Fprintf(options.Output, "OK %s\n\n", checkName)
 				}
-				outputMutex.Unlock()
 			}
 
 			resultsChannel <- checkResult{
@@ -493,7 +503,11 @@ func runOne(
 	diskWriter := &boundedLogWriter{writer: logFile, limit: limits.maxBytes}
 	outputWriter := io.MultiWriter(tailBuffer, diskWriter)
 	if options.Verbose {
-		outputWriter = io.MultiWriter(tailBuffer, diskWriter, os.Stdout)
+		writer := options.Output
+		if writer == nil {
+			writer = os.Stdout
+		}
+		outputWriter = io.MultiWriter(tailBuffer, diskWriter, writer)
 	}
 	finishLog := func() error {
 		closeErr := logFile.Close()

@@ -156,3 +156,41 @@ func TestIsTerminal_ReturnsFalseWhenStatFails(t *testing.T) {
 		t.Fatal("expected closed file to not be a terminal")
 	}
 }
+
+func TestSpinnerUnicodeClearTracksCharactersNotUTF8Bytes(t *testing.T) {
+	output := &lockedBuffer{}
+	spinner := ui.NewSpinner(output)
+	spinner.Start("été")
+	time.Sleep(150 * time.Millisecond)
+	spinner.Stop()
+	if !strings.HasSuffix(output.String(), "\r"+strings.Repeat(" ", 5)+"\r") {
+		t.Fatalf("spinner cleared wrong number of columns: %q", output.String())
+	}
+}
+
+func TestSpinnerConcurrentStopsAndRestart(t *testing.T) {
+	output := &lockedBuffer{}
+	spinner := ui.NewSpinner(output)
+	spinner.Start("first")
+	time.Sleep(150 * time.Millisecond)
+	var group sync.WaitGroup
+	for range 16 {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			spinner.Stop()
+		}()
+	}
+	group.Wait()
+	afterStop := output.Len()
+	time.Sleep(150 * time.Millisecond)
+	if output.Len() != afterStop {
+		t.Fatal("spinner continued rendering after concurrent stops")
+	}
+	spinner.Start("second")
+	time.Sleep(150 * time.Millisecond)
+	spinner.Stop()
+	if !strings.Contains(output.String(), "second") {
+		t.Fatal("concurrent stop invalidated the next spinner run")
+	}
+}
