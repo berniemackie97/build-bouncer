@@ -10,7 +10,7 @@ import (
 )
 
 func hookCopiedBinaryPath(repo string) string {
-	path := filepath.Join(repo, ".git", "hooks", "bin", "build-bouncer")
+	path := filepath.Join(repo, ".git", "hooks", "bin", "build-bouncer-"+runtime.GOOS+"-"+runtime.GOARCH)
 	if runtime.GOOS == "windows" {
 		return path + ".exe"
 	}
