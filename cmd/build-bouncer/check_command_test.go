@@ -94,3 +94,20 @@ func TestCheckAllSkippedReturnsExecutionFailure(t *testing.T) {
 		}
 	}
 }
+
+func TestCIStreamsRunnerOutputToCaller(t *testing.T) {
+	root := withTempRepo(t)
+	cfg := &config.Config{Checks: []config.Check{{Name: "visible-check", Run: "echo output-from-check"}}}
+	if err := config.Save(filepath.Join(root, ".buildbouncer", "config.yaml"), cfg); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCheck([]string{"--ci"}, cli.Context{Stdout: &stdout, Stderr: &stderr}); code != exitOK {
+		t.Fatalf("CI check failed: %d %q", code, stderr.String())
+	}
+	for _, expected := range []string{"==> visible-check", "output-from-check", "OK visible-check", "All checks passed"} {
+		if !strings.Contains(stdout.String(), expected) {
+			t.Fatalf("runner output bypassed CLI writer: missing %q from %q", expected, stdout.String())
+		}
+	}
+}
