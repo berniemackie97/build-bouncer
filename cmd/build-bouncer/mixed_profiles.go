@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/berniemackie97/build-bouncer/internal/config"
 )
 
-// rootNodeProfile selects only scripts declared by the root package.
-// Workspace membership and package-local scripts are never inferred.
 func rootNodeProfile(root string, namespaced bool) ([]config.Check, map[string]string, error) {
 	path := filepath.Join(root, "package.json")
 	info, err := os.Lstat(path)
@@ -25,6 +24,9 @@ func rootNodeProfile(root string, namespaced bool) ([]config.Check, map[string]s
 	pkg, ok := loadPackageJSON(path)
 	if !ok {
 		return nil, nil, fmt.Errorf("cannot parse root package.json")
+	}
+	if err := validateRootNodeManager(root, pkg); err != nil {
+		return nil, nil, err
 	}
 	checks, inputs := nodeChecksForPackage(root, "node", pkg)
 	if len(checks) == 0 {
@@ -48,4 +50,36 @@ func rootNodeProfile(root string, namespaced bool) ([]config.Check, map[string]s
 func regularRootFile(root, name string) bool {
 	info, err := os.Lstat(filepath.Join(root, name))
 	return err == nil && info.Mode().IsRegular()
+}
+
+func validateRootNodeManager(root string, pkg packageJSON) error {
+	if manager := strings.TrimSpace(pkg.PackageManager); manager != "" {
+		switch strings.ToLower(strings.SplitN(manager, "@", 2)[0]) {
+		case "npm", "pnpm", "yarn", "bun":
+			return nil
+		default:
+			return fmt.Errorf("unsupported root packageManager %q", manager)
+		}
+	}
+	selected := ""
+	for _, lock := range []struct {
+		file    string
+		manager string
+	}{
+		{"pnpm-lock.yaml", "pnpm"},
+		{"yarn.lock", "yarn"},
+		{"bun.lock", "bun"},
+		{"bun.lockb", "bun"},
+		{"package-lock.json", "npm"},
+		{"npm-shrinkwrap.json", "npm"},
+	} {
+		if !regularRootFile(root, lock.file) {
+			continue
+		}
+		if selected != "" && selected != lock.manager {
+			return fmt.Errorf("conflicting root package-manager lockfiles; declare packageManager in package.json")
+		}
+		selected = lock.manager
+	}
+	return nil
 }
