@@ -7,38 +7,71 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/berniemackie97/build-bouncer/internal/config"
 )
 
-func TestWindowsTimeoutTerminatesDescendant(t *testing.T) {
-	root := t.TempDir()
-	marker := filepath.Join(root, "survived.txt")
-	script := fmt.Sprintf("Start-Sleep -Seconds 2; Set-Content -LiteralPath '%s' -Value survived", marker)
-	commandText := fmt.Sprintf("powershell -NoProfile -NonInteractive -Command \"%s\"", script)
-	start := time.Now()
-	outcome, err := runOne(context.Background(), root, root, 0, "powershell-child", commandText, "cmd", nil, 350*time.Millisecond, Options{})
+func windowsNestedCheckScript(t *testing.T) string {
+	t.Helper()
+	executable, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !outcome.TimedOut {
-		t.Fatalf("expected timeout, got %+v", outcome)
+	quoted := strings.ReplaceAll(executable, "'", "''")
+	return fmt.Sprintf("$child = Start-Process -FilePath '%s' -ArgumentList '-test.run=^TestWindowsGrandchildHelper$' -PassThru -NoNewWindow; $child.WaitForExit()", quoted)
+}
+
+func TestWindowsGrandchildHelper(t *testing.T) {
+	ready := os.Getenv("BUILD_BOUNCER_WINDOWS_CHILD_READY")
+	if ready == "" {
+		return
 	}
-	if elapsed := time.Since(start); elapsed > 3*time.Second {
+	marker := os.Getenv("BUILD_BOUNCER_WINDOWS_CHILD_MARKER")
+	if err := os.WriteFile(ready, []byte("ready"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3 * time.Second)
+	if err := os.WriteFile(marker, []byte("survived"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func windowsChildEnv(root string) (string, string, map[string]string) {
+	ready := filepath.Join(root, "ready.txt")
+	marker := filepath.Join(root, "survived.txt")
+	return ready, marker, map[string]string{
+		"BUILD_BOUNCER_WINDOWS_CHILD_READY":  ready,
+		"BUILD_BOUNCER_WINDOWS_CHILD_MARKER": marker,
+	}
+}
+
+func TestWindowsTimeoutTerminatesDescendant(t *testing.T) {
+	root := t.TempDir()
+	ready, marker, env := windowsChildEnv(root)
+	start := time.Now()
+	outcome, err := runOne(context.Background(), root, root, 0, "powershell-child",
+		windowsNestedCheckScript(t), "powershell", env, 2*time.Second, Options{})
+	if err != nil || !outcome.TimedOut {
+		t.Fatalf("timeout did not stop check: %+v %v", outcome, err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Fatalf("timeout cleanup took %s", elapsed)
 	}
-	time.Sleep(2200 * time.Millisecond)
+	if _, err := os.Stat(ready); err != nil {
+		t.Fatalf("child was never started before timeout: %v", err)
+	}
+	time.Sleep(3200 * time.Millisecond)
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Fatalf("child survived timeout: %v", err)
+		t.Fatalf("descendant survived timeout: %v", err)
 	}
 }
 
 func TestWindowsCancelTerminatesStartedDescendant(t *testing.T) {
 	root := t.TempDir()
-	ready := filepath.Join(root, "ready.txt")
-	marker := filepath.Join(root, "survived.txt")
-	script := fmt.Sprintf("Set-Content -LiteralPath '%s' -Value ready; Start-Sleep -Seconds 3; Set-Content -LiteralPath '%s' -Value survived", ready, marker)
-	commandText := fmt.Sprintf("powershell -NoProfile -NonInteractive -Command \"%s\"", script)
+	ready, marker, env := windowsChildEnv(root)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	type result struct {
@@ -47,7 +80,8 @@ func TestWindowsCancelTerminatesStartedDescendant(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		outcome, err := runOne(ctx, root, root, 0, "started-child", commandText, "cmd", nil, time.Minute, Options{})
+		outcome, err := runOne(ctx, root, root, 0, "started-child",
+			windowsNestedCheckScript(t), "powershell", env, time.Minute, Options{})
 		done <- result{outcome, err}
 	}()
 	deadline := time.Now().Add(15 * time.Second)
@@ -78,5 +112,28 @@ func TestWindowsCancelTerminatesStartedDescendant(t *testing.T) {
 	time.Sleep(3200 * time.Millisecond)
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("descendant survived cancellation: %v", err)
+	}
+}
+
+func TestWindowsFailFastTerminatesReadyDescendant(t *testing.T) {
+	root := t.TempDir()
+	ready, marker, env := windowsChildEnv(root)
+	fail := fmt.Sprintf("while (-not (Test-Path -LiteralPath '%s')) { Start-Sleep -Milliseconds 40 }; exit 19",
+		strings.ReplaceAll(ready, "'", "''"))
+	cfg := &config.Config{Checks: []config.Check{
+		{Name: "running", Shell: "powershell", Run: windowsNestedCheckScript(t), Env: env, Timeout: 10 * time.Second},
+		{Name: "failure", Shell: "powershell", Run: fail, Timeout: 10 * time.Second},
+	}}
+	report, err := RunAllReport(root, cfg, Options{MaxParallel: 2, FailFast: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Failures) != 1 || report.Failures[0] != "failure" ||
+		len(report.Canceled) != 1 || report.Canceled[0] != "running" {
+		t.Fatalf("unexpected parallel fail-fast outcomes: %+v", report)
+	}
+	time.Sleep(3200 * time.Millisecond)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("descendant survived parallel fail-fast: %v", err)
 	}
 }
