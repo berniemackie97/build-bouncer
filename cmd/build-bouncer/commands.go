@@ -85,7 +85,7 @@ func runCheck(args []string, ctx cli.Context) int {
 	}
 	if bp != nil {
 		defer func() {
-			if err := bp.Flush(); err != nil && *verbose {
+			if err := bp.Flush(); err != nil {
 				fmt.Fprintln(ctx.Stderr, "banter state:", err)
 			}
 		}()
