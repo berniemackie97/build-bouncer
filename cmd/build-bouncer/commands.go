@@ -158,8 +158,11 @@ func runCheck(args []string, ctx cli.Context) int {
 	}
 	if err != nil {
 		fmt.Fprintln(ctx.Stderr, "check:", err)
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
-			errors.Is(err, runner.ErrNoChecksExecuted) {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			printCanceledChecks(ctx.Stderr, rep)
+			return exitRunFailed
+		}
+		if errors.Is(err, runner.ErrNoChecksExecuted) {
 			return exitRunFailed
 		}
 		return exitUsage
@@ -176,13 +179,6 @@ func runCheck(args []string, ctx cli.Context) int {
 			for _, f := range rep.Failures {
 				fmt.Fprintln(ctx.Stderr, tui.Cross(f))
 			}
-			if len(rep.Canceled) > 0 {
-				fmt.Fprintln(ctx.Stderr, "")
-				fmt.Fprintln(ctx.Stderr, tui.Section("Canceled Checks"))
-				for _, c := range rep.Canceled {
-					fmt.Fprintln(ctx.Stderr, tui.Bullet(c))
-				}
-			}
 			if len(rep.Skipped) > 0 {
 				fmt.Fprintln(ctx.Stderr, "")
 				fmt.Fprintln(ctx.Stderr, tui.Section("Skipped Checks"))
@@ -196,6 +192,8 @@ func runCheck(args []string, ctx cli.Context) int {
 				}
 			}
 		}
+
+		printCanceledChecks(ctx.Stderr, rep)
 
 		if *verbose {
 			for _, f := range rep.Failures {

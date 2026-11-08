@@ -55,7 +55,7 @@ type Report struct {
 	TimedOut         []string
 	Skipped          []string
 	SkipReasons      map[string]string // checkName -> reason
-	LogFiles         map[string]string // checkName -> full log (only on failure)
+	LogFiles         map[string]string // checkName -> retained log for failures and cancellations
 	LogTruncated     map[string]bool
 }
 
@@ -370,6 +370,13 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 
 		if result.outcome.Canceled {
 			report.Canceled = append(report.Canceled, result.name)
+			report.FailureTails[result.name] = result.outcome.Tail
+			if result.outcome.LogPath != "" {
+				report.LogFiles[result.name] = result.outcome.LogPath
+			}
+			if result.outcome.Truncated {
+				report.LogTruncated[result.name] = true
+			}
 			continue
 		}
 
