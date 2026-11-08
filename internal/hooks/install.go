@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -37,7 +38,8 @@ func installPrePushHook(opts InstallOptions, publishHook func(string, []byte, bo
 	body := []byte(renderPrePushHook(opts.CopySelf))
 	if !opts.CopySelf {
 		if err := publishHook(hookPath, body, existed); err != nil {
-			return errors.Join(fmt.Errorf("install pre-push hook: %w", err), restoreHook(hookPath, previous, mode, existed))
+			return errors.Join(fmt.Errorf("install pre-push hook: %w", err),
+				restorePublishedHook(hookPath, body, previous, mode, existed))
 		}
 		return nil
 	}
@@ -101,7 +103,7 @@ func installPrePushHook(opts InstallOptions, publishHook func(string, []byte, bo
 	}
 	if err := publishHook(hookPath, body, existed); err != nil {
 		return errors.Join(fmt.Errorf("install pre-push hook: %w", err),
-			restoreHook(hookPath, previous, mode, existed),
+			restorePublishedHook(hookPath, body, previous, mode, existed),
 			rollback())
 	}
 	return nil
@@ -149,6 +151,23 @@ func existingHook(path string, force bool) ([]byte, os.FileMode, bool, error) {
 		return nil, 0, false, fmt.Errorf("pre-push hook exists but was not installed by build-bouncer (use --force to overwrite)")
 	}
 	return data, info.Mode().Perm(), true, nil
+}
+
+func restorePublishedHook(path string, published, previous []byte, mode os.FileMode, existed bool) error {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) && !existed {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if existed && bytes.Equal(data, previous) {
+		return nil
+	}
+	if !bytes.Equal(data, published) {
+		return fmt.Errorf("pre-push hook changed during installation; refusing to overwrite: %s", path)
+	}
+	return restoreHook(path, previous, mode, existed)
 }
 
 func restoreHook(path string, previous []byte, mode os.FileMode, existed bool) error {
