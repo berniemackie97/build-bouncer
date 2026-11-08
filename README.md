@@ -221,7 +221,9 @@ The default install copies the current BuildBouncer executable into Git's effect
 
 BuildBouncer replaces or uninstalls an existing hook without `--force` only when its contents exactly match a current generated script. Foreign hooks, edited BuildBouncer scripts, and older hooks with unverified content are left unchanged. Inspect them before explicitly using `hook install --force` or `hook uninstall --force`; forcing replacement or removal can discard custom behavior.
 
-`hook status` distinguishes a recognized BuildBouncer hook from a foreign hook, flags modified or outdated installations, and warns when a POSIX hook lacks execute permission. The copied executable indicator applies only to a regular, executable file for the current OS; a copied executable from another OS is not considered available. With `--no-copy`, the hook instead resolves `build-bouncer` through `PATH` when Git invokes it. Status checks filesystem readiness without running checks or guaranteeing the executable will succeed.
+`hook status` distinguishes a recognized BuildBouncer hook from a foreign hook, flags modified or outdated installations, and warns when a POSIX hook lacks execute permission.
+
+A copied executable is installed alongside a SHA-256 ownership record. Install and uninstall refuse to replace or remove an existing executable without a matching record unless you explicitly use `--force`. Previous installations without a record require inspection before forced migration. Uninstall of a `--no-copy` hook does not remove copied binaries, and uninstall of a copied hook leaves other-platform executables and unverified temporary files untouched. The copied executable indicator applies only to a regular, executable file for the current OS; a copied executable from another OS is not considered available. With `--no-copy`, the hook instead resolves `build-bouncer` through `PATH` when Git invokes it. Status checks filesystem readiness without running checks or guaranteeing the executable will succeed.
 
 ### Step 5 — Keep the configuration with your project
 
