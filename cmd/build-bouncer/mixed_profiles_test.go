@@ -142,6 +142,8 @@ func TestMixedInitRejectsSymlinkedRootPackage(t *testing.T) {
 func TestMixedConfigureRefreshPreservesCustomChecks(t *testing.T) {
 	root := withTempRepo(t)
 	writeMixedFile(t, root, "package.json", mixedManifest())
+	writeMixedFile(t, root, "pnpm-workspace.yaml", "packages: []")
+	writeMixedFile(t, root, "turbo.json", "{}")
 	writeMixedFile(t, root, "services/api/Api.slnx", "<Solution />")
 	var stdout, stderr bytes.Buffer
 	ctx := cli.Context{Stdout: &stdout, Stderr: &stderr}
@@ -158,6 +160,11 @@ func TestMixedConfigureRefreshPreservesCustomChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeMixedFile(t, root, "package.json", `{"packageManager":"pnpm@9","scripts":{"lint":"turbo lint","typecheck":"tsc -b"}}`)
+	for _, name := range []string{"pnpm-workspace.yaml", "turbo.json"} {
+		if err := os.Remove(filepath.Join(root, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	opts := configureOptions{node: true, dotnet: true, yes: true}
 	if code := runConfigure(opts, ctx, bufio.NewReader(strings.NewReader(""))); code != exitOK {
 		t.Fatalf("combined refresh failed: %d %s", code, stderr.String())
@@ -168,7 +175,8 @@ func TestMixedConfigureRefreshPreservesCustomChecks(t *testing.T) {
 	}
 	if len(updated.Checks) != 7 || updated.Checks[4].Name != "node-lint" ||
 		updated.Checks[5].Name != "node-typecheck" || updated.Checks[6].Name != "custom" ||
-		updated.Checks[6].Run != "echo keep" || updated.Meta.Inputs["node.scripts"] != "lint,typecheck" {
+		updated.Checks[6].Run != "echo keep" || updated.Meta.Inputs["node.scripts"] != "lint,typecheck" ||
+		updated.Meta.Inputs["node.workspace"] != "" || updated.Meta.Inputs["node.turbo"] != "" {
 		t.Fatalf("refresh altered unrelated checks: %+v", updated)
 	}
 	original, err := os.ReadFile(path)
@@ -247,6 +255,77 @@ func TestMixedOptionConflicts(t *testing.T) {
 		}
 		if _, err := os.Lstat(config.ConfigDir(root)); !os.IsNotExist(err) {
 			t.Fatalf("invalid selection %v wrote files: %v", args, err)
+		}
+	}
+}
+
+func TestMixedInitRejectsAmbiguousPackageManagers(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		manifest string
+		locks    []string
+	}{
+		{"unknown manager", `{"packageManager":"other@1","scripts":{"lint":"echo ok"}}`, nil},
+		{"conflicting locks", `{"scripts":{"lint":"echo ok"}}`, []string{"pnpm-lock.yaml", "yarn.lock"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := withTempRepo(t)
+			writeMixedFile(t, root, "package.json", tc.manifest)
+			writeMixedFile(t, root, "services/api/Api.slnx", "<Solution />")
+			for _, lock := range tc.locks {
+				writeMixedFile(t, root, lock, "lock")
+			}
+			var stdout, stderr bytes.Buffer
+			if code := newInitCommand().Run(cli.Context{Stdout: &stdout, Stderr: &stderr},
+				[]string{"--dotnet", "--node"}); code != exitUsage {
+				t.Fatalf("ambiguous package manager accepted: %d %s", code, stdout.String())
+			}
+			if _, err := os.Lstat(config.ConfigDir(root)); !os.IsNotExist(err) {
+				t.Fatalf("refused init wrote files: %v", err)
+			}
+		})
+	}
+}
+
+func TestNodeOnlyProfileCanRefreshIntoMixedProfile(t *testing.T) {
+	root := withTempRepo(t)
+	writeMixedFile(t, root, "package.json", mixedManifest())
+	writeMixedFile(t, root, "services/api/Api.slnx", "<Solution />")
+	var stdout, stderr bytes.Buffer
+	ctx := cli.Context{Stdout: &stdout, Stderr: &stderr}
+	if code := newInitCommand().Run(ctx, []string{"--node"}); code != exitOK {
+		t.Fatalf("Node init failed: %d %s", code, stderr.String())
+	}
+	path := config.DefaultConfigPath(root)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Checks = append(cfg.Checks, config.Check{Name: "custom", Run: "echo keep"})
+	if err := config.Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if code := runConfigure(configureOptions{dotnet: true, node: true, yes: true}, ctx,
+		bufio.NewReader(strings.NewReader(""))); code != exitOK {
+		t.Fatalf("Node to mixed refresh failed: %d %s", code, stderr.String())
+	}
+	cfg, err = config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Checks) != 8 || cfg.Runner.MaxParallel != 1 || !cfg.Runner.FailFast {
+		t.Fatalf("unexpected mixed profile: %+v", cfg)
+	}
+	found := make(map[string]bool)
+	for _, check := range cfg.Checks {
+		found[check.Name] = true
+		if check.Name == "custom" && check.Run != "echo keep" {
+			t.Fatalf("custom check overwritten: %+v", check)
+		}
+	}
+	for _, name := range []string{"restore", "format", "build", "tests", "node-lint", "node-tests", "node-build", "custom"} {
+		if !found[name] {
+			t.Fatalf("missing %s after upgrade: %+v", name, cfg.Checks)
 		}
 	}
 }
