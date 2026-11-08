@@ -85,11 +85,13 @@ func validateDotNetGenerated(root, solution string, checks []config.Check, add f
 		add(checks[0].Name, fmt.Sprintf("inspect root .NET targets: %v", err))
 		return
 	}
-	if count != 1 {
-		for _, check := range checks {
-			if check.Run == "dotnet test -c Release" || check.Run == "dotnet format --verify-no-changes" {
-				add(check.Name, "root .NET command requires exactly one root solution or project; refresh with configure --dotnet --solution PATH")
-			}
+	for _, check := range checks {
+		legacy := check.Name == "tests" && check.Run == "dotnet test -c Release" ||
+			check.Name == "format" && check.Run == "dotnet format --verify-no-changes"
+		if !legacy {
+			add(check.Name, "generated .NET solution metadata is missing; refresh with configure --dotnet --solution PATH")
+		} else if count != 1 {
+			add(check.Name, "root .NET command requires exactly one root solution or project; refresh with configure --dotnet --solution PATH")
 		}
 	}
 }
