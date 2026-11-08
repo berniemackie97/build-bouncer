@@ -3,9 +3,11 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -38,6 +40,9 @@ func TestCheckCommandStopsOnSIGTERM(t *testing.T) {
 	command := exec.Command(os.Args[0], "-test.run=^TestCheckSignalHelper$")
 	command.Dir = root
 	command.Env = append(os.Environ(), "BUILD_BOUNCER_SIGNAL_TEST=1")
+	var output bytes.Buffer
+	command.Stdout = &output
+	command.Stderr = &output
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +67,11 @@ func TestCheckCommandStopsOnSIGTERM(t *testing.T) {
 	timeout.Stop()
 	exit, ok := err.(*exec.ExitError)
 	if !ok || exit.ExitCode() != exitRunFailed {
-		t.Fatalf("interrupted check exited with %v, want %d", err, exitRunFailed)
+		t.Fatalf("interrupted check exited with %v, want %d; output=%q", err, exitRunFailed, output.String())
+	}
+	if !strings.Contains(output.String(), "Canceled Checks") ||
+		!strings.Contains(output.String(), "slow") || !strings.Contains(output.String(), "Saved log:") {
+		t.Fatalf("interrupted check omitted retained cancellation evidence: %q", output.String())
 	}
 	time.Sleep(1100 * time.Millisecond)
 	if _, err := os.Stat(filepath.Join(root, "survived.txt")); !os.IsNotExist(err) {

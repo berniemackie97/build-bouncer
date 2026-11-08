@@ -11,6 +11,7 @@ import (
 
 	"github.com/berniemackie97/build-bouncer/internal/cli"
 	"github.com/berniemackie97/build-bouncer/internal/config"
+	"github.com/berniemackie97/build-bouncer/internal/runner"
 )
 
 func TestCheckRejectsForcePushBypass(t *testing.T) {
@@ -158,5 +159,23 @@ func TestParallelHookUIWithAndWithoutBanter(t *testing.T) {
 				t.Fatalf("banter disabled but history was persisted: %q %v", content, err)
 			}
 		})
+	}
+}
+
+func TestPrintCanceledCheckEvidence(t *testing.T) {
+	report := runner.Report{
+		Canceled:     []string{"first", "second", "not-started"},
+		LogFiles:     map[string]string{"first": "first.log", "second": "second.log"},
+		LogTruncated: map[string]bool{"second": true},
+	}
+	var output bytes.Buffer
+	printCanceledChecks(&output, report)
+	for _, expected := range []string{"Canceled Checks", "first", "first.log", "second", "second.log", "truncated", "not-started"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("missing %q from canceled-check summary: %q", expected, output.String())
+		}
+	}
+	if strings.Contains(output.String(), "not-started.log") {
+		t.Fatalf("log path was invented: %q", output.String())
 	}
 }
