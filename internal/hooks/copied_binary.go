@@ -7,12 +7,21 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"path/filepath"
 	"strings"
 
 	"github.com/berniemackie97/build-bouncer/internal/storage"
 )
 
 func hostCopiedBinaryPath(hooksDir string) string {
+	name := "build-bouncer-" + runtime.GOOS + "-" + runtime.GOARCH
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	return filepath.Join(hooksDir, "bin", name)
+}
+
+func hostLegacyCopiedBinaryPath(hooksDir string) string {
 	unixPath, windowsPath := copiedBinaryPaths(hooksDir)
 	if runtime.GOOS == "windows" {
 		return windowsPath
