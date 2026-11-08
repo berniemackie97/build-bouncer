@@ -2,10 +2,10 @@ package hooks
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"errors"
 	"runtime"
 )
 

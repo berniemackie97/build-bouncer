@@ -95,6 +95,19 @@ func uninstallPrePushHookLocked(hooksDir string, force bool, removeHook func(str
 	var backup string
 	var proof string
 	var recorded bool
+	preserveBackup := false
+	restoreBackup := func() error {
+		if err := os.Link(backup, binaryPath); err != nil {
+			preserveBackup = true
+			return fmt.Errorf("restore copied executable (original retained at %q): %w", backup, err)
+		}
+		return nil
+	}
+	defer func() {
+		if backup != "" && !preserveBackup {
+			_ = os.Remove(backup)
+		}
+	}()
 	if exists {
 		binaryInfo, err := os.Lstat(binaryPath)
 		if err != nil {
@@ -104,7 +117,6 @@ func uninstallPrePushHookLocked(hooksDir string, force bool, removeHook func(str
 		if err != nil {
 			return fmt.Errorf("backup copied executable: %w", err)
 		}
-		defer os.Remove(backup)
 		proof, recorded, err = readCopiedBinaryProof(copiedBinaryProofPath(binaryPath))
 		if err != nil {
 			return err
@@ -114,18 +126,20 @@ func uninstallPrePushHookLocked(hooksDir string, force bool, removeHook func(str
 		}
 		if err := removeOwnedFile(copiedBinaryProofPath(binaryPath)); err != nil {
 			return errors.Join(fmt.Errorf("remove copied executable ownership record: %w", err),
-				os.Link(backup, binaryPath))
+				restoreBackup())
 		}
 	}
 	if err := removeHook(hookPath); err != nil {
+		hookRecovery := restoreDeletedHook(hookPath, data, info.Mode().Perm())
 		if exists {
-			return errors.Join(fmt.Errorf("remove hook: %w", err),
-				restoreDeletedHook(hookPath, data, info.Mode().Perm()),
-				os.Link(backup, binaryPath),
+			binaryRecovery := restoreBackup()
+			if binaryRecovery != nil {
+				return errors.Join(fmt.Errorf("remove hook: %w", err), hookRecovery, binaryRecovery)
+			}
+			return errors.Join(fmt.Errorf("remove hook: %w", err), hookRecovery,
 				restoreCopiedBinaryProof(binaryPath, proof, recorded))
 		}
-		return errors.Join(fmt.Errorf("remove hook: %w", err),
-			restoreDeletedHook(hookPath, data, info.Mode().Perm()))
+		return errors.Join(fmt.Errorf("remove hook: %w", err), hookRecovery)
 	}
 	if backup != "" {
 		if err := removeFileWithRetries(backup); err != nil {
