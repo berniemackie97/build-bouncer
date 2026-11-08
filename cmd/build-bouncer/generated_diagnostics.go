@@ -41,66 +41,82 @@ func generatedFindings(root string, cfg *config.Config) []generatedFinding {
 		}
 	}
 
-	if len(dotnet) > 0 {
-		if solution := cfg.Meta.Inputs["dotnet.solution"]; solution != "" {
-			expected, _, err := dotnetProfile(root, solution)
-			if err != nil {
-				add(dotnet[0].Name, fmt.Sprintf("dotnet.solution %q: %v", solution, err))
-			} else {
-				checkGeneratedCommands(dotnet, expected, add)
-			}
-		} else {
-			count, err := rootDotNetTargets(root)
-			if err != nil {
-				add(dotnet[0].Name, fmt.Sprintf("inspect root .NET targets: %v", err))
-			} else if count != 1 {
-				for _, check := range dotnet {
-					if check.Run == "dotnet test -c Release" || check.Run == "dotnet format --verify-no-changes" {
-						add(check.Name, "root .NET command requires exactly one root solution or project; refresh with configure --dotnet --solution PATH")
-					}
-				}
-			}
-		}
-	}
-
-	if len(node) > 0 {
-		namespaced := false
-		for _, check := range node {
-			if strings.HasPrefix(check.Name, "node-") {
-				namespaced = true
-				break
-			}
-		}
-		expected, _, err := rootNodeProfile(root, namespaced)
-		if err != nil {
-			add(node[0].Name, fmt.Sprintf("root Node profile: %v", err))
-		} else {
-			checkGeneratedCommands(node, expected, add)
-		}
-	}
-
-	if len(legacyNode) > 0 {
-		expected, _, err := rootNodeProfile(root, false)
-		if err != nil {
-			add(legacyNode[0].Name, fmt.Sprintf("root Node profile: %v", err))
-		} else {
-			for _, check := range legacyNode {
-				matched := false
-				for _, valid := range expected {
-					if valid.Name != check.Name {
-						continue
-					}
-					matched = check.Run == valid.Run ||
-						valid.Run == "npm run test" && check.Run == "npm test"
-					break
-				}
-				if !matched {
-					add(check.Name, "root package script or selected package manager no longer matches this generated check; refresh the profile")
-				}
-			}
-		}
-	}
+	validateDotNetGenerated(root, cfg.Meta.Inputs["dotnet.solution"], dotnet, add)
+	validateNodeGenerated(root, node, add)
+	validateLegacyNodeGenerated(root, legacyNode, add)
 	return findings
+}
+
+
+func validateDotNetGenerated(root, solution string, checks []config.Check, add func(string, string)) {
+	if len(checks) == 0 {
+		return
+	}
+	if solution != "" {
+		expected, _, err := dotnetProfile(root, solution)
+		if err != nil {
+			add(checks[0].Name, fmt.Sprintf("dotnet.solution %q: %v", solution, err))
+			return
+		}
+		checkGeneratedCommands(checks, expected, add)
+		return
+	}
+	count, err := rootDotNetTargets(root)
+	if err != nil {
+		add(checks[0].Name, fmt.Sprintf("inspect root .NET targets: %v", err))
+		return
+	}
+	if count != 1 {
+		for _, check := range checks {
+			if check.Run == "dotnet test -c Release" || check.Run == "dotnet format --verify-no-changes" {
+				add(check.Name, "root .NET command requires exactly one root solution or project; refresh with configure --dotnet --solution PATH")
+			}
+		}
+	}
+}
+
+func validateNodeGenerated(root string, checks []config.Check, add func(string, string)) {
+	if len(checks) == 0 {
+		return
+	}
+	namespaced := false
+	for _, check := range checks {
+		if strings.HasPrefix(check.Name, "node-") {
+			namespaced = true
+			break
+		}
+	}
+	expected, _, err := rootNodeProfile(root, namespaced)
+	if err != nil {
+		add(checks[0].Name, fmt.Sprintf("root Node profile: %v", err))
+		return
+	}
+	checkGeneratedCommands(checks, expected, add)
+}
+
+func validateLegacyNodeGenerated(root string, checks []config.Check, add func(string, string)) {
+	if len(checks) == 0 {
+		return
+	}
+	expected, _, err := rootNodeProfile(root, false)
+	if err != nil {
+		add(checks[0].Name, fmt.Sprintf("root Node profile: %v", err))
+		return
+	}
+	for _, check := range checks {
+		matched := false
+		for _, valid := range expected {
+			if valid.Name != check.Name {
+				continue
+			}
+			matched = check.Run == valid.Run ||
+				valid.Run == "npm run test" && check.Run == "npm test"
+			break
+		}
+		if !matched {
+			add(check.Name, "root package script or selected package manager no longer matches this generated check; refresh the profile")
+		}
+	}
 }
 
 func checkGeneratedCommands(actual, expected []config.Check, add func(string, string)) {
