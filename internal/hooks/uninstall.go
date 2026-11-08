@@ -93,14 +93,14 @@ func uninstallPrePushHook(force bool, removeHook func(string) error) error {
 		}
 		if err := removeOwnedFile(copiedBinaryProofPath(binaryPath)); err != nil {
 			return errors.Join(fmt.Errorf("remove copied executable ownership record: %w", err),
-				restoreCopiedBinary(binaryPath, backup, true))
+				os.Link(backup, binaryPath))
 		}
 	}
 	if err := removeHook(hookPath); err != nil {
 		if exists {
 			return errors.Join(fmt.Errorf("remove hook: %w", err),
 				restoreDeletedHook(hookPath, data, info.Mode().Perm()),
-				restoreCopiedBinary(binaryPath, backup, true),
+				os.Link(backup, binaryPath),
 				restoreCopiedBinaryProof(binaryPath, proof, recorded))
 		}
 		return errors.Join(fmt.Errorf("remove hook: %w", err),
