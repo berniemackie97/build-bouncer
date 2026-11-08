@@ -19,9 +19,7 @@ import (
 )
 
 const (
-	maxParallelChecks   = 32
 	defaultCheckTimeout = 30 * time.Minute
-	maxCheckTimeout     = 2 * time.Hour
 	processWaitDelay    = 2 * time.Second
 )
 
@@ -153,8 +151,8 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 	if maxParallel <= 0 {
 		maxParallel = 1
 	}
-	if maxParallel > maxParallelChecks {
-		return report, fmt.Errorf("max parallel checks %d exceeds limit %d", maxParallel, maxParallelChecks)
+	if maxParallel > config.MaxParallelChecks {
+		return report, fmt.Errorf("max parallel checks %d exceeds limit %d", maxParallel, config.MaxParallelChecks)
 	}
 	if maxParallel > totalChecks {
 		maxParallel = totalChecks
@@ -472,8 +470,8 @@ func runOne(
 	if timeoutDuration <= 0 {
 		timeoutDuration = defaultCheckTimeout
 	}
-	if timeoutDuration > maxCheckTimeout {
-		return runOutcome{ExitCode: 1}, fmt.Errorf("check %q timeout %s exceeds limit %s", checkName, timeoutDuration, maxCheckTimeout)
+	if timeoutDuration > config.MaxCheckTimeout {
+		return runOutcome{ExitCode: 1}, fmt.Errorf("check %q timeout %s exceeds limit %s", checkName, timeoutDuration, config.MaxCheckTimeout)
 	}
 
 	limits, err := resolveLogLimits(options)
@@ -491,7 +489,7 @@ func runOne(
 	}
 
 	logFile, err := os.CreateTemp(logDirectory, fmt.Sprintf(
-		"build-bouncer-%s-%02d-%s-*.log",
+		"build-bouncer-%s-%02d-%s-*.pending",
 		time.Now().Format("20060102_150405"),
 		checkIndex,
 		sanitize(checkName),
@@ -515,6 +513,17 @@ func runOne(
 			return diskWriter.err
 		}
 		return closeErr
+	}
+	finishFailureLog := func() error {
+		if err := finishLog(); err != nil {
+			return fmt.Errorf("write check log: %w", err)
+		}
+		completedPath := strings.TrimSuffix(logPath, ".pending") + ".log"
+		if err := os.Rename(logPath, completedPath); err != nil {
+			return fmt.Errorf("retain failed check log: %w", err)
+		}
+		logPath = completedPath
+		return nil
 	}
 
 	runContext, cancelRun := context.WithTimeout(parentContext, timeoutDuration)
@@ -556,7 +565,7 @@ func runOne(
 		process.terminate()
 		<-waitDone
 
-		logErr := finishLog()
+		logErr := finishFailureLog()
 		outcome := runOutcome{
 			ExitCode:  1,
 			Tail:      tailBuffer.String(),
@@ -564,7 +573,7 @@ func runOne(
 			Truncated: diskWriter.truncated,
 		}
 		if logErr != nil {
-			return outcome, fmt.Errorf("write check log: %w", logErr)
+			return outcome, logErr
 		}
 
 		if runContext.Err() == context.DeadlineExceeded {
@@ -577,14 +586,17 @@ func runOne(
 		return outcome, nil
 
 	case waitErr := <-waitDone:
-		if logErr := finishLog(); logErr != nil {
-			return runOutcome{ExitCode: 1, Tail: tailBuffer.String(), LogPath: logPath, Truncated: diskWriter.truncated}, fmt.Errorf("write check log: %w", logErr)
-		}
 		if waitErr == nil {
+			if logErr := finishLog(); logErr != nil {
+				return runOutcome{ExitCode: 1, Tail: tailBuffer.String(), LogPath: logPath, Truncated: diskWriter.truncated}, fmt.Errorf("write check log: %w", logErr)
+			}
 			if err := removeFileWithRetries(logPath); err != nil {
 				return runOutcome{ExitCode: 1, Tail: tailBuffer.String(), LogPath: logPath}, fmt.Errorf("remove successful check log: %w", err)
 			}
 			return runOutcome{ExitCode: 0, Tail: tailBuffer.String()}, nil
+		}
+		if logErr := finishFailureLog(); logErr != nil {
+			return runOutcome{ExitCode: 1, Tail: tailBuffer.String(), LogPath: logPath, Truncated: diskWriter.truncated}, logErr
 		}
 
 		if errors.Is(waitErr, exec.ErrWaitDelay) {

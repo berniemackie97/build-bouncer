@@ -2,6 +2,14 @@ package config
 
 import "time"
 
+const (
+	MaxParallelChecks         = 32
+	MaxCheckTimeout           = 2 * time.Hour
+	MaxLogBytes         int64 = 64 << 20
+	MaxSavedLogs              = 100
+	MaxLogRetentionDays       = 365
+)
+
 type Config struct {
 	Version    int        `yaml:"version"`
 	Meta       Meta       `yaml:"meta,omitempty"`

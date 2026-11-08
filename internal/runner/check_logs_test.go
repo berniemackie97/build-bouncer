@@ -230,3 +230,66 @@ func TestLargeOutputUsesBoundedMemoryAndDisk(t *testing.T) {
 			retained.Len(), len(tail.buffer), writer.truncated, writer.err)
 	}
 }
+
+func TestPruneCheckLogsProtectsActiveFiles(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	write := func(name string, age time.Duration) {
+		t.Helper()
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte("output"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		modified := now.Add(-age)
+		if err := os.Chtimes(path, modified, modified); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("build-bouncer-running.pending", 0)
+	write("build-bouncer-interrupted.pending", 30*24*time.Hour)
+	write("build-bouncer-old.log", 48*time.Hour)
+	write("build-bouncer-new.log", 24*time.Hour)
+	if err := pruneCheckLogs(dir, logLimits{maxBytes: 128, keep: 1, days: 7}, now); err != nil {
+		t.Fatal(err)
+	}
+	for name, keep := range map[string]bool{
+		"build-bouncer-running.pending":     true,
+		"build-bouncer-interrupted.pending": false,
+		"build-bouncer-old.log":             false,
+		"build-bouncer-new.log":             true,
+	} {
+		_, err := os.Stat(filepath.Join(dir, name))
+		if keep && err != nil || !keep && !os.IsNotExist(err) {
+			t.Errorf("%s: expected keep=%v, stat=%v", name, keep, err)
+		}
+	}
+	path := filepath.Join(dir, "build-bouncer-running.pending")
+	if err := os.WriteFile(path, []byte("still writing"), 0o600); err != nil {
+		t.Fatalf("active writer lost its file: %v", err)
+	}
+}
+
+func TestFailedCheckPublishesCompletedLog(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{Checks: []config.Check{{Name: "fails", Run: failCommand("bad")}}}
+	report, err := RunAllReport(root, cfg, Options{MaxSavedLogs: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := report.LogFiles["fails"]
+	if !strings.HasSuffix(path, ".log") {
+		t.Fatalf("failed check log not published: %q", path)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("failed check log not saved: %v", err)
+	}
+	files, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range files {
+		if strings.HasSuffix(file.Name(), ".pending") {
+			t.Fatalf("completed check left active log behind: %s", file.Name())
+		}
+	}
+}

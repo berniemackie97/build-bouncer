@@ -8,15 +8,14 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/berniemackie97/build-bouncer/internal/config"
 )
 
 const (
 	defaultLogBytes      int64 = 4 << 20
-	maxLogBytes          int64 = 64 << 20
 	defaultSavedLogs           = 20
-	maxSavedLogs               = 100
 	defaultRetentionDays       = 7
-	maxRetentionDays           = 365
 )
 
 type logLimits struct {
@@ -36,10 +35,10 @@ func resolveLogLimits(options Options) (logLimits, error) {
 	if limits.days == 0 {
 		limits.days = defaultRetentionDays
 	}
-	if limits.maxBytes < 0 || limits.maxBytes > maxLogBytes ||
-		limits.keep < 0 || limits.keep > maxSavedLogs ||
-		limits.days < 0 || limits.days > maxRetentionDays {
-		return logLimits{}, fmt.Errorf("runner log limits must be positive and at most %d bytes, %d saved logs and %d days", maxLogBytes, maxSavedLogs, maxRetentionDays)
+	if limits.maxBytes < 0 || limits.maxBytes > config.MaxLogBytes ||
+		limits.keep < 0 || limits.keep > config.MaxSavedLogs ||
+		limits.days < 0 || limits.days > config.MaxLogRetentionDays {
+		return logLimits{}, fmt.Errorf("runner log limits must be positive and at most %d bytes, %d saved logs and %d days", config.MaxLogBytes, config.MaxSavedLogs, config.MaxLogRetentionDays)
 	}
 	return limits, nil
 }
@@ -108,7 +107,11 @@ func pruneCheckLogs(dir string, limits logLimits, now time.Time) error {
 	cutoff := now.Add(-time.Duration(limits.days) * 24 * time.Hour)
 	var existing []logEntry
 	for _, entry := range entries {
-		if !strings.HasPrefix(entry.Name(), "build-bouncer-") || !strings.HasSuffix(entry.Name(), ".log") || !entry.Type().IsRegular() {
+		if !strings.HasPrefix(entry.Name(), "build-bouncer-") || !entry.Type().IsRegular() {
+			continue
+		}
+		pending := strings.HasSuffix(entry.Name(), ".pending")
+		if !pending && !strings.HasSuffix(entry.Name(), ".log") {
 			continue
 		}
 		info, err := entry.Info()
@@ -119,6 +122,9 @@ func pruneCheckLogs(dir string, limits logLimits, now time.Time) error {
 			if err := os.Remove(filepath.Join(dir, entry.Name())); err != nil {
 				return err
 			}
+			continue
+		}
+		if pending {
 			continue
 		}
 		existing = append(existing, logEntry{name: entry.Name(), modTime: info.ModTime()})
