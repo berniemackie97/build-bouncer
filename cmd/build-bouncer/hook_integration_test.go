@@ -87,10 +87,7 @@ func TestHookSubcommandsInstallStatusUninstall(t *testing.T) {
 		t.Fatalf("expected hook to be removed, stat err=%v", err)
 	}
 
-	bin := filepath.Join(repo, ".git", "hooks", "bin", "build-bouncer")
-	if runtime.GOOS == "windows" {
-		bin += ".exe"
-	}
+	bin := hookCopiedBinaryPath(repo)
 	if _, err := os.Stat(bin); !os.IsNotExist(err) {
 		t.Fatalf("expected copied binary to be removed, stat err=%v", err)
 	}
@@ -118,10 +115,7 @@ func TestHookSubcommandsInstallNoCopy(t *testing.T) {
 		t.Fatalf("expected copied binary absent, got %q", stdout)
 	}
 
-	bin := filepath.Join(repo, ".git", "hooks", "bin", "build-bouncer")
-	if runtime.GOOS == "windows" {
-		bin += ".exe"
-	}
+	bin := hookCopiedBinaryPath(repo)
 	if _, err := os.Stat(bin); !os.IsNotExist(err) {
 		t.Fatalf("expected no copied binary, stat err=%v", err)
 	}
@@ -309,7 +303,7 @@ func TestHookReinstallRemovesPushBypass(t *testing.T) {
 		t.Fatalf("read hook: %v", err)
 	}
 
-	if !strings.Contains(string(hookBytes), "# build-bouncer pre-push hook v3") {
+	if !strings.Contains(string(hookBytes), "# build-bouncer pre-push hook v4") {
 		t.Fatalf("expected v3 hook, got: %q", string(hookBytes))
 	}
 	for _, forbidden := range []string{"--force-push", "GIT_PUSH_OPTION_COUNT", "ps -o args=", "eval "} {
@@ -335,7 +329,7 @@ func TestHookUsesConfiguredHooksPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(hook), `$hook_dir/bin/build-bouncer`) {
+	if !strings.Contains(string(hook), `$hook_dir/bin/build-bouncer-$platform-$arch`) {
 		t.Fatal("copied binary must be resolved alongside the active hook")
 	}
 	if _, err := os.Stat(filepath.Join(repo, ".git", "hooks", "pre-push")); !os.IsNotExist(err) {
@@ -415,10 +409,7 @@ func TestHookUninstallPreservesHookWhenBinaryCleanupFails(t *testing.T) {
 	if code, _, stderr := runHookCmd([]string{"install"}); code != exitOK {
 		t.Fatalf("hook install: %d %s", code, stderr)
 	}
-	binary := filepath.Join(repo, ".git", "hooks", "bin", "build-bouncer")
-	if runtime.GOOS == "windows" {
-		binary += ".exe"
-	}
+	binary := hookCopiedBinaryPath(repo)
 	if err := os.Remove(binary); err != nil {
 		t.Fatal(err)
 	}
