@@ -104,7 +104,10 @@ func runConfigure(opts configureOptions, ctx cli.Context, input *bufio.Reader) i
 			return exitUsage
 		}
 		after.Checks = updated
-		after.Meta.Inputs = mergeInputs(after.Meta.Inputs, inputs)
+		previousInputs := mergeInputs(after.Meta.Inputs, nil)
+		delete(previousInputs, "node.workspace")
+		delete(previousInputs, "node.turbo")
+		after.Meta.Inputs = mergeInputs(previousInputs, inputs)
 	}
 	if opts.dotnet {
 		profile, solution, err := dotnetProfile(root, opts.solution)
