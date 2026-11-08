@@ -162,6 +162,13 @@ func restorePublishedHook(path string, published, previous []byte, mode os.FileM
 		return err
 	}
 	if existed && bytes.Equal(data, previous) {
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		if info.Mode().Perm() != mode {
+			return os.Chmod(path, mode)
+		}
 		return nil
 	}
 	if !bytes.Equal(data, published) {
