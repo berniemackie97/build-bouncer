@@ -119,3 +119,29 @@ func TestInvalidConfigurationNeverOverwrites(t *testing.T) {
 		}
 	}
 }
+
+func TestAllowFailurePolicyRoundTripAndRejectsUnusedPatterns(t *testing.T) {
+	cfg, err := Parse([]byte("version: 1\nchecks:\n  - name: optional-report\n    run: exit 7\n    allowFailure: true\nprotection:\n  level: lax\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Checks[0].AllowFailure {
+		t.Fatal("explicit check exception lost during parsing")
+	}
+	target := filepath.Join(t.TempDir(), "config.yaml")
+	if err := Save(target, cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(target)
+	if err != nil || !loaded.Checks[0].AllowFailure {
+		t.Fatalf("explicit check exception lost during save: %v", err)
+	}
+	for _, body := range []string{
+		"version: 1\nchecks:\n  - name: test\n    run: echo ok\nprotection:\n  level: lax\n  criticalPatterns:\n    - build\n",
+		"version: 1\nchecks:\n  - name: test\n    run: echo ok\nprotection:\n  criticalPatterns:\n    - lint\n",
+	} {
+		if _, err := Parse([]byte(body)); err == nil || !strings.Contains(err.Error(), "criticalPatterns") {
+			t.Fatalf("legacy unused critical patterns must be rejected: %v", err)
+		}
+	}
+}
