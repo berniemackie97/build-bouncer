@@ -166,7 +166,11 @@ func stageExecutable(dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	in, err := os.Open(executable)
+	return stageFile(executable, dir, 0o755)
+}
+
+func stageFile(source, dir string, mode os.FileMode) (string, error) {
+	in, err := os.Open(source)
 	if err != nil {
 		return "", err
 	}
@@ -181,7 +185,7 @@ func stageExecutable(dir string) (string, error) {
 			_ = os.Remove(out.Name())
 		}
 	}()
-	if err := out.Chmod(0o755); err != nil {
+	if err := out.Chmod(mode); err != nil {
 		return "", err
 	}
 	if _, err := io.Copy(out, in); err != nil {
