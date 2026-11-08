@@ -212,3 +212,40 @@ func TestValidationDoesNotExecuteUserCommands(t *testing.T) {
 		t.Fatalf("validation executed a configured command: %v", err)
 	}
 }
+
+func TestUnusableConfigRefusesHookReplacement(t *testing.T) {
+	for _, kind := range []string{"malformed", "dangling symlink"} {
+		t.Run(kind, func(t *testing.T) {
+			if kind == "dangling symlink" && runtime.GOOS == "windows" {
+				t.Skip("Windows symlinks may require developer mode")
+			}
+			root := withTempRepo(t)
+			if code, _, stderr := runHookCmd([]string{"install", "--no-copy"}); code != exitOK {
+				t.Fatalf("initial hook install failed: %s", stderr)
+			}
+			hookPath := filepath.Join(root, ".git", "hooks", "pre-push")
+			before, err := os.ReadFile(hookPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			configPath := config.DefaultConfigPath(root)
+			if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if kind == "malformed" {
+				if err := os.WriteFile(configPath, []byte("invalid yaml config"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.Symlink(filepath.Join(t.TempDir(), "missing.yaml"), configPath); err != nil {
+				t.Fatal(err)
+			}
+			if code, _, stderr := runHookCmd([]string{"install", "--no-copy", "--force"}); code != exitUsage {
+				t.Fatalf("hook installation admitted unusable config: %d %s", code, stderr)
+			}
+			after, err := os.ReadFile(hookPath)
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatalf("refused installation changed hook: %v", err)
+			}
+		})
+	}
+}
