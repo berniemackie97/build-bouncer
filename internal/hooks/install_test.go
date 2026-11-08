@@ -14,8 +14,8 @@ func TestHookSelectsCopiedBinaryForHostAndArchitecture(t *testing.T) {
 		t.Skip("POSIX shell selection is exercised on Linux and macOS")
 	}
 	cases := []struct {
-		name, system, machine     string
-		copy, hasCopy             bool
+		name, system, machine    string
+		copy, hasCopy            bool
 		binarySystem, binaryArch string
 	}{
 		{name: "Darwin ARM64 selects host binary", system: "Darwin", machine: "arm64", copy: true, hasCopy: true, binarySystem: "darwin", binaryArch: "arm64"},
@@ -43,7 +43,7 @@ func TestHookSelectsCopiedBinaryForHostAndArchitecture(t *testing.T) {
 			}
 			uname := "#!/bin/sh\ncase \"$1\" in\n  -s) printf '%s\\n' '" + tc.system + "' ;;\n  -m) printf '%s\\n' '" + tc.machine + "' ;;\nesac\n"
 			for name, body := range map[string]string{
-				"uname": uname,
+				"uname":         uname,
 				"build-bouncer": "#!/bin/sh\nexit 0\n",
 			} {
 				if err := os.WriteFile(filepath.Join(shimDir, name), []byte(body), 0o755); err != nil {
