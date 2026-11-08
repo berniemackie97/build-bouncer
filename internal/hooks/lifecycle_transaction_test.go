@@ -89,7 +89,7 @@ func TestInstallRollbackOnHookPublicationFailure(t *testing.T) {
 			published := false
 			err := installPrePushHook(InstallOptions{
 				CopySelf: true,
-				Force: variant == "force foreign hook and binary",
+				Force:    variant == "force foreign hook and binary",
 			}, func(path string, body []byte, existed bool) error {
 				if err := writePrePushHook(path, body, existed); err != nil {
 					return err
