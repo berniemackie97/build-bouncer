@@ -47,7 +47,6 @@ func generatedFindings(root string, cfg *config.Config) []generatedFinding {
 	return findings
 }
 
-
 func validateDotNetGenerated(root, solution string, checks []config.Check, add func(string, string)) {
 	if len(checks) == 0 {
 		return
