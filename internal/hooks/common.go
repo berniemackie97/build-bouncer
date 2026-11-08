@@ -25,7 +25,7 @@ func ownedPrePushHook(data []byte) bool {
 		return false
 	}
 	switch string(bytes.TrimSuffix(second, []byte("\r"))) {
-	case prePushMarker + "1", prePushMarker + "2", prePushMarker + "3":
+	case prePushMarker + "1", prePushMarker + "2", prePushMarker + "3", prePushMarker + "4":
 		return true
 	}
 	return false
@@ -34,6 +34,12 @@ func ownedPrePushHook(data []byte) bool {
 func generatedPrePushHook(data []byte) bool {
 	return bytes.Equal(data, []byte(renderPrePushHook(false))) ||
 		bytes.Equal(data, []byte(renderPrePushHook(true)))
+}
+
+func knownGeneratedPrePushHook(data []byte) bool {
+	return generatedPrePushHook(data) ||
+		bytes.Equal(data, []byte(renderLegacyPrePushHook(false))) ||
+		bytes.Equal(data, []byte(renderLegacyPrePushHook(true)))
 }
 
 func repoHooksDir() (repoRoot string, hooksDir string, err error) {
