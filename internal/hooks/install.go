@@ -186,7 +186,7 @@ fi
 
 if [ -t 0 ]; then
   "$bb" check --hook
-elif [ -e /dev/tty ]; then
+elif ( : </dev/tty ) 2>/dev/null; then
   "$bb" check --hook < /dev/tty
 else
   "$bb" check --hook

@@ -151,6 +151,12 @@ Initialization uses the selected local template, with safe project discovery whe
 
 Static admission cannot certify successful execution, all GitHub Actions behavior, arbitrary shell scripts, or externally installed tools. Run `build-bouncer check --verbose` and trusted repository CI to verify those independently.
 
+### Mixed-workspace execution smoke
+
+The Mixed workspace smoke GitHub Actions workflow creates a temporary Git repository containing a pnpm root workspace, an excluded standalone application, and two nested .NET 10 solutions. It builds BuildBouncer, runs the actual mixed setup and checks, performs a Git push through the installed pre-push hook, and verifies refusal when generated targets become invalid. This runs on Linux, macOS, and Windows.
+
+To run the opt-in integration test locally, install Go, Git, Node 24, pnpm 10.0.0, and .NET 10. Set the environment variable BUILDBOUNCER_REAL_WORKSPACE_SMOKE to 1, then run the TestRealMixedWorkspaceSmoke Go test in cmd/build-bouncer with a suitable timeout. Ordinary Go test runs skip this tool-dependent acceptance test. The public fixture does not substitute for validation of an independent private workspace.
+
 ### Step 2 — Review and customize the checks
 
 Use `build-bouncer doctor` to inspect generated commands and prerequisites. `build-bouncer configure` opens an interactive terminal menu to refresh .NET checks, root Node scripts, or both, set protection, or manage custom checks. You can also use scriptable flags:
