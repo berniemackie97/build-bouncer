@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +14,22 @@ import (
 )
 
 const prePushMarker = "# build-bouncer pre-push hook v"
+
+func ownedPrePushHook(data []byte) bool {
+	first, rest, ok := bytes.Cut(data, []byte("\n"))
+	if !ok || !bytes.Equal(bytes.TrimSuffix(first, []byte("\r")), []byte("#!/bin/sh")) {
+		return false
+	}
+	second, _, ok := bytes.Cut(rest, []byte("\n"))
+	if !ok {
+		return false
+	}
+	switch string(bytes.TrimSuffix(second, []byte("\r"))) {
+	case prePushMarker + "1", prePushMarker + "2", prePushMarker + "3":
+		return true
+	}
+	return false
+}
 
 func repoHooksDir() (repoRoot string, hooksDir string, err error) {
 	root, err := git.FindRepoRoot()
