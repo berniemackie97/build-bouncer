@@ -54,9 +54,9 @@ func FormatPrompt(stderr io.Writer, report runner.Report, protectionLevel string
 		fmt.Fprintln(stderr, tui.Dim("  Fix the issues above to proceed"))
 
 	case "lax":
-		fmt.Fprintln(stderr, tui.Info("  Lax mode: Critical failures only"))
-		if !hasCriticalFailures(report) {
-			fmt.Fprintln(stderr, tui.Success("  No critical failures detected"))
+		fmt.Fprintln(stderr, tui.Info("  Lax mode: Only explicitly allowed check failures may proceed"))
+		if !hasBlockingFailures(report) {
+			fmt.Fprintln(stderr, tui.Success("  No blocking failures detected"))
 		}
 
 	case "moderate":

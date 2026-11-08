@@ -24,6 +24,7 @@ type Check struct {
 	Platforms         StringList        `yaml:"platforms,omitempty"`
 	Requires          StringList        `yaml:"requires,omitempty"`
 	AllowMissingTools bool              `yaml:"allowMissingTools,omitempty"`
+	AllowFailure      bool              `yaml:"allowFailure,omitempty"`
 	Timeout           time.Duration     `yaml:"timeout,omitempty"`
 }
 
