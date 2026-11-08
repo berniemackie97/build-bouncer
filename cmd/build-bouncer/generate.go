@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/berniemackie97/build-bouncer/internal/config"
@@ -54,6 +55,12 @@ func stableCheckID(source string, check config.Check) string {
 	}
 	if check.AllowMissingTools {
 		parts = append(parts, "allowMissingTools")
+	}
+	if check.AllowFailure {
+		parts = append(parts, "allowFailure")
+	}
+	if check.Timeout != 0 {
+		parts = append(parts, "timeout="+strconv.FormatInt(int64(check.Timeout), 10))
 	}
 	for _, part := range parts {
 		h.Write([]byte(part))

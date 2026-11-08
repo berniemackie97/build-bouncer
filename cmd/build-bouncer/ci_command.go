@@ -63,10 +63,18 @@ func runCISync(ctx cli.Context) int {
 
 	ciChecks = stampGeneratedChecks(ciChecks, "ci")
 
-	mergedBase, removed := stripCIChecks(cfg.Checks)
+	mergedBase, removed, err := stripCIChecks(cfg.Checks)
+	if err != nil {
+		fmt.Fprintln(ctx.Stderr, "ci sync:", err)
+		return exitUsage
+	}
 	mergedBase = stripManualPlaceholder(mergedBase)
 
-	merge := mergeChecks(mergedBase, ciChecks)
+	merge, err := mergeChecks(mergedBase, ciChecks)
+	if err != nil {
+		fmt.Fprintln(ctx.Stderr, "ci sync:", err)
+		return exitUsage
+	}
 	cfg.Checks = merge.Merged
 
 	if err := config.Save(cfgPath, cfg); err != nil {

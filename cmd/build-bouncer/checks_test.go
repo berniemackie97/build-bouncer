@@ -1,7 +1,9 @@
 package main
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/berniemackie97/build-bouncer/internal/config"
 )
@@ -15,7 +17,10 @@ func TestMergeChecksSkipsDuplicates(t *testing.T) {
 		{Name: "ci:lint", Run: "go vet ./...", Cwd: ""},
 	}
 
-	res := mergeChecks(existing, additions)
+	res, err := mergeChecks(existing, additions)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(res.Merged) != 2 {
 		t.Fatalf("expected 2 merged checks, got %d", len(res.Merged))
 	}
@@ -42,7 +47,10 @@ func TestStripManualPlaceholder(t *testing.T) {
 func TestMergeChecksPreservesMissingToolPolicy(t *testing.T) {
 	existing := []config.Check{{Name: "required", Run: "go test ./..."}}
 	additions := []config.Check{{Name: "optional", Run: "go test ./...", AllowMissingTools: true}}
-	merged := mergeChecks(existing, additions)
+	merged, err := mergeChecks(existing, additions)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(merged.Merged) != 2 || len(merged.Skipped) != 0 {
 		t.Fatalf("different missing-tool policies must not deduplicate: %+v", merged)
 	}
@@ -60,7 +68,10 @@ func TestGeneratedCheckIDsIncludeMissingToolPolicy(t *testing.T) {
 func TestMergeChecksPreservesDistinctPlatforms(t *testing.T) {
 	first := config.Check{Name: "ci:test:linux", Run: "go test ./...", Shell: "bash", OS: config.StringList{"linux"}}
 	second := config.Check{Name: "ci:test:macos", Run: "go test ./...", Shell: "bash", OS: config.StringList{"macos"}}
-	result := mergeChecks(nil, []config.Check{first, second})
+	result, err := mergeChecks(nil, []config.Check{first, second})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(result.Added) != 2 || len(result.Skipped) != 0 {
 		t.Fatalf("OS-specific checks were merged together: %+v", result)
 	}
@@ -98,5 +109,80 @@ func TestCheckContentKeySharesDirectShellParser(t *testing.T) {
 	malformed := config.Check{Run: "bash -lc \"go test ./..."}
 	if checkContentKey(canonical) == checkContentKey(malformed) {
 		t.Fatal("malformed direct invocation was normalized into an executable check")
+	}
+}
+
+func TestMergeChecksPreservesEnforcementDifferences(t *testing.T) {
+	base := config.Check{
+		Name: "manual", Run: "go test ./...", Shell: "bash",
+		OS: config.StringList{"linux"}, Requires: config.StringList{"go"},
+	}
+	cases := []struct {
+		name   string
+		change func(*config.Check)
+	}{
+		{name: "allow failure", change: func(c *config.Check) { c.AllowFailure = true }},
+		{name: "required prerequisites", change: func(c *config.Check) { c.Requires = config.StringList{"go", "git"} }},
+		{name: "timeout", change: func(c *config.Check) { c.Timeout = time.Minute }},
+		{name: "allow missing tools", change: func(c *config.Check) { c.AllowMissingTools = true }},
+		{name: "environment delimiters", change: func(c *config.Check) { c.Env = map[string]string{"A": "x;B=y"} }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			different := base
+			different.Name = "generated"
+			tc.change(&different)
+			if checkContentKey(base) == checkContentKey(different) {
+				t.Fatal("different check semantics share an identity")
+			}
+			merged, err := mergeChecks([]config.Check{base}, []config.Check{different})
+			if err != nil || len(merged.Added) != 1 || len(merged.Skipped) != 0 {
+				t.Fatalf("different check was suppressed: %+v %v", merged, err)
+			}
+		})
+	}
+	one := base
+	one.Env = map[string]string{"A": "x;B=y"}
+	two := base
+	two.Env = map[string]string{"A": "x", "B": "y"}
+	if checkContentKey(one) == checkContentKey(two) {
+		t.Fatal("ambiguous environment delimiters collapsed distinct environments")
+	}
+	original := base
+	original.Env = map[string]string{"B": "2", "A": "1"}
+	reordered := base
+	reordered.Env = map[string]string{"A": "1", "B": "2"}
+	reordered.Requires = config.StringList{"go"}
+	if checkContentKey(original) != checkContentKey(reordered) {
+		t.Fatal("map iteration order changed the content key")
+	}
+}
+
+func TestMergeChecksRejectsConflictingIDs(t *testing.T) {
+	original := config.Check{ID: "same-id", Name: "original", Run: "echo first"}
+	changed := config.Check{ID: "same-id", Name: "changed", Run: "echo second"}
+	if _, err := mergeChecks([]config.Check{original}, []config.Check{changed}); err == nil || !strings.Contains(err.Error(), "conflicting content") {
+		t.Fatalf("an existing generated check ID hid different content: %v", err)
+	}
+	if _, err := mergeChecks([]config.Check{original, changed}, nil); err == nil {
+		t.Fatal("inconsistent existing IDs must fail closed")
+	}
+}
+
+func TestGeneratedCheckIDTracksEnforcementChanges(t *testing.T) {
+	base := config.Check{Name: "tests", Run: "go test ./..."}
+	defaultID := stableCheckID("template:go", base)
+	if defaultID != "template:go:0058d81af378" {
+		t.Fatalf("default generated identity changed, breaking existing configuration: %q", defaultID)
+	}
+	for _, change := range []func(*config.Check){
+		func(c *config.Check) { c.AllowFailure = true },
+		func(c *config.Check) { c.Timeout = time.Minute },
+	} {
+		edited := base
+		change(&edited)
+		if stableCheckID("template:go", edited) == defaultID {
+			t.Fatalf("generated ID accepted modified policy: %+v", edited)
+		}
 	}
 }

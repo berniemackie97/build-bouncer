@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/berniemackie97/build-bouncer/internal/cli"
 	"github.com/berniemackie97/build-bouncer/internal/config"
@@ -292,5 +293,93 @@ jobs:
 	second, err := os.ReadFile(path)
 	if err != nil || !bytes.Equal(first, second) {
 		t.Fatalf("CI sync was not idempotent: %v", err)
+	}
+}
+
+func TestCISyncDoesNotSuppressMandatoryCheckWithOptionalLocalPolicy(t *testing.T) {
+	repo := withTempRepo(t)
+	cfgPath := config.DefaultConfigPath(repo)
+	manual := config.Check{
+		Name: "local-optional", Run: "go test ./...", Shell: "bash",
+		OS: config.StringList{"linux"}, Requires: config.StringList{"go"},
+		AllowFailure: true,
+	}
+	if err := config.Save(cfgPath, &config.Config{
+		Checks: []config.Check{manual}, Protection: config.Protection{Level: "lax"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(repo, ".github", "workflows")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - name: required\n        run: go test ./...\n"
+	if err := os.WriteFile(filepath.Join(dir, "ci.yml"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	ctx := cli.Context{Stdout: &stdout, Stderr: &stderr}
+	if code := runCISync(ctx); code != exitOK {
+		t.Fatalf("CI sync failed: %d %s", code, stderr.String())
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Checks) != 2 || !cfg.Checks[0].AllowFailure || cfg.Checks[1].AllowFailure || !isCICheck(cfg.Checks[1]) {
+		t.Fatalf("required imported check was suppressed: %+v", cfg.Checks)
+	}
+	before, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runCISync(ctx); code != exitOK {
+		t.Fatalf("repeat CI sync failed: %d %s", code, stderr.String())
+	}
+	after, err := os.ReadFile(cfgPath)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("repeated CI sync changed config: %v", err)
+	}
+}
+
+func TestCISyncRefusesModifiedOwnedPolicyWithoutWrites(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*config.Check)
+	}{
+		{name: "allow failure", change: func(c *config.Check) { c.AllowFailure = true }},
+		{name: "timeout", change: func(c *config.Check) { c.Timeout = time.Minute }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := withTempRepo(t)
+			path := config.DefaultConfigPath(repo)
+			dir := filepath.Join(repo, ".github", "workflows")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			workflow := "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - name: required\n        run: go test ./...\n"
+			if err := os.WriteFile(filepath.Join(dir, "ci.yml"), []byte(workflow), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			checks := stampGeneratedChecks([]config.Check{{Name: "ci:ci:test:linux:required", Source: "ci:ci", Run: "go test ./...", Shell: "bash", OS: config.StringList{"linux"}}}, "ci")
+			tc.change(&checks[0])
+			if err := config.Save(path, &config.Config{Checks: checks}); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+			if code := runCISync(cli.Context{Stdout: &stdout, Stderr: &stderr}); code != exitUsage || !strings.Contains(stderr.String(), "has been modified") {
+				t.Fatalf("CI sync accepted edited policy: exit=%d stderr=%q", code, stderr.String())
+			}
+			after, err := os.ReadFile(path)
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatalf("rejected CI sync changed config: %v", err)
+			}
+		})
 	}
 }
