@@ -290,4 +290,3 @@ func TestV4CopiedHookBlocksRealGitPush(t *testing.T) {
 	}
 	assertLifecycleArtifact(t, filepath.Join(repo, ".hook-invoked"), []byte("checked"))
 }
-

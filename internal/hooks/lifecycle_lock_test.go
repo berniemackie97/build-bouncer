@@ -106,4 +106,3 @@ func TestLifecycleLockReleasedAfterFailedInstallation(t *testing.T) {
 		t.Fatalf("retry after failure: %v", err)
 	}
 }
-
