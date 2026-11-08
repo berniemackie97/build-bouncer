@@ -73,7 +73,9 @@ func TestLifecycleLockRequiresManualRecoveryAfterInterruption(t *testing.T) {
 		func() error { return UninstallPrePushHook(true) },
 		func() error { _, err := GetStatus(); return err },
 	} {
-		if err := operation(); err == nil || !strings.Contains(err.Error(), lockPath) {
+		if err := operation(); err == nil ||
+			!strings.Contains(err.Error(), "hook lifecycle lock") ||
+			!strings.Contains(err.Error(), lifecycleLockName) {
 			t.Fatalf("stale lock should block safely with useful location: %v", err)
 		}
 	}
