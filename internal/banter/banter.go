@@ -42,7 +42,6 @@ type State struct {
 
 type Picker struct {
 	mu        sync.Mutex
-	root      string
 	cfg       Config
 	pack      Pack
 	state     State
@@ -50,10 +49,8 @@ type Picker struct {
 	pending   map[string][]string
 }
 
-var stateFlushMutex sync.Mutex
-
 func Load(root string, cfg Config) (*Picker, error) {
-	p := &Picker{root: root, cfg: cfg}
+	p := &Picker{cfg: cfg}
 	packPath := filepath.Join(root, filepath.FromSlash(cfg.File))
 	data, err := os.ReadFile(packPath)
 	if err != nil {
@@ -140,8 +137,6 @@ func (p *Picker) Flush() error {
 }
 
 func (p *Picker) flushPending(pending map[string][]string) (err error) {
-	stateFlushMutex.Lock()
-	defer stateFlushMutex.Unlock()
 	unlock, err := lockStateFile(p.statePath)
 	if err != nil {
 		return err
