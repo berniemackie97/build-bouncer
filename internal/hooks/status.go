@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ type Status struct {
 	HookPath     string
 	Installed    bool
 	Ours         bool
+	Current      bool
 	Executable   bool
 	CopiedBinary bool
 }
@@ -35,6 +37,8 @@ func GetStatus() (Status, error) {
 		}
 		st.Installed = true
 		st.Ours = ownedPrePushHook(data)
+		st.Current = bytes.Equal(data, []byte(renderPrePushHook(true))) ||
+			bytes.Equal(data, []byte(renderPrePushHook(false)))
 		st.Executable = runtime.GOOS == "windows" || info.Mode().Perm()&0o111 != 0
 	} else if !os.IsNotExist(err) {
 		return st, err
