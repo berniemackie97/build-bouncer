@@ -220,4 +220,3 @@ func stageFile(source, dir string, mode os.FileMode) (string, error) {
 	out = nil
 	return path, nil
 }
-
