@@ -78,7 +78,8 @@ func uninstallPrePushHookLocked(hooksDir string, force bool, removeHook func(str
 	exists, owned, err := copiedBinaryOwnership(binaryPath)
 	if errors.Is(err, errOrphanedCopiedBinary) && force {
 		if err := removeHook(hookPath); err != nil {
-			return fmt.Errorf("remove hook: %w", err)
+			return errors.Join(fmt.Errorf("remove hook: %w", err),
+				restoreDeletedHook(hookPath, data, info.Mode().Perm()))
 		}
 		if err := removeOwnedFile(copiedBinaryProofPath(binaryPath)); err != nil {
 			return errors.Join(fmt.Errorf("remove orphaned ownership record: %w", err),

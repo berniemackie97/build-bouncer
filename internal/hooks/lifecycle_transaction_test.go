@@ -304,7 +304,11 @@ func TestLifecycleLockBlocksConcurrentProcesses(t *testing.T) {
 	}
 	repo := filepath.Dir(filepath.Dir(hooksDir))
 	if err := withLifecycleLock(hooksDir, func() error {
-		cmd := exec.Command(os.Args[0], "-test.run=^TestLifecycleLockChild$")
+		self, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		cmd := exec.Command(self, "-test.run=^TestLifecycleLockChild$")
 		cmd.Dir = repo
 		cmd.Env = append(os.Environ(), "BUILDBOUNCER_HOOK_LOCK_CHILD=1")
 		if output, err := cmd.CombinedOutput(); err != nil {
@@ -515,4 +519,42 @@ func TestInvalidOrphanedRecordRefusesForcedRecovery(t *testing.T) {
 		}
 		assertLifecycleArtifact(t, copiedBinaryProofPath(binary), invalid)
 	}
+}
+
+func TestOrphanedRecordCleanupRestoresHookOnRemovalFailure(t *testing.T) {
+	hooksDir := newLifecycleRepo(t)
+	if err := InstallPrePushHook(InstallOptions{CopySelf: true}); err != nil {
+		t.Fatal(err)
+	}
+	binary := hostCopiedBinaryPath(hooksDir)
+	if err := os.Remove(binary); err != nil {
+		t.Fatal(err)
+	}
+	hook := filepath.Join(hooksDir, "pre-push")
+	previous, err := os.ReadFile(hook)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof := copiedBinaryProofPath(binary)
+	record, err := os.ReadFile(proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure := errors.New("failure after deleting hook")
+	err = uninstallPrePushHook(true, func(path string) error {
+		if err := removeFileWithRetries(path); err != nil {
+			return err
+		}
+		return failure
+	})
+	if !errors.Is(err, failure) {
+		t.Fatalf("injected removal error missing: %v", err)
+	}
+	assertLifecycleArtifact(t, hook, previous)
+	assertLifecycleArtifact(t, proof, record)
+	if err := UninstallPrePushHook(true); err != nil {
+		t.Fatalf("forced orphan cleanup after rollback: %v", err)
+	}
+	assertLifecycleArtifact(t, hook, nil)
+	assertLifecycleArtifact(t, proof, nil)
 }
