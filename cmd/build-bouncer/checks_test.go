@@ -123,6 +123,7 @@ func TestMergeChecksPreservesEnforcementDifferences(t *testing.T) {
 	}{
 		{name: "allow failure", change: func(c *config.Check) { c.AllowFailure = true }},
 		{name: "required prerequisites", change: func(c *config.Check) { c.Requires = config.StringList{"go", "git"} }},
+		{name: "case-sensitive prerequisites", change: func(c *config.Check) { c.Requires = config.StringList{"GO"} }},
 		{name: "timeout", change: func(c *config.Check) { c.Timeout = time.Minute }},
 		{name: "allow missing tools", change: func(c *config.Check) { c.AllowMissingTools = true }},
 		{name: "environment delimiters", change: func(c *config.Check) { c.Env = map[string]string{"A": "x;B=y"} }},

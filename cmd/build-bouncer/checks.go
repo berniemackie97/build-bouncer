@@ -92,7 +92,7 @@ func checkContentKey(c config.Check) string {
 	for _, values := range []config.StringList{c.OS, c.Requires} {
 		normalized := make([]string, 0, len(values))
 		for _, value := range values {
-			if value = strings.ToLower(strings.TrimSpace(value)); value != "" {
+			if value = strings.TrimSpace(value); value != "" {
 				normalized = append(normalized, value)
 			}
 		}
