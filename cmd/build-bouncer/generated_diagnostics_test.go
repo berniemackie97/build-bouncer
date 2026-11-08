@@ -331,3 +331,26 @@ func TestGeneratedWorkingDirectoryAllowsContainedSymlink(t *testing.T) {
 		t.Fatalf("repository-contained working directory refused: %d %s", code, report)
 	}
 }
+
+func TestModernDotNetProfileRequiresRecordedSolution(t *testing.T) {
+	root := withTempRepo(t)
+	writeMixedFile(t, root, "services/api/Api.slnx", "<Solution />")
+	var out, errOut bytes.Buffer
+	if code := newInitCommand().Run(cli.Context{Stdout: &out, Stderr: &errOut},
+		[]string{"--dotnet"}); code != exitOK {
+		t.Fatalf("init: %d %s", code, errOut.String())
+	}
+	path := config.DefaultConfigPath(root)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delete(cfg.Meta.Inputs, "dotnet.solution")
+	if err := config.Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if code, report := runGeneratedValidate(""); code != exitUsage ||
+		!strings.Contains(report, "solution metadata is missing") {
+		t.Fatalf("missing generated target metadata accepted: %d %s", code, report)
+	}
+}
