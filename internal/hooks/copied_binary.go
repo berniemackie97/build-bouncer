@@ -3,6 +3,7 @@ package hooks
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/berniemackie97/build-bouncer/internal/storage"
 )
+
+var errOrphanedCopiedBinary = errors.New("copied executable ownership record exists without its executable")
 
 func hostCopiedBinaryPath(hooksDir string) string {
 	name := "build-bouncer-" + runtime.GOOS + "-" + runtime.GOARCH
@@ -88,7 +91,7 @@ func copiedBinaryOwnership(binaryPath string) (exists bool, owned bool, err erro
 	}
 	if !exists {
 		if recorded {
-			return false, false, fmt.Errorf("copied executable ownership record exists without its executable: %s", binaryPath)
+			return false, false, fmt.Errorf("%w: %s", errOrphanedCopiedBinary, binaryPath)
 		}
 		return false, false, nil
 	}
@@ -104,6 +107,9 @@ func copiedBinaryOwnership(binaryPath string) (exists bool, owned bool, err erro
 
 func validateCopiedBinaryDestination(binaryPath string, force bool) error {
 	exists, owned, err := copiedBinaryOwnership(binaryPath)
+	if errors.Is(err, errOrphanedCopiedBinary) && force {
+		return nil
+	}
 	if err != nil {
 		return err
 	}

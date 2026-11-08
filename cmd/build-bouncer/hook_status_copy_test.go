@@ -118,3 +118,40 @@ func TestPathHookStatusDoesNotDependOnCopiedBinaryOwnership(t *testing.T) {
 		t.Fatalf("incorrect PATH-only status: %d %q %q", code, stdout, stderr)
 	}
 }
+
+func TestHookStatusExplainsOrphanAndLifecycleLock(t *testing.T) {
+	repo := withTempRepo(t)
+	if code, _, stderr := runHookCmd([]string{"install"}); code != exitOK {
+		t.Fatalf("install: %d %s", code, stderr)
+	}
+	binary := hookCopiedBinaryPath(repo)
+	if err := os.Remove(binary); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runHookCmd([]string{"status"})
+	if code != exitOK || !strings.Contains(stdout, "orphaned ownership record: inspect before") ||
+		strings.Contains(stdout, "pre-push hook: installed") {
+		t.Fatalf("orphan status incorrectly reported: %d %q %q", code, stdout, stderr)
+	}
+	lockPath := filepath.Join(repo, ".git", "hooks", ".build-bouncer-hook.lock")
+	if err := os.Mkdir(lockPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range [][]string{{"status"}, {"install", "--force"}, {"uninstall", "--force"}} {
+		code, _, stderr := runHookCmd(action)
+		if code != exitUsage || !strings.Contains(stderr, "hook lifecycle lock") {
+			t.Fatalf("%v bypassed active lifecycle lock: %d %q", action, code, stderr)
+		}
+	}
+	if err := os.Remove(lockPath); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := runHookCmd([]string{"install", "--force"}); code != exitOK {
+		t.Fatalf("explicit orphan repair: %d %s", code, stderr)
+	}
+	if code, stdout, stderr := runHookCmd([]string{"status"}); code != exitOK ||
+		!strings.Contains(stdout, "pre-push hook: installed") ||
+		strings.Contains(stdout, "orphaned ownership record") {
+		t.Fatalf("repaired hook status incorrect: %d %q %q", code, stdout, stderr)
+	}
+}

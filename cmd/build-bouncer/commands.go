@@ -382,6 +382,9 @@ func runHook(args []string, ctx cli.Context) int {
 		fmt.Fprintln(ctx.Stdout, "copied binary present for this OS:", st.CopiedBinary)
 		if st.UsesCopiedBinary {
 			fmt.Fprintln(ctx.Stdout, "copied binary matches ownership record:", st.CopiedBinaryMatchesRecord)
+			if st.CopiedBinaryRecordOrphaned {
+				fmt.Fprintln(ctx.Stdout, "orphaned ownership record: inspect before hook install --force or hook uninstall --force")
+			}
 		}
 		return exitOK
 

@@ -28,7 +28,12 @@ func installPrePushHook(opts InstallOptions, publishHook func(string, []byte, bo
 	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 		return err
 	}
+	return withLifecycleLock(hooksDir, func() error {
+		return installPrePushHookLocked(hooksDir, opts, publishHook)
+	})
+}
 
+func installPrePushHookLocked(hooksDir string, opts InstallOptions, publishHook func(string, []byte, bool) error) error {
 	hookPath := filepath.Join(hooksDir, "pre-push")
 	previous, mode, existed, err := existingHook(hookPath, opts.Force)
 	if err != nil {
@@ -81,18 +86,30 @@ func installPrePushHook(opts InstallOptions, publishHook func(string, []byte, bo
 		return err
 	}
 	var backup string
+	preserveBackup := false
 	if binaryExisted {
 		backup, err = stageFile(binaryPath, binDir, binaryInfo.Mode().Perm())
 		if err != nil {
 			return fmt.Errorf("backup copied binary: %w", err)
 		}
-		defer os.Remove(backup)
+		defer func() {
+			if !preserveBackup {
+				_ = os.Remove(backup)
+			}
+		}()
 	}
 	rollback := func() error {
-		return errors.Join(
-			restoreCopiedBinaryProof(binaryPath, previousProof, proofExisted),
-			restoreCopiedBinary(binaryPath, backup, binaryExisted),
-		)
+		if err := restoreCopiedBinaryIfUnchanged(binaryPath, backup, binaryExisted, copiedDigest); err != nil {
+			if binaryExisted {
+				preserveBackup = true
+				return fmt.Errorf("restore copied executable (original retained at %q): %w", backup, err)
+			}
+			return err
+		}
+		if err := restoreCopiedBinaryProof(binaryPath, previousProof, proofExisted); err != nil {
+			return fmt.Errorf("restore copied executable ownership record: %w", err)
+		}
+		return nil
 	}
 
 	if err := storage.ReplaceStagedFile(stagedBinary, binaryPath); err != nil {
@@ -122,9 +139,38 @@ func writePrePushHook(path string, body []byte, existed bool) error {
 	return os.Chmod(path, 0o755)
 }
 
-func restoreCopiedBinary(path, backup string, existed bool) error {
+func restoreCopiedBinaryIfUnchanged(path, backup string, existed bool, publishedDigest string) error {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		if !existed {
+			return nil
+		}
+		return fmt.Errorf("copied executable disappeared during installation: %s", path)
+	}
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("copied executable changed type during installation: %s", path)
+	}
+	actual, err := fileDigest(path)
+	if err != nil {
+		return err
+	}
+	if actual != publishedDigest {
+		if existed {
+			original, err := fileDigest(backup)
+			if err != nil {
+				return err
+			}
+			if actual == original {
+				return nil
+			}
+		}
+		return fmt.Errorf("copied executable changed during installation; refusing to overwrite: %s", path)
+	}
 	if !existed {
-		return removeOwnedFile(path)
+		return removeFileWithRetries(path)
 	}
 	return storage.ReplaceStagedFile(backup, path)
 }
