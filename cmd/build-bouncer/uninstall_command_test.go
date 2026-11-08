@@ -64,6 +64,9 @@ checks:
 
 func TestUninstallDefaultPreservesData(t *testing.T) {
 	repo := withTempRepo(t)
+	if code, _, stderr := runHookCmd([]string{"install", "--no-copy"}); code != exitOK {
+		t.Fatalf("hook install: %d %s", code, stderr)
+	}
 	configPath := filepath.Join(repo, ".buildbouncer", "config.yaml")
 	statePath := filepath.Join(repo, ".git", "build-bouncer", "state.json")
 	for path, contents := range map[string]string{configPath: "custom config", statePath: "private state"} {
@@ -73,9 +76,6 @@ func TestUninstallDefaultPreservesData(t *testing.T) {
 		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 			t.Fatal(err)
 		}
-	}
-	if code, _, stderr := runHookCmd([]string{"install", "--no-copy"}); code != exitOK {
-		t.Fatalf("hook install: %d %s", code, stderr)
 	}
 	var stdout, stderr bytes.Buffer
 	if code := runUninstall(false, cli.Context{Stdout: &stdout, Stderr: &stderr}); code != exitOK {
@@ -93,15 +93,15 @@ func TestUninstallDefaultPreservesData(t *testing.T) {
 
 func TestUninstallDryRunAndPurgeConfirmation(t *testing.T) {
 	repo := withTempRepo(t)
+	if code, _, stderr := runHookCmd([]string{"install", "--no-copy"}); code != exitOK {
+		t.Fatalf("hook install: %d %s", code, stderr)
+	}
 	path := filepath.Join(repo, ".buildbouncer", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte("user config"), 0o600); err != nil {
 		t.Fatal(err)
-	}
-	if code, _, stderr := runHookCmd([]string{"install", "--no-copy"}); code != exitOK {
-		t.Fatalf("hook install: %d %s", code, stderr)
 	}
 	hookPath := filepath.Join(repo, ".git", "hooks", "pre-push")
 	var stdout, stderr bytes.Buffer
