@@ -174,10 +174,19 @@ func TestHookStatusDetectsModifiedAndLegacyInstallation(t *testing.T) {
 				!strings.Contains(out, "current build-bouncer hook: false") {
 				t.Fatalf("missing outdated-hook diagnostic: %d %q %q", code, out, stderr)
 			}
+			for _, action := range [][]string{{"install", "--no-copy"}, {"uninstall"}} {
+				if code, _, stderr := runHookCmd(action); code != exitUsage ||
+					!strings.Contains(stderr, "modified or older") {
+					t.Fatalf("%v should refuse modified hook: %d %q", action, code, stderr)
+				}
+				if actual, err := os.ReadFile(hookPath); err != nil || !bytes.Equal(actual, tc.body) {
+					t.Fatalf("%v modified an existing hook: %v", action, err)
+				}
+			}
 		})
 	}
-	if code, _, stderr := runHookCmd([]string{"install", "--no-copy"}); code != exitOK {
-		t.Fatalf("reinstall existing owned hook: %s", stderr)
+	if code, _, stderr := runHookCmd([]string{"install", "--force", "--no-copy"}); code != exitOK {
+		t.Fatalf("explicit reinstall of older hook: %s", stderr)
 	}
 	st, err = hooks.GetStatus()
 	if err != nil || !st.Ours || !st.Current {
