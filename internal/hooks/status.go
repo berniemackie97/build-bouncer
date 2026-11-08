@@ -17,6 +17,7 @@ type Status struct {
 	Executable                bool
 	CopiedBinary              bool
 	UsesCopiedBinary          bool
+	LegacyGenerated           bool
 	CopiedBinaryMatchesRecord bool
 }
 
