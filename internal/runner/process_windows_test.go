@@ -43,7 +43,7 @@ func TestWindowsCancelTerminatesStartedDescendant(t *testing.T) {
 	defer cancel()
 	type result struct {
 		outcome runOutcome
-		err error
+		err     error
 	}
 	done := make(chan result, 1)
 	go func() {

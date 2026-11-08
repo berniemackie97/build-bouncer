@@ -17,8 +17,8 @@ func TestParallelVerboseChecksUseCallerOutput(t *testing.T) {
 		checks[i] = config.Check{Name: fmt.Sprintf("check-%02d", i), Run: "echo ready"}
 	}
 	report, err := RunAllReport(t.TempDir(), &config.Config{Checks: checks}, Options{
-		Verbose: true,
-		Output: &output,
+		Verbose:     true,
+		Output:      &output,
 		MaxParallel: 8,
 	})
 	if err != nil || len(report.Failures) != 0 || len(report.Canceled) != 0 {
