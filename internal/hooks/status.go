@@ -8,12 +8,12 @@ import (
 )
 
 type Status struct {
-	RepoRoot      string
-	HookPath      string
-	Installed     bool
-	Ours          bool
-	Executable    bool
-	CopiedBinary  bool
+	RepoRoot     string
+	HookPath     string
+	Installed    bool
+	Ours         bool
+	Executable   bool
+	CopiedBinary bool
 }
 
 func GetStatus() (Status, error) {
