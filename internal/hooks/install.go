@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 
 	"github.com/berniemackie97/build-bouncer/internal/storage"
 )
@@ -31,7 +30,8 @@ func InstallPrePushHook(opts InstallOptions) error {
 		return err
 	}
 
-	var stagedBinary, binaryPath string
+	var stagedBinary, binaryPath, copiedDigest, previousProof string
+	var proofExisted bool
 	if opts.CopySelf {
 		binDir := filepath.Join(hooksDir, "bin")
 		if err := os.MkdirAll(binDir, 0o755); err != nil {
@@ -45,15 +45,23 @@ func InstallPrePushHook(opts InstallOptions) error {
 		if !info.IsDir() {
 			return fmt.Errorf("copied executable directory is not a directory: %s", binDir)
 		}
-		binaryPath = filepath.Join(binDir, "build-bouncer")
-		if runtime.GOOS == "windows" {
-			binaryPath += ".exe"
+		binaryPath = hostCopiedBinaryPath(hooksDir)
+		if err := validateCopiedBinaryDestination(binaryPath, opts.Force); err != nil {
+			return err
+		}
+		previousProof, proofExisted, err = readCopiedBinaryProof(copiedBinaryProofPath(binaryPath))
+		if err != nil {
+			return err
 		}
 		stagedBinary, err = stageExecutable(binDir)
 		if err != nil {
 			return fmt.Errorf("stage copied binary: %w", err)
 		}
 		defer os.Remove(stagedBinary)
+		copiedDigest, err = fileDigest(stagedBinary)
+		if err != nil {
+			return err
+		}
 	}
 
 	body := []byte(renderPrePushHook(opts.CopySelf))
@@ -69,8 +77,13 @@ func InstallPrePushHook(opts InstallOptions) error {
 		return errors.Join(err, restoreHook(hookPath, previous, mode, existed))
 	}
 	if stagedBinary != "" {
+		if err := persistCopiedBinaryProof(binaryPath, copiedDigest); err != nil {
+			return errors.Join(fmt.Errorf("record copied executable ownership: %w", err), restoreHook(hookPath, previous, mode, existed))
+		}
 		if err := storage.ReplaceStagedFile(stagedBinary, binaryPath); err != nil {
-			return errors.Join(fmt.Errorf("install copied binary: %w", err), restoreHook(hookPath, previous, mode, existed))
+			return errors.Join(fmt.Errorf("install copied binary: %w", err),
+				restoreCopiedBinaryProof(binaryPath, previousProof, proofExisted),
+				restoreHook(hookPath, previous, mode, existed))
 		}
 	}
 	return nil

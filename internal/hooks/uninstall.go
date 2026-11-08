@@ -2,11 +2,10 @@
 package hooks
 
 import (
-	"errors"
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 func UninstallPrePushHook(force bool) error {
@@ -39,6 +38,10 @@ func UninstallPrePushHook(force bool) error {
 	if !ours {
 		return removeFileWithRetries(hookPath)
 	}
+	if !bytes.Equal(data, []byte(renderPrePushHook(true))) {
+		return removeFileWithRetries(hookPath)
+	}
+
 	binDir := filepath.Join(hooksDir, "bin")
 	if info, err := os.Lstat(binDir); err == nil {
 		if !info.IsDir() {
@@ -48,28 +51,21 @@ func UninstallPrePushHook(force bool) error {
 		return err
 	}
 
-	p1, p2 := copiedBinaryPaths(hooksDir)
-	var cleanup []error
-	for _, path := range []string{p1, p2, filepath.Join(binDir, "build-bouncer.tmp"), filepath.Join(binDir, "build-bouncer.exe.tmp")} {
-		if err := removeOwnedFile(path); err != nil {
-			cleanup = append(cleanup, fmt.Errorf("remove %s: %w", path, err))
-		}
-	}
-	entries, err := os.ReadDir(binDir)
-	if err != nil && !os.IsNotExist(err) {
-		cleanup = append(cleanup, fmt.Errorf("inspect copied executable directory: %w", err))
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if strings.HasPrefix(name, ".build-bouncer-") && strings.HasSuffix(name, ".tmp") {
-			path := filepath.Join(binDir, name)
-			if err := removeOwnedFile(path); err != nil {
-				cleanup = append(cleanup, fmt.Errorf("remove %s: %w", path, err))
-			}
-		}
-	}
-	if err := errors.Join(cleanup...); err != nil {
+	binaryPath := hostCopiedBinaryPath(hooksDir)
+	exists, owned, err := copiedBinaryOwnership(binaryPath)
+	if err != nil {
 		return err
+	}
+	if exists && !owned && !force {
+		return fmt.Errorf("copied executable has no matching ownership record: %s (inspect it and use --force to remove)", binaryPath)
+	}
+	if exists {
+		if err := removeOwnedFile(binaryPath); err != nil {
+			return fmt.Errorf("remove copied executable: %w", err)
+		}
+		if err := removeOwnedFile(copiedBinaryProofPath(binaryPath)); err != nil {
+			return fmt.Errorf("remove copied executable ownership record: %w", err)
+		}
 	}
 	if err := removeFileWithRetries(hookPath); err != nil {
 		return fmt.Errorf("remove hook: %w", err)
