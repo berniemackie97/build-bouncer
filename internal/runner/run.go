@@ -62,12 +62,33 @@ type Report struct {
 type serializedWriter struct {
 	mu     sync.Mutex
 	writer io.Writer
+	cancel context.CancelFunc
+	err    error
 }
 
 func (w *serializedWriter) Write(data []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.writer.Write(data)
+	if w.err != nil {
+		return 0, w.err
+	}
+	n, err := w.writer.Write(data)
+	if err == nil && n != len(data) {
+		err = io.ErrShortWrite
+	}
+	if err != nil {
+		w.err = err
+		if w.cancel != nil {
+			w.cancel()
+		}
+	}
+	return n, err
+}
+
+func (w *serializedWriter) Err() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.err
 }
 
 type limitedBuffer struct {
@@ -129,7 +150,10 @@ func (buf *limitedBuffer) String() string {
 	return string(buf.buffer)
 }
 
-var ErrNoChecksExecuted = errors.New("no checks executed")
+var (
+	ErrNoChecksExecuted = errors.New("no checks executed")
+	ErrOutputWrite      = errors.New("runner output write failed")
+)
 
 func RunAllReport(repoRoot string, configuration *config.Config, options Options) (Report, error) {
 	report := Report{
@@ -190,7 +214,8 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 	if writer == nil {
 		writer = os.Stdout
 	}
-	options.Output = &serializedWriter{writer: writer}
+	output := &serializedWriter{writer: writer, cancel: cancelRun}
+	options.Output = output
 
 	jobsChannel := make(chan checkJob)
 	resultsChannel := make(chan checkResult)
@@ -453,6 +478,9 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 		}
 	}
 
+	if err := output.Err(); err != nil {
+		return report, fmt.Errorf("%w: %w", ErrOutputWrite, err)
+	}
 	if firstFatalError != nil {
 		return Report{}, firstFatalError
 	}

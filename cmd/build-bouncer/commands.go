@@ -162,7 +162,7 @@ func runCheck(args []string, ctx cli.Context) int {
 			printCanceledChecks(ctx.Stderr, rep)
 			return exitRunFailed
 		}
-		if errors.Is(err, runner.ErrNoChecksExecuted) {
+		if errors.Is(err, runner.ErrNoChecksExecuted) || errors.Is(err, runner.ErrOutputWrite) {
 			return exitRunFailed
 		}
 		return exitUsage
