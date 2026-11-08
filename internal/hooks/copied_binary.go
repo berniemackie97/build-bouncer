@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -13,6 +14,14 @@ import (
 )
 
 func hostCopiedBinaryPath(hooksDir string) string {
+	name := "build-bouncer-" + runtime.GOOS + "-" + runtime.GOARCH
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	return filepath.Join(hooksDir, "bin", name)
+}
+
+func hostLegacyCopiedBinaryPath(hooksDir string) string {
 	unixPath, windowsPath := copiedBinaryPaths(hooksDir)
 	if runtime.GOOS == "windows" {
 		return windowsPath

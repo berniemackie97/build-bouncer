@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,10 @@ type InstallOptions struct {
 }
 
 func InstallPrePushHook(opts InstallOptions) error {
+	return installPrePushHook(opts, writePrePushHook)
+}
+
+func installPrePushHook(opts InstallOptions, publishHook func(string, []byte, bool) error) error {
 	_, hooksDir, err := repoHooksDir()
 	if err != nil {
 		return err
@@ -30,63 +35,98 @@ func InstallPrePushHook(opts InstallOptions) error {
 		return err
 	}
 
-	var stagedBinary, binaryPath, copiedDigest, previousProof string
-	var proofExisted bool
-	if opts.CopySelf {
-		binDir := filepath.Join(hooksDir, "bin")
-		if err := os.MkdirAll(binDir, 0o755); err != nil {
-			return err
+	body := []byte(renderPrePushHook(opts.CopySelf))
+	if !opts.CopySelf {
+		if err := publishHook(hookPath, body, existed); err != nil {
+			return errors.Join(fmt.Errorf("install pre-push hook: %w", err),
+				restorePublishedHook(hookPath, body, previous, mode, existed))
 		}
-		defer func() { _ = removeDirIfEmpty(binDir) }()
-		info, err := os.Lstat(binDir)
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() {
-			return fmt.Errorf("copied executable directory is not a directory: %s", binDir)
-		}
-		binaryPath = hostCopiedBinaryPath(hooksDir)
-		if err := validateCopiedBinaryDestination(binaryPath, opts.Force); err != nil {
-			return err
-		}
-		previousProof, proofExisted, err = readCopiedBinaryProof(copiedBinaryProofPath(binaryPath))
-		if err != nil {
-			return err
-		}
-		stagedBinary, err = stageExecutable(binDir)
-		if err != nil {
-			return fmt.Errorf("stage copied binary: %w", err)
-		}
-		defer os.Remove(stagedBinary)
-		copiedDigest, err = fileDigest(stagedBinary)
-		if err != nil {
-			return err
-		}
+		return nil
 	}
 
-	body := []byte(renderPrePushHook(opts.CopySelf))
-	if existed {
-		err = storage.WriteFile(hookPath, body, 0o755)
-	} else {
-		err = storage.CreateFile(hookPath, body, 0o755)
+	binDir := filepath.Join(hooksDir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		return err
 	}
+	defer func() { _ = removeDirIfEmpty(binDir) }()
+	info, err := os.Lstat(binDir)
 	if err != nil {
-		return fmt.Errorf("install pre-push hook: %w", err)
+		return err
 	}
-	if err := os.Chmod(hookPath, 0o755); err != nil {
-		return errors.Join(err, restoreHook(hookPath, previous, mode, existed))
+	if !info.IsDir() {
+		return fmt.Errorf("copied executable directory is not a directory: %s", binDir)
 	}
-	if stagedBinary != "" {
-		if err := persistCopiedBinaryProof(binaryPath, copiedDigest); err != nil {
-			return errors.Join(fmt.Errorf("record copied executable ownership: %w", err), restoreHook(hookPath, previous, mode, existed))
+
+	binaryPath := hostCopiedBinaryPath(hooksDir)
+	if err := validateCopiedBinaryDestination(binaryPath, opts.Force); err != nil {
+		return err
+	}
+	previousProof, proofExisted, err := readCopiedBinaryProof(copiedBinaryProofPath(binaryPath))
+	if err != nil {
+		return err
+	}
+
+	stagedBinary, err := stageExecutable(binDir)
+	if err != nil {
+		return fmt.Errorf("stage copied binary: %w", err)
+	}
+	defer os.Remove(stagedBinary)
+	copiedDigest, err := fileDigest(stagedBinary)
+	if err != nil {
+		return err
+	}
+	binaryInfo, err := os.Lstat(binaryPath)
+	binaryExisted := err == nil
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	var backup string
+	if binaryExisted {
+		backup, err = stageFile(binaryPath, binDir, binaryInfo.Mode().Perm())
+		if err != nil {
+			return fmt.Errorf("backup copied binary: %w", err)
 		}
-		if err := storage.ReplaceStagedFile(stagedBinary, binaryPath); err != nil {
-			return errors.Join(fmt.Errorf("install copied binary: %w", err),
-				restoreCopiedBinaryProof(binaryPath, previousProof, proofExisted),
-				restoreHook(hookPath, previous, mode, existed))
-		}
+		defer os.Remove(backup)
+	}
+	rollback := func() error {
+		return errors.Join(
+			restoreCopiedBinaryProof(binaryPath, previousProof, proofExisted),
+			restoreCopiedBinary(binaryPath, backup, binaryExisted),
+		)
+	}
+
+	if err := storage.ReplaceStagedFile(stagedBinary, binaryPath); err != nil {
+		return errors.Join(fmt.Errorf("install copied binary: %w", err), rollback())
+	}
+	if err := persistCopiedBinaryProof(binaryPath, copiedDigest); err != nil {
+		return errors.Join(fmt.Errorf("record copied executable ownership: %w", err), rollback())
+	}
+	if err := publishHook(hookPath, body, existed); err != nil {
+		return errors.Join(fmt.Errorf("install pre-push hook: %w", err),
+			restorePublishedHook(hookPath, body, previous, mode, existed),
+			rollback())
 	}
 	return nil
+}
+
+func writePrePushHook(path string, body []byte, existed bool) error {
+	var err error
+	if existed {
+		err = storage.WriteFile(path, body, 0o755)
+	} else {
+		err = storage.CreateFile(path, body, 0o755)
+	}
+	if err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o755)
+}
+
+func restoreCopiedBinary(path, backup string, existed bool) error {
+	if !existed {
+		return removeOwnedFile(path)
+	}
+	return storage.ReplaceStagedFile(backup, path)
 }
 
 func existingHook(path string, force bool) ([]byte, os.FileMode, bool, error) {
@@ -104,13 +144,37 @@ func existingHook(path string, force bool) ([]byte, os.FileMode, bool, error) {
 	if err != nil {
 		return nil, 0, false, err
 	}
-	if !generatedPrePushHook(data) && !force {
+	if !knownGeneratedPrePushHook(data) && !force {
 		if ownedPrePushHook(data) {
 			return nil, 0, false, fmt.Errorf("pre-push hook has modified or older build-bouncer content (inspect it and use --force to overwrite)")
 		}
 		return nil, 0, false, fmt.Errorf("pre-push hook exists but was not installed by build-bouncer (use --force to overwrite)")
 	}
 	return data, info.Mode().Perm(), true, nil
+}
+
+func restorePublishedHook(path string, published, previous []byte, mode os.FileMode, existed bool) error {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) && !existed {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if existed && bytes.Equal(data, previous) {
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		if info.Mode().Perm() != mode {
+			return os.Chmod(path, mode)
+		}
+		return nil
+	}
+	if !bytes.Equal(data, published) {
+		return fmt.Errorf("pre-push hook changed during installation; refusing to overwrite: %s", path)
+	}
+	return restoreHook(path, previous, mode, existed)
 }
 
 func restoreHook(path string, previous []byte, mode os.FileMode, existed bool) error {
@@ -128,7 +192,11 @@ func stageExecutable(dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	in, err := os.Open(executable)
+	return stageFile(executable, dir, 0o755)
+}
+
+func stageFile(source, dir string, mode os.FileMode) (string, error) {
+	in, err := os.Open(source)
 	if err != nil {
 		return "", err
 	}
@@ -143,7 +211,7 @@ func stageExecutable(dir string) (string, error) {
 			_ = os.Remove(out.Name())
 		}
 	}()
-	if err := out.Chmod(0o755); err != nil {
+	if err := out.Chmod(mode); err != nil {
 		return "", err
 	}
 	if _, err := io.Copy(out, in); err != nil {
@@ -158,54 +226,4 @@ func stageExecutable(dir string) (string, error) {
 	}
 	out = nil
 	return path, nil
-}
-
-func renderPrePushHook(hasCopiedBinary bool) string {
-	body := `#!/bin/sh
-# build-bouncer pre-push hook v3
-set -eu
-
-hook_dir="$(CDPATH= cd -P "$(dirname "$0")" && pwd)"
-repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-cd "$repo_root" || exit 1
-
-bb=""
-`
-
-	if hasCopiedBinary {
-		body += `
-case "$(uname -s 2>/dev/null)" in
-  MINGW*|MSYS*|CYGWIN*)
-    if [ -x "$hook_dir/bin/build-bouncer.exe" ]; then
-      bb="$hook_dir/bin/build-bouncer.exe"
-    fi
-    ;;
-  *)
-    if [ -x "$hook_dir/bin/build-bouncer" ]; then
-      bb="$hook_dir/bin/build-bouncer"
-    fi
-    ;;
-esac
-`
-	}
-
-	body += `
-if [ -z "$bb" ]; then
-  if command -v build-bouncer >/dev/null 2>&1; then
-    bb="build-bouncer"
-  else
-    echo "build-bouncer: not found. Install it or run: build-bouncer hook install" 1>&2
-    exit 1
-  fi
-fi
-
-if [ -t 0 ]; then
-  "$bb" check --hook
-elif ( : </dev/tty ) 2>/dev/null; then
-  "$bb" check --hook < /dev/tty
-else
-  "$bb" check --hook
-fi
-`
-	return body
 }

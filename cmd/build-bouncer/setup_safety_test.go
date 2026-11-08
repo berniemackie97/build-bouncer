@@ -60,10 +60,7 @@ func TestSetupRestoresExistingFilesWhenBinaryCannotBeInstalled(t *testing.T) {
 	if err := os.WriteFile(hook, foreign, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	binary := filepath.Join(repo, ".git", "hooks", "bin", "build-bouncer")
-	if runtime.GOOS == "windows" {
-		binary += ".exe"
-	}
+	binary := hookCopiedBinaryPath(repo)
 	if err := os.MkdirAll(binary, 0o755); err != nil {
 		t.Fatal(err)
 	}

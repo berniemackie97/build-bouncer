@@ -366,6 +366,8 @@ func runHook(args []string, ctx cli.Context) int {
 			fmt.Fprintln(ctx.Stdout, "pre-push hook: present but not executable by Git")
 		case !st.Ours:
 			fmt.Fprintln(ctx.Stdout, "pre-push hook: foreign hook present")
+		case st.LegacyGenerated:
+			fmt.Fprintln(ctx.Stdout, "pre-push hook: unmodified v3 hook; reinstall to upgrade")
 		case !st.Current:
 			fmt.Fprintln(ctx.Stdout, "pre-push hook: outdated or modified; inspect and use --force to reinstall")
 		case st.UsesCopiedBinary && (!st.CopiedBinary || !st.CopiedBinaryMatchesRecord):

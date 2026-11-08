@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -87,10 +86,7 @@ func TestHookSubcommandsInstallStatusUninstall(t *testing.T) {
 		t.Fatalf("expected hook to be removed, stat err=%v", err)
 	}
 
-	bin := filepath.Join(repo, ".git", "hooks", "bin", "build-bouncer")
-	if runtime.GOOS == "windows" {
-		bin += ".exe"
-	}
+	bin := hookCopiedBinaryPath(repo)
 	if _, err := os.Stat(bin); !os.IsNotExist(err) {
 		t.Fatalf("expected copied binary to be removed, stat err=%v", err)
 	}
@@ -118,10 +114,7 @@ func TestHookSubcommandsInstallNoCopy(t *testing.T) {
 		t.Fatalf("expected copied binary absent, got %q", stdout)
 	}
 
-	bin := filepath.Join(repo, ".git", "hooks", "bin", "build-bouncer")
-	if runtime.GOOS == "windows" {
-		bin += ".exe"
-	}
+	bin := hookCopiedBinaryPath(repo)
 	if _, err := os.Stat(bin); !os.IsNotExist(err) {
 		t.Fatalf("expected no copied binary, stat err=%v", err)
 	}
@@ -309,7 +302,7 @@ func TestHookReinstallRemovesPushBypass(t *testing.T) {
 		t.Fatalf("read hook: %v", err)
 	}
 
-	if !strings.Contains(string(hookBytes), "# build-bouncer pre-push hook v3") {
+	if !strings.Contains(string(hookBytes), "# build-bouncer pre-push hook v4") {
 		t.Fatalf("expected v3 hook, got: %q", string(hookBytes))
 	}
 	for _, forbidden := range []string{"--force-push", "GIT_PUSH_OPTION_COUNT", "ps -o args=", "eval "} {
@@ -335,7 +328,7 @@ func TestHookUsesConfiguredHooksPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(hook), `$hook_dir/bin/build-bouncer`) {
+	if !strings.Contains(string(hook), `$hook_dir/bin/build-bouncer-$platform-$arch`) {
 		t.Fatal("copied binary must be resolved alongside the active hook")
 	}
 	if _, err := os.Stat(filepath.Join(repo, ".git", "hooks", "pre-push")); !os.IsNotExist(err) {
@@ -415,10 +408,7 @@ func TestHookUninstallPreservesHookWhenBinaryCleanupFails(t *testing.T) {
 	if code, _, stderr := runHookCmd([]string{"install"}); code != exitOK {
 		t.Fatalf("hook install: %d %s", code, stderr)
 	}
-	binary := filepath.Join(repo, ".git", "hooks", "bin", "build-bouncer")
-	if runtime.GOOS == "windows" {
-		binary += ".exe"
-	}
+	binary := hookCopiedBinaryPath(repo)
 	if err := os.Remove(binary); err != nil {
 		t.Fatal(err)
 	}
@@ -460,5 +450,83 @@ func TestHookUninstallLeavesUnverifiedTemporaryFiles(t *testing.T) {
 	}
 	if _, err := os.Stat(foreign); err != nil {
 		t.Fatalf("foreign file should remain: %v", err)
+	}
+}
+
+func TestHookUsesAbsoluteConfiguredHooksPath(t *testing.T) {
+	repo := withTempRepo(t)
+	target := filepath.Join(t.TempDir(), "alternative hooks")
+	cmd := exec.Command("git", "-C", repo, "config", "core.hooksPath", target)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("set absolute hooks path: %v: %s", err, output)
+	}
+	if code, _, stderr := runHookCmd([]string{"install", "--no-copy"}); code != exitOK {
+		t.Fatalf("install into absolute hooks path: %d %s", code, stderr)
+	}
+	st, err := hooks.GetStatus()
+	if err != nil || !st.Current || !st.Executable || st.UsesCopiedBinary {
+		t.Fatalf("absolute hooks path status incorrect: %+v %v", st, err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "pre-push")); err != nil {
+		t.Fatalf("hook missing from absolute configured path: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".git", "hooks", "pre-push")); !os.IsNotExist(err) {
+		t.Fatalf("inactive default hook modified: %v", err)
+	}
+	if code, _, stderr := runHookCmd([]string{"uninstall"}); code != exitOK {
+		t.Fatalf("uninstall absolute configured hook: %d %s", code, stderr)
+	}
+	if _, err := os.Lstat(filepath.Join(target, "pre-push")); !os.IsNotExist(err) {
+		t.Fatalf("configured hook remained: %v", err)
+	}
+}
+
+func TestHookUsesEffectivePathInsideSubmodule(t *testing.T) {
+	parent := withTempRepo(t)
+	source := t.TempDir()
+	if output, err := exec.Command("git", "init", "-q", source).CombinedOutput(); err != nil {
+		t.Fatalf("initialize submodule source: %v: %s", err, output)
+	}
+	commit := exec.Command("git", "-C", source,
+		"-c", "user.name=Test", "-c", "user.email=test@example.com",
+		"commit", "--allow-empty", "-m", "initial")
+	if output, err := commit.CombinedOutput(); err != nil {
+		t.Fatalf("commit submodule source: %v: %s", err, output)
+	}
+	childRelative := filepath.Join("components", "child repo")
+	add := exec.Command("git", "-C", parent, "-c", "protocol.file.allow=always",
+		"submodule", "add", "-q", source, childRelative)
+	if output, err := add.CombinedOutput(); err != nil {
+		t.Fatalf("add submodule: %v: %s", err, output)
+	}
+	child := filepath.Join(parent, childRelative)
+	info, err := os.Lstat(filepath.Join(child, ".git"))
+	if err != nil || info.IsDir() {
+		t.Fatalf("expected submodule Git directory pointer file: %v", err)
+	}
+	if err := os.Chdir(child); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(parent) })
+
+	if code, _, stderr := runHookCmd([]string{"install", "--no-copy"}); code != exitOK {
+		t.Fatalf("install in submodule: %d %s", code, stderr)
+	}
+	st, err := hooks.GetStatus()
+	if err != nil || !st.Current {
+		t.Fatalf("submodule hook status incorrect: %+v %v", st, err)
+	}
+	assertSameHookFile(t, st.RepoRoot, child)
+	if _, err := os.Stat(st.HookPath); err != nil {
+		t.Fatalf("submodule effective hook missing: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(parent, ".git", "hooks", "pre-push")); !os.IsNotExist(err) {
+		t.Fatalf("parent repository hook should remain untouched: %v", err)
+	}
+	if code, _, stderr := runHookCmd([]string{"uninstall"}); code != exitOK {
+		t.Fatalf("submodule hook uninstall: %d %s", code, stderr)
+	}
+	if _, err := os.Lstat(st.HookPath); !os.IsNotExist(err) {
+		t.Fatalf("submodule hook was not removed: %v", err)
 	}
 }
