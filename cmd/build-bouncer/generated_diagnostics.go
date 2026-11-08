@@ -138,19 +138,27 @@ func generatedDirectory(root, relative string) error {
 	if relative == "" || relative == "." {
 		return nil
 	}
-	current := root
-	for _, part := range strings.Split(filepath.ToSlash(relative), "/") {
-		current = filepath.Join(current, part)
-		info, err := os.Lstat(current)
-		if err != nil {
-			return err
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("symlink component %q is not allowed", part)
-		}
-		if !info.IsDir() {
-			return fmt.Errorf("%q is not a directory", part)
-		}
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return err
+	}
+	target, err := filepath.EvalSymlinks(filepath.Join(root, filepath.FromSlash(relative)))
+	if err != nil {
+		return err
+	}
+	within, err := filepath.Rel(resolvedRoot, target)
+	if err != nil {
+		return err
+	}
+	if within == ".." || strings.HasPrefix(within, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("path resolves outside the repository")
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("path is not a directory")
 	}
 	return nil
 }
