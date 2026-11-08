@@ -249,3 +249,44 @@ func TestUnusableConfigRefusesHookReplacement(t *testing.T) {
 		})
 	}
 }
+
+func TestGeneratedTargetsRemainValidAcrossLockfileAndManagerChanges(t *testing.T) {
+	root := withTempRepo(t)
+	writeMixedFile(t, root, "package.json", mixedManifest())
+	writeMixedFile(t, root, "services/api/Api.slnx", "<Solution />")
+	writeMixedFile(t, root, "services/api/Api.csproj", "<Project />")
+	var out, errOut bytes.Buffer
+	if code := newInitCommand().Run(cli.Context{Stdout: &out, Stderr: &errOut},
+		[]string{"--dotnet", "--node"}); code != exitOK {
+		t.Fatalf("init: %d %s", code, errOut.String())
+	}
+	writeMixedFile(t, root, "services/api/packages.lock.json", "{}")
+	writeMixedFile(t, root, "package.json", `{"packageManager":"npm@10","scripts":{"lint":"turbo run lint","test":"turbo run test","build":"turbo run build"}}`)
+	if code, report := runGeneratedValidate(""); code != exitOK {
+		t.Fatalf("valid existing commands rejected after workspace metadata changes: %d %s", code, report)
+	}
+}
+
+func TestGeneratedDotNetCommandMustTargetRecordedSolution(t *testing.T) {
+	root := withTempRepo(t)
+	writeMixedFile(t, root, "services/api/Api.slnx", "<Solution />")
+	writeMixedFile(t, root, "services/worker/Worker.slnx", "<Solution />")
+	var out, errOut bytes.Buffer
+	if code := newInitCommand().Run(cli.Context{Stdout: &out, Stderr: &errOut},
+		[]string{"--dotnet", "--solution", "services/api/Api.slnx"}); code != exitOK {
+		t.Fatalf("init: %d %s", code, errOut.String())
+	}
+	path := config.DefaultConfigPath(root)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Meta.Inputs["dotnet.solution"] = "services/worker/Worker.slnx"
+	if err := config.Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if code, report := runGeneratedValidate(""); code != exitUsage ||
+		!strings.Contains(report, "does not target the recorded solution") {
+		t.Fatalf("generated target mismatch accepted: %d %s", code, report)
+	}
+}
