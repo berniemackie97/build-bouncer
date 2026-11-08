@@ -16,7 +16,7 @@ import (
 func newInitCommand() cli.Command {
 	return cli.Command{
 		Name:    "init",
-		Usage:   "init [--force] [--import-ci] [--dotnet --solution PATH | --template-flag]",
+		Usage:   "init [--force] [--import-ci] [--dotnet [--solution PATH] [--node] | --template-flag]",
 		Summary: "Create .buildbouncer/config.yaml and default insult/banter packs.",
 		Run: func(ctx cli.Context, args []string) int {
 			fs := cli.NewFlagSet(ctx, "init")
@@ -33,7 +33,7 @@ func newInitCommand() cli.Command {
 				printInitHelp(ctx)
 				return exitUsage
 			}
-			if *solution != "" && templateID != "dotnet" {
+			if *solution != "" && templateID != "dotnet" && templateID != "dotnet+node" {
 				fmt.Fprintln(ctx.Stderr, "init: --solution requires --dotnet")
 				return exitUsage
 			}
@@ -82,7 +82,12 @@ func runInit(force, importCI bool, templateID, selected string, ctx cli.Context)
 	insultsPath := filepath.Join(assetsDir, "insults", "default.json")
 	banterPath := filepath.Join(assetsDir, "banter", "default.json")
 
-	tmpl, ok := findConfigTemplate(templateID)
+	mixed := templateID == "dotnet+node"
+	baseTemplate := templateID
+	if mixed {
+		baseTemplate = "dotnet"
+	}
+	tmpl, ok := findConfigTemplate(baseTemplate)
 	if !ok {
 		fmt.Fprintln(ctx.Stderr, "init: unknown template:", templateID)
 		printInitHelp(ctx)
@@ -109,8 +114,8 @@ func runInit(force, importCI bool, templateID, selected string, ctx cli.Context)
 		fmt.Fprintln(ctx.Stderr, "init:", err)
 		return exitUsage
 	}
-	adjust := applyTemplateOverrides(root, templateID, cfg.Checks)
-	if templateID == "dotnet" {
+	adjust := applyTemplateOverrides(root, baseTemplate, cfg.Checks)
+	if baseTemplate == "dotnet" {
 		profile, solution, err := dotnetProfile(root, selected)
 		if err != nil {
 			fmt.Fprintln(ctx.Stderr, "init:", err)
@@ -119,14 +124,24 @@ func runInit(force, importCI bool, templateID, selected string, ctx cli.Context)
 		adjust.Checks = profile
 		adjust.Inputs["dotnet.solution"] = solution
 	}
+	if mixed {
+		nodeChecks, nodeInputs, err := rootNodeProfile(root, true)
+		if err != nil {
+			fmt.Fprintln(ctx.Stderr, "init:", err)
+			return exitUsage
+		}
+		adjust.Checks = append(adjust.Checks, stampGeneratedChecks(nodeChecks, "detector:node-scripts")...)
+		adjust.Inputs = mergeInputs(adjust.Inputs, nodeInputs)
+		adjust.Inputs["template.id"] = templateID
+	}
 	cfg.Checks = adjust.Checks
-	if templateID == "dotnet" && adjust.Inputs["dotnet.solution"] != "" {
+	if baseTemplate == "dotnet" && adjust.Inputs["dotnet.solution"] != "" {
 		cfg.Runner.MaxParallel = 1
 		cfg.Runner.FailFast = true
 	}
 	cfg.Meta.Template.ID = templateID
 	cfg.Meta.Inputs = mergeInputs(cfg.Meta.Inputs, adjust.Inputs)
-	templateSource := "template:" + templateID
+	templateSource := "template:" + baseTemplate
 	if strings.TrimSpace(adjust.Source) != "" {
 		templateSource = adjust.Source
 	}

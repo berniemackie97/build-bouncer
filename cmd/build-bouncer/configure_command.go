@@ -15,6 +15,7 @@ import (
 
 type configureOptions struct {
 	dotnet     bool
+	node       bool
 	solution   string
 	protection string
 	parallel   string
@@ -28,12 +29,13 @@ type configureOptions struct {
 func newConfigureCommand() cli.Command {
 	return cli.Command{
 		Name:    "configure",
-		Usage:   "configure [--dotnet] [--solution FILE] [--protection LEVEL] [--parallel N] [--fail-fast true|false] [--check NAME --run CMD | --remove-check NAME] [--yes]",
+		Usage:   "configure [--dotnet] [--node] [--solution FILE] [--protection LEVEL] [--parallel N] [--fail-fast true|false] [--check NAME --run CMD | --remove-check NAME] [--yes]",
 		Summary: "Review and update repository checks and protection without editing YAML.",
 		Run: func(ctx cli.Context, args []string) int {
 			fs := cli.NewFlagSet(ctx, "configure")
 			var opts configureOptions
 			fs.BoolVar(&opts.dotnet, "dotnet", false, "refresh checks from a selected or unique .NET solution")
+			fs.BoolVar(&opts.node, "node", false, "refresh checks from root package.json scripts")
 			fs.StringVar(&opts.solution, "solution", "", "select a repository-relative .sln/.slnx path")
 			fs.StringVar(&opts.protection, "protection", "", "set the protection policy: strict, moderate, or lax")
 			fs.StringVar(&opts.parallel, "parallel", "", "maximum simultaneous checks (1-32)")
@@ -55,7 +57,7 @@ func newConfigureCommand() cli.Command {
 }
 
 func runConfigure(opts configureOptions, ctx cli.Context, input *bufio.Reader) int {
-	if !opts.dotnet && opts.solution == "" && opts.protection == "" && opts.parallel == "" && opts.failFast == "" &&
+	if !opts.dotnet && !opts.node && opts.solution == "" && opts.protection == "" && opts.parallel == "" && opts.failFast == "" &&
 		opts.check == "" && opts.run == "" && opts.remove == "" && !opts.yes {
 		var err error
 		opts, err = interactiveConfigure(ctx, input)
@@ -63,7 +65,7 @@ func runConfigure(opts configureOptions, ctx cli.Context, input *bufio.Reader) i
 			fmt.Fprintln(ctx.Stderr, "configure:", err)
 			return exitUsage
 		}
-		if !opts.dotnet && opts.protection == "" && opts.parallel == "" && opts.failFast == "" && opts.check == "" && opts.remove == "" {
+		if !opts.dotnet && !opts.node && opts.protection == "" && opts.parallel == "" && opts.failFast == "" && opts.check == "" && opts.remove == "" {
 			return exitOK
 		}
 	}
@@ -83,6 +85,30 @@ func runConfigure(opts configureOptions, ctx cli.Context, input *bufio.Reader) i
 	}
 	after := *before
 	after.Checks = append([]config.Check(nil), before.Checks...)
+	if opts.node {
+		namespaced := opts.dotnet
+		for _, check := range after.Checks {
+			if check.Source == "template:dotnet" {
+				namespaced = true
+				break
+			}
+		}
+		nodeChecks, inputs, err := rootNodeProfile(root, namespaced)
+		if err != nil {
+			fmt.Fprintln(ctx.Stderr, "configure:", err)
+			return exitUsage
+		}
+		updated, err := replaceNodeChecks(after.Checks, stampGeneratedChecks(nodeChecks, "detector:node-scripts"))
+		if err != nil {
+			fmt.Fprintln(ctx.Stderr, "configure:", err)
+			return exitUsage
+		}
+		after.Checks = updated
+		previousInputs := mergeInputs(after.Meta.Inputs, nil)
+		delete(previousInputs, "node.workspace")
+		delete(previousInputs, "node.turbo")
+		after.Meta.Inputs = mergeInputs(previousInputs, inputs)
+	}
 	if opts.dotnet {
 		profile, solution, err := dotnetProfile(root, opts.solution)
 		if err != nil {
@@ -95,7 +121,7 @@ func runConfigure(opts configureOptions, ctx cli.Context, input *bufio.Reader) i
 			return exitUsage
 		}
 		after.Checks = updated
-		after.Meta.Inputs = mergeInputs(before.Meta.Inputs, map[string]string{"dotnet.solution": solution})
+		after.Meta.Inputs = mergeInputs(after.Meta.Inputs, map[string]string{"dotnet.solution": solution})
 		if after.Runner.MaxParallel == 0 && opts.parallel == "" {
 			after.Runner.MaxParallel = 1
 		}
@@ -167,7 +193,7 @@ func runConfigure(opts configureOptions, ctx cli.Context, input *bufio.Reader) i
 
 func validateConfigureOptions(opts configureOptions) error {
 	actions := 0
-	if opts.dotnet {
+	if opts.dotnet || opts.node {
 		actions++
 	}
 	if opts.check != "" || opts.run != "" {
@@ -204,9 +230,21 @@ func validateConfigureOptions(opts configureOptions) error {
 }
 
 func replaceDotNetChecks(existing, profile []config.Check) ([]config.Check, error) {
+	return replaceGeneratedChecks(existing, profile, "template:dotnet")
+}
+
+func replaceNodeChecks(existing, profile []config.Check) ([]config.Check, error) {
+	return replaceGeneratedChecks(existing, profile, "template:node", "detector:node-scripts")
+}
+
+func replaceGeneratedChecks(existing, profile []config.Check, sources ...string) ([]config.Check, error) {
+	ownedSources := make(map[string]bool, len(sources))
+	for _, source := range sources {
+		ownedSources[source] = true
+	}
 	owned := make(map[string]bool)
 	for _, check := range existing {
-		if check.Source != "template:dotnet" {
+		if !ownedSources[check.Source] {
 			continue
 		}
 		if check.ID == "" || check.ID != stableCheckID(check.Source, check) {
@@ -220,7 +258,7 @@ func replaceDotNetChecks(existing, profile []config.Check) ([]config.Check, erro
 	}
 	for _, check := range existing {
 		if !owned[check.Name] && desired[check.Name] {
-			return nil, fmt.Errorf("check %q is user-owned; cannot overwrite it with the .NET profile", check.Name)
+			return nil, fmt.Errorf("check %q is already owned; cannot overwrite it with the selected profile", check.Name)
 		}
 	}
 	result := make([]config.Check, 0, len(existing)-len(owned)+len(profile))

@@ -72,10 +72,16 @@ func applyTemplateOverrides(root string, templateID string, checks []config.Chec
 
 func nodeChecksFromScripts(root string, templateID string) ([]config.Check, map[string]string) {
 	pkg, ok := loadPackageJSON(filepath.Join(root, "package.json"))
-	if !ok || len(pkg.Scripts) == 0 {
+	if !ok {
 		return nil, nil
 	}
+	return nodeChecksForPackage(root, templateID, pkg)
+}
 
+func nodeChecksForPackage(root string, templateID string, pkg packageJSON) ([]config.Check, map[string]string) {
+	if len(pkg.Scripts) == 0 {
+		return nil, nil
+	}
 	runner := detectNodeRunner(root, pkg)
 	order := nodeScriptOrder(templateID)
 	var checks []config.Check

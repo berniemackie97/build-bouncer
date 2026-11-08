@@ -106,7 +106,7 @@ func TestConfigureRunnerMenuAndInvalidLimits(t *testing.T) {
 	}
 	var stdout, stderr bytes.Buffer
 	ctx := cli.Context{Stdout: &stdout, Stderr: &stderr}
-	if code := runConfigure(configureOptions{}, ctx, bufio.NewReader(strings.NewReader("5\n1\ntrue\ny\n"))); code != exitOK {
+	if code := runConfigure(configureOptions{}, ctx, bufio.NewReader(strings.NewReader("7\n1\ntrue\ny\n"))); code != exitOK {
 		t.Fatalf("interactive runner setting failed: %d %s", code, stderr.String())
 	}
 	cfg, err := config.Load(path)
