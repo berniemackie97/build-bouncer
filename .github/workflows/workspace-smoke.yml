@@ -45,6 +45,9 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Show smoke test formatting
+        run: gofmt -d cmd/build-bouncer/real_workspace_smoke_test.go
+
       - name: Execute real workspace smoke
         run: go test -count=1 -timeout 18m -v -run ^TestRealMixedWorkspaceSmoke$ ./cmd/build-bouncer
         env:
