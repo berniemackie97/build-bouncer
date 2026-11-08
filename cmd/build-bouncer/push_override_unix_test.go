@@ -80,7 +80,6 @@ func TestInteractiveGitPushOverrideEnforcement(t *testing.T) {
 			select {
 			case <-terminal.ready:
 				_, writeErr := io.WriteString(input, tc.response)
-				input.Close()
 				err = <-finished
 				if tc.allowed && writeErr != nil {
 					t.Fatalf("send terminal response: %v", writeErr)
