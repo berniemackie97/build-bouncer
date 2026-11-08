@@ -260,7 +260,14 @@ func runCheck(args []string, ctx cli.Context) int {
 
 		// Interactive override prompt (only in hook mode during git push)
 		// Skip prompt in CI mode, manual mode, or if terminal is not available
-		if *hook && !*ci && cfg.Protection.IsInteractive() && ui.IsTerminal(os.Stdin) {
+		if *hook && !*ci && cfg.Protection.IsInteractive() {
+			if !prompt.CanOverride(rep, protectionLevel) {
+				fmt.Fprintln(ctx.Stderr, "Push blocked: unavailable, canceled, and timed-out checks cannot be overridden.")
+				return exitRunFailed
+			}
+			if !ui.IsTerminal(os.Stdin) {
+				return exitRunFailed
+			}
 			result, err := prompt.AskOverride(os.Stdin, ctx.Stdout, ctx.Stderr, rep, protectionLevel)
 			if err != nil {
 				fmt.Fprintln(ctx.Stderr, "")

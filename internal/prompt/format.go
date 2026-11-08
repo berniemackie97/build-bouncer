@@ -3,6 +3,7 @@ package prompt
 import (
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/berniemackie97/build-bouncer/internal/runner"
@@ -35,7 +36,13 @@ func FormatPrompt(stderr io.Writer, report runner.Report, protectionLevel string
 	// Categorize and display failures
 	categories := categorizeFailuresDetailed(report)
 	if len(categories) > 0 {
-		for category, failures := range categories {
+		orderedCategories := make([]string, 0, len(categories))
+		for category := range categories {
+			orderedCategories = append(orderedCategories, category)
+		}
+		sort.Strings(orderedCategories)
+		for _, category := range orderedCategories {
+			failures := categories[category]
 			fmt.Fprintln(stderr, tui.Bold("  "+category+":"))
 			for _, name := range failures {
 				fmt.Fprintln(stderr, tui.Cross(name))
@@ -60,7 +67,10 @@ func FormatPrompt(stderr io.Writer, report runner.Report, protectionLevel string
 		}
 
 	case "moderate":
-		fmt.Fprintln(stderr, tui.Info("  Moderate mode: Tests and CI enforced"))
+		fmt.Fprintln(stderr, tui.Info("  Moderate mode: Failed checks block unless explicitly overridden"))
+	}
+	if len(report.Unavailable) > 0 || len(report.Canceled) > 0 || len(report.TimedOut) > 0 {
+		fmt.Fprintln(stderr, tui.Warning("  Unavailable, canceled, and timed-out checks cannot be overridden"))
 	}
 
 	fmt.Fprintln(stderr, "")

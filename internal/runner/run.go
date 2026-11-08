@@ -52,6 +52,7 @@ type Report struct {
 	FailureHeadlines map[string]string // checkName -> headline
 	Unavailable      map[string]string // checkName -> missing required tools
 	Canceled         []string
+	TimedOut         []string
 	Skipped          []string
 	SkipReasons      map[string]string // checkName -> reason
 	LogFiles         map[string]string // checkName -> full log (only on failure)
@@ -374,6 +375,9 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 
 		if result.outcome.ExitCode != 0 || result.outcome.TimedOut {
 			report.Failures = append(report.Failures, result.name)
+			if result.outcome.TimedOut {
+				report.TimedOut = append(report.TimedOut, result.name)
+			}
 			if configuration.Checks[result.index].AllowFailure &&
 				!result.outcome.TimedOut && result.outcome.Reason == "" {
 				report.AllowedFailures[result.name] = true
@@ -423,6 +427,9 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 	})
 	sort.SliceStable(report.Canceled, func(leftIndex, rightIndex int) bool {
 		return checkOrder[report.Canceled[leftIndex]] < checkOrder[report.Canceled[rightIndex]]
+	})
+	sort.SliceStable(report.TimedOut, func(leftIndex, rightIndex int) bool {
+		return checkOrder[report.TimedOut[leftIndex]] < checkOrder[report.TimedOut[rightIndex]]
 	})
 	sort.SliceStable(report.Skipped, func(leftIndex, rightIndex int) bool {
 		return checkOrder[report.Skipped[leftIndex]] < checkOrder[report.Skipped[rightIndex]]
