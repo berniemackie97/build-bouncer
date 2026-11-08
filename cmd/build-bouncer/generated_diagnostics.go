@@ -178,3 +178,15 @@ func generatedAdmission(root string, cfg *config.Config) error {
 	}
 	return fmt.Errorf("invalid generated checks: %s", strings.Join(messages, "; "))
 }
+
+func hookAdmission(root string) error {
+	path, exists := config.FindConfigInRoot(root)
+	if !exists {
+		return nil
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		return err
+	}
+	return generatedAdmission(root, cfg)
+}
