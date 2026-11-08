@@ -14,8 +14,8 @@ func TestHookSelectsCopiedBinaryForHostAndArchitecture(t *testing.T) {
 		t.Skip("POSIX shell selection is exercised on Linux and macOS")
 	}
 	cases := []struct {
-		name, system, machine string
-		copy, hasCopy bool
+		name, system, machine     string
+		copy, hasCopy             bool
 		binarySystem, binaryArch string
 	}{
 		{name: "Darwin ARM64 selects host binary", system: "Darwin", machine: "arm64", copy: true, hasCopy: true, binarySystem: "darwin", binaryArch: "arm64"},
