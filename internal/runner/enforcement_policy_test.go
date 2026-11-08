@@ -16,7 +16,7 @@ func TestExplicitFailureClassification(t *testing.T) {
 		check             config.Check
 		expectAllowed     bool
 		expectUnavailable bool
-		expectTimedOut   bool
+		expectTimedOut    bool
 	}{
 		{name: "default fail closed", check: config.Check{Name: "lint", Run: "exit 7"}},
 		{name: "allowed ordinary failure", check: config.Check{Name: "lint", Run: "exit 7", AllowFailure: true}, expectAllowed: true},
