@@ -33,7 +33,11 @@ func TestWindowsGrandchildHelper(t *testing.T) {
 	if err := os.WriteFile(ready, []byte("ready"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(3 * time.Second)
+	delay := 3 * time.Second
+	if os.Getenv("BUILD_BOUNCER_WINDOWS_LONG_CHILD") == "1" {
+		delay = 7 * time.Second
+	}
+	time.Sleep(delay)
 	if err := os.WriteFile(marker, []byte("survived"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -51,19 +55,20 @@ func windowsChildEnv(root string) (string, string, map[string]string) {
 func TestWindowsTimeoutTerminatesDescendant(t *testing.T) {
 	root := t.TempDir()
 	ready, marker, env := windowsChildEnv(root)
+	env["BUILD_BOUNCER_WINDOWS_LONG_CHILD"] = "1"
 	start := time.Now()
 	outcome, err := runOne(context.Background(), root, root, 0, "powershell-child",
-		windowsNestedCheckScript(t), "powershell", env, 2*time.Second, Options{})
+		windowsNestedCheckScript(t), "powershell", env, 5*time.Second, Options{})
 	if err != nil || !outcome.TimedOut {
 		t.Fatalf("timeout did not stop check: %+v %v", outcome, err)
 	}
-	if elapsed := time.Since(start); elapsed > 5*time.Second {
+	if elapsed := time.Since(start); elapsed > 8*time.Second {
 		t.Fatalf("timeout cleanup took %s", elapsed)
 	}
 	if _, err := os.Stat(ready); err != nil {
 		t.Fatalf("child was never started before timeout: %v", err)
 	}
-	time.Sleep(3200 * time.Millisecond)
+	time.Sleep(7200 * time.Millisecond)
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("descendant survived timeout: %v", err)
 	}
