@@ -251,7 +251,7 @@ func runCheck(args []string, ctx cli.Context) int {
 			}
 		}
 
-				if !shouldBlock {
+		if !shouldBlock {
 			fmt.Fprintln(ctx.Stdout, "")
 			fmt.Fprintln(ctx.Stdout, "Lax mode: explicitly allowed check failures. Allowing push.")
 			return exitOK

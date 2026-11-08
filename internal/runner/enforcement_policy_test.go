@@ -12,9 +12,9 @@ import (
 
 func TestExplicitFailureClassification(t *testing.T) {
 	cases := []struct {
-		name string
-		check config.Check
-		expectAllowed bool
+		name              string
+		check             config.Check
+		expectAllowed     bool
 		expectUnavailable bool
 	}{
 		{name: "default fail closed", check: config.Check{Name: "lint", Run: "exit 7"}},

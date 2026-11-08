@@ -40,9 +40,9 @@ func TestCIModeBlocksLaxFailures(t *testing.T) {
 func TestCheckLaxRequiresExplicitFailurePermission(t *testing.T) {
 	cases := []struct {
 		name, level string
-		allow bool
-		ci bool
-		want int
+		allow       bool
+		ci          bool
+		want        int
 	}{
 		{name: "lint still blocks", level: "lax", want: exitRunFailed},
 		{name: "explicit local exception", level: "lax", allow: true, want: exitOK},
@@ -54,7 +54,7 @@ func TestCheckLaxRequiresExplicitFailurePermission(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			root := withTempRepo(t)
 			cfg := &config.Config{
-				Checks: []config.Check{{Name: "lint", Run: "exit 7", AllowFailure: tc.allow}},
+				Checks:     []config.Check{{Name: "lint", Run: "exit 7", AllowFailure: tc.allow}},
 				Protection: config.Protection{Level: tc.level},
 			}
 			if err := config.Save(filepath.Join(root, ".buildbouncer", "config.yaml"), cfg); err != nil {

@@ -19,8 +19,8 @@ func TestShouldBlockMissingRequiredToolsInLaxMode(t *testing.T) {
 func TestProtectionBlocksEveryUnclassifiedFailure(t *testing.T) {
 	cases := []struct {
 		name, level string
-		report runner.Report
-		block bool
+		report      runner.Report
+		block       bool
 	}{
 		{name: "lax ordinary lint", level: "lax", report: runner.Report{Failures: []string{"lint"}}, block: true},
 		{name: "lax ordinary build", level: "lax", report: runner.Report{Failures: []string{"build"}}, block: true},

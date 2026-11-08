@@ -27,7 +27,7 @@ func TestGitPushEnforcesConfiguredPolicy(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		name, level string
+		name, level                                   string
 		allowFailure, requiredToolMissing, expectPush bool
 	}{
 		{name: "lax check name does not bypass", level: "lax"},
@@ -43,7 +43,7 @@ func TestGitPushEnforcesConfiguredPolicy(t *testing.T) {
 				check.Requires = config.StringList{"build_bouncer_missing_executable_987654"}
 			}
 			cfg := &config.Config{
-				Checks: []config.Check{check},
+				Checks:     []config.Check{check},
 				Protection: config.Protection{Level: tc.level},
 			}
 			remote := preparePolicyPushRepo(t, repo, binary, cfg)
