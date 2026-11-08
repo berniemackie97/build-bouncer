@@ -56,11 +56,6 @@ func runCISync(ctx cli.Context) int {
 		fmt.Fprintln(ctx.Stderr, "ci sync:", err)
 		return exitUsage
 	}
-	if len(ciChecks) == 0 {
-		fmt.Fprintln(ctx.Stdout, "No CI checks found in .github/workflows.")
-		return exitOK
-	}
-
 	ciChecks = stampGeneratedChecks(ciChecks, "ci")
 
 	mergedBase, removed, err := stripCIChecks(cfg.Checks)
@@ -68,7 +63,18 @@ func runCISync(ctx cli.Context) int {
 		fmt.Fprintln(ctx.Stderr, "ci sync:", err)
 		return exitUsage
 	}
-	mergedBase = stripManualPlaceholder(mergedBase)
+	if len(ciChecks) == 0 {
+		if removed == 0 {
+			fmt.Fprintln(ctx.Stdout, "No CI checks found in .github/workflows.")
+			return exitOK
+		}
+		if len(mergedBase) == 0 {
+			fmt.Fprintln(ctx.Stderr, "ci sync: removing stale CI checks would leave no checks configured; add a local check before syncing")
+			return exitUsage
+		}
+	} else {
+		mergedBase = stripManualPlaceholder(mergedBase)
+	}
 
 	merge, err := mergeChecks(mergedBase, ciChecks)
 	if err != nil {
@@ -91,7 +97,9 @@ func runCISync(ctx cli.Context) int {
 	if removed > 0 {
 		fmt.Fprintf(ctx.Stdout, "Removed %d stale CI checks\n", removed)
 	}
-	if len(merge.Added) == 0 {
+	if len(ciChecks) == 0 {
+		fmt.Fprintln(ctx.Stdout, "No CI checks found in .github/workflows.")
+	} else if len(merge.Added) == 0 {
 		fmt.Fprintln(ctx.Stdout, "No new CI checks to add.")
 	}
 
