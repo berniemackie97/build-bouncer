@@ -34,7 +34,7 @@ func TestExplicitFailureClassification(t *testing.T) {
 			if report.AllowedFailures[tc.check.Name] != tc.expectAllowed {
 				t.Fatalf("unexpected allowFailure classification: %+v", report)
 			}
-			if (len(report.Unavailable) != 0) != !tc.expectUnavailable {
+			if (len(report.Unavailable) != 0) != tc.expectUnavailable {
 				t.Fatalf("unexpected unavailable classification: %+v", report)
 			}
 		})
