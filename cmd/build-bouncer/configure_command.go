@@ -118,7 +118,7 @@ func runConfigure(opts configureOptions, ctx cli.Context, input *bufio.Reader) i
 			return exitUsage
 		}
 		after.Checks = updated
-		after.Meta.Inputs = mergeInputs(before.Meta.Inputs, map[string]string{"dotnet.solution": solution})
+		after.Meta.Inputs = mergeInputs(after.Meta.Inputs, map[string]string{"dotnet.solution": solution})
 		if after.Runner.MaxParallel == 0 && opts.parallel == "" {
 			after.Runner.MaxParallel = 1
 		}
