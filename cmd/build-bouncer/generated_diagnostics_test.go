@@ -309,3 +309,25 @@ func TestFrontendTemplateFallbackRequiresRootScripts(t *testing.T) {
 		t.Fatalf("valid existing npm frontend template rejected: %d %s", code, report)
 	}
 }
+
+func TestGeneratedWorkingDirectoryAllowsContainedSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows symlinks may require developer mode")
+	}
+	root := withTempRepo(t)
+	if err := os.MkdirAll(filepath.Join(root, "src", "checks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "src"), filepath.Join(root, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	checks := stampGeneratedChecks([]config.Check{
+		{Name: "lint", Run: "echo ok", Cwd: "linked/checks"},
+	}, "template:go")
+	if err := config.Save(config.DefaultConfigPath(root), &config.Config{Checks: checks}); err != nil {
+		t.Fatal(err)
+	}
+	if code, report := runGeneratedValidate(""); code != exitOK {
+		t.Fatalf("repository-contained working directory refused: %d %s", code, report)
+	}
+}
