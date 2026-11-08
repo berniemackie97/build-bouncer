@@ -106,6 +106,11 @@ func uninstallPrePushHook(force bool, removeHook func(string) error) error {
 		return errors.Join(fmt.Errorf("remove hook: %w", err),
 			restoreDeletedHook(hookPath, data, info.Mode().Perm()))
 	}
+	if backup != "" {
+		if err := removeFileWithRetries(backup); err != nil {
+			return fmt.Errorf("remove staged copied executable backup: %w", err)
+		}
+	}
 	return removeDirIfEmpty(binDir)
 }
 
