@@ -452,3 +452,80 @@ func TestHookUninstallLeavesUnverifiedTemporaryFiles(t *testing.T) {
 		t.Fatalf("foreign file should remain: %v", err)
 	}
 }
+
+func TestHookUsesAbsoluteConfiguredHooksPath(t *testing.T) {
+	repo := withTempRepo(t)
+	target := filepath.Join(t.TempDir(), "alternative hooks")
+	cmd := exec.Command("git", "-C", repo, "config", "core.hooksPath", target)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("set absolute hooks path: %v: %s", err, output)
+	}
+	if code, _, stderr := runHookCmd([]string{"install", "--no-copy"}); code != exitOK {
+		t.Fatalf("install into absolute hooks path: %d %s", code, stderr)
+	}
+	st, err := hooks.GetStatus()
+	if err != nil || !st.Current || !st.Executable || st.UsesCopiedBinary {
+		t.Fatalf("absolute hooks path status incorrect: %+v %v", st, err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "pre-push")); err != nil {
+		t.Fatalf("hook missing from absolute configured path: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".git", "hooks", "pre-push")); !os.IsNotExist(err) {
+		t.Fatalf("inactive default hook modified: %v", err)
+	}
+	if code, _, stderr := runHookCmd([]string{"uninstall"}); code != exitOK {
+		t.Fatalf("uninstall absolute configured hook: %d %s", code, stderr)
+	}
+	if _, err := os.Lstat(filepath.Join(target, "pre-push")); !os.IsNotExist(err) {
+		t.Fatalf("configured hook remained: %v", err)
+	}
+}
+
+func TestHookUsesEffectivePathInsideSubmodule(t *testing.T) {
+	parent := withTempRepo(t)
+	source := t.TempDir()
+	if output, err := exec.Command("git", "init", "-q", source).CombinedOutput(); err != nil {
+		t.Fatalf("initialize submodule source: %v: %s", err, output)
+	}
+	commit := exec.Command("git", "-C", source,
+		"-c", "user.name=Test", "-c", "user.email=test@example.com",
+		"commit", "--allow-empty", "-m", "initial")
+	if output, err := commit.CombinedOutput(); err != nil {
+		t.Fatalf("commit submodule source: %v: %s", err, output)
+	}
+	childRelative := filepath.Join("components", "child repo")
+	add := exec.Command("git", "-C", parent, "-c", "protocol.file.allow=always",
+		"submodule", "add", "-q", source, childRelative)
+	if output, err := add.CombinedOutput(); err != nil {
+		t.Fatalf("add submodule: %v: %s", err, output)
+	}
+	child := filepath.Join(parent, childRelative)
+	info, err := os.Lstat(filepath.Join(child, ".git"))
+	if err != nil || info.IsDir() {
+		t.Fatalf("expected submodule Git directory pointer file: %v", err)
+	}
+	if err := os.Chdir(child); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(parent) })
+
+	if code, _, stderr := runHookCmd([]string{"install", "--no-copy"}); code != exitOK {
+		t.Fatalf("install in submodule: %d %s", code, stderr)
+	}
+	st, err := hooks.GetStatus()
+	if err != nil || !st.Current || st.RepoRoot != child {
+		t.Fatalf("submodule hook status incorrect: %+v %v", st, err)
+	}
+	if _, err := os.Stat(st.HookPath); err != nil {
+		t.Fatalf("submodule effective hook missing: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(parent, ".git", "hooks", "pre-push")); !os.IsNotExist(err) {
+		t.Fatalf("parent repository hook should remain untouched: %v", err)
+	}
+	if code, _, stderr := runHookCmd([]string{"uninstall"}); code != exitOK {
+		t.Fatalf("submodule hook uninstall: %d %s", code, stderr)
+	}
+	if _, err := os.Lstat(st.HookPath); !os.IsNotExist(err) {
+		t.Fatalf("submodule hook was not removed: %v", err)
+	}
+}
