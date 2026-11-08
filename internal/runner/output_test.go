@@ -24,7 +24,7 @@ func TestParallelVerboseChecksUseCallerOutput(t *testing.T) {
 	if err != nil || len(report.Failures) != 0 || len(report.Canceled) != 0 {
 		t.Fatalf("parallel checks failed: %+v %v", report, err)
 	}
-	written := output.String()
+	written := strings.ReplaceAll(output.String(), "\r\n", "\n")
 	for _, check := range checks {
 		if strings.Count(written, "==> "+check.Name+"\n") != 1 ||
 			strings.Count(written, "OK "+check.Name+"\n") != 1 {
