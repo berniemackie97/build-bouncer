@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -177,5 +178,25 @@ func TestPrintCanceledCheckEvidence(t *testing.T) {
 	}
 	if strings.Contains(output.String(), "not-started.log") {
 		t.Fatalf("log path was invented: %q", output.String())
+	}
+}
+
+func TestCheckOutputErrorUsesExecutionFailureExit(t *testing.T) {
+	root := withTempRepo(t)
+	cfg := &config.Config{Checks: []config.Check{{Name: "pass", Run: "exit 0"}}}
+	if err := config.Save(filepath.Join(root, ".buildbouncer", "config.yaml"), cfg); err != nil {
+		t.Fatal(err)
+	}
+	reader, writer := io.Pipe()
+	if err := reader.Close(); err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	var stderr bytes.Buffer
+	if code := runCheck([]string{"--verbose"}, cli.Context{Stdout: writer, Stderr: &stderr}); code != exitRunFailed {
+		t.Fatalf("output sink failure returned exit %d: %q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "runner output write failed") {
+		t.Fatalf("missing output failure diagnostic: %q", stderr.String())
 	}
 }
