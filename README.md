@@ -221,7 +221,7 @@ The default install copies the current BuildBouncer executable into Git's effect
 
 If a different `pre-push` hook already exists, BuildBouncer **refuses to overwrite it by default**. Do not use `hook install --force` until you have inspected and intentionally chosen to replace that hook.
 
-`hook status` distinguishes a recognized BuildBouncer hook from a foreign hook and warns when a POSIX hook lacks execute permission. The copied executable indicator applies only to a regular, executable file for the current OS; a copied executable from another OS is not considered available. With `--no-copy`, the hook instead resolves `build-bouncer` through `PATH` when Git invokes it. Status checks filesystem readiness without running checks or guaranteeing the executable will succeed.
+`hook status` distinguishes a recognized BuildBouncer hook from a foreign hook, flags modified or outdated installations, and warns when a POSIX hook lacks execute permission. The copied executable indicator applies only to a regular, executable file for the current OS; a copied executable from another OS is not considered available. With `--no-copy`, the hook instead resolves `build-bouncer` through `PATH` when Git invokes it. Status checks filesystem readiness without running checks or guaranteeing the executable will succeed.
 
 ### Step 5 — Keep the configuration with your project
 
