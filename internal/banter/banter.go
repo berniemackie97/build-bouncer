@@ -28,7 +28,7 @@ type Pack struct {
 
 type Entry struct {
 	ID       string   `json:"id"`
-	Type     string   `json:"type"`
+	Type     string   `json:"type"` // intro | loading | success
 	Locales  []string `json:"locales"`
 	Weight   int      `json:"weight"`
 	Cooldown int      `json:"cooldown"`
@@ -37,7 +37,7 @@ type Entry struct {
 
 type State struct {
 	Version int                 `json:"version"`
-	Recent  map[string][]string `json:"recent"`
+	Recent  map[string][]string `json:"recent"` // type -> most-recent-first IDs
 }
 
 type Picker struct {
@@ -51,14 +51,17 @@ type Picker struct {
 
 func Load(root string, cfg Config) (*Picker, error) {
 	p := &Picker{cfg: cfg}
+
 	packPath := filepath.Join(root, filepath.FromSlash(cfg.File))
-	data, err := os.ReadFile(packPath)
+	b, err := os.ReadFile(packPath)
 	if err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(data, &p.pack); err != nil {
+
+	if err := json.Unmarshal(b, &p.pack); err != nil {
 		return nil, err
 	}
+
 	if p.pack.MaxHistory <= 0 {
 		p.pack.MaxHistory = 50
 	}
@@ -68,33 +71,40 @@ func Load(root string, cfg Config) (*Picker, error) {
 	if strings.TrimSpace(p.cfg.Locale) == "" {
 		p.cfg.Locale = "en"
 	}
+
 	p.statePath = resolveStatePath(root)
 	p.state, err = loadState(p.statePath)
 	if err != nil {
 		return nil, err
 	}
+
 	return p, nil
 }
 
 func (p *Picker) Pick(entryType string) string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
 	entryType = strings.ToLower(strings.TrimSpace(entryType))
 	if entryType == "" {
 		return ""
 	}
+
 	candidates := p.filter(entryType, true)
 	if len(candidates) == 0 {
+		// relax cooldown
 		candidates = p.filter(entryType, false)
 	}
 	if len(candidates) == 0 {
 		return ""
 	}
+
 	chosen := weightedPick(candidates)
 	text := strings.TrimSpace(chosen.Text)
 	if text == "" {
 		return ""
 	}
+
 	if chosen.ID != "" {
 		p.state.Recent[entryType] = append([]string{chosen.ID}, p.state.Recent[entryType]...)
 		if len(p.state.Recent[entryType]) > p.pack.MaxHistory {
@@ -108,6 +118,7 @@ func (p *Picker) Pick(entryType string) string {
 			p.pending[entryType] = p.pending[entryType][:p.pack.MaxHistory]
 		}
 	}
+
 	return text
 }
 
@@ -119,7 +130,9 @@ func (p *Picker) Flush() error {
 	if len(pending) == 0 {
 		return nil
 	}
+
 	err := p.flushPending(pending)
+
 	if err != nil {
 		p.mu.Lock()
 		if p.pending == nil {
@@ -179,12 +192,20 @@ func (p *Picker) filter(entryType string, enforceCooldown bool) []Entry {
 	var out []Entry
 	for _, e := range p.pack.Entries {
 		e = normalizeEntry(p.pack, e)
-		if strings.TrimSpace(e.Text) == "" || strings.ToLower(strings.TrimSpace(e.Type)) != entryType || !matchesLocale(e, p.cfg.Locale) {
+
+		if strings.TrimSpace(e.Text) == "" {
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(e.Type)) != entryType {
+			continue
+		}
+		if !matchesLocale(e, p.cfg.Locale) {
 			continue
 		}
 		if enforceCooldown && inCooldown(p.state, entryType, e.ID, e.Cooldown) {
 			continue
 		}
+
 		out = append(out, e)
 	}
 	return out
@@ -219,8 +240,13 @@ func inCooldown(st State, entryType string, id string, cooldown int) bool {
 	if id == "" || cooldown <= 0 {
 		return false
 	}
+
 	recent := st.Recent[entryType]
-	limit := min(cooldown, len(recent))
+	limit := cooldown
+	if limit > len(recent) {
+		limit = len(recent)
+	}
+
 	for i := 0; i < limit; i++ {
 		if recent[i] == id {
 			return true
@@ -231,6 +257,7 @@ func inCooldown(st State, entryType string, id string, cooldown int) bool {
 
 func weightedPick(entries []Entry) Entry {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+
 	total := 0
 	for _, e := range entries {
 		total += e.Weight
@@ -238,6 +265,7 @@ func weightedPick(entries []Entry) Entry {
 	if total <= 0 {
 		return entries[r.Intn(len(entries))]
 	}
+
 	n := r.Intn(total)
 	acc := 0
 	for _, e := range entries {
