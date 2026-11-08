@@ -366,11 +366,14 @@ func runHook(args []string, ctx cli.Context) int {
 			fmt.Fprintln(ctx.Stdout, "pre-push hook: present but not executable by Git")
 		case !st.Ours:
 			fmt.Fprintln(ctx.Stdout, "pre-push hook: foreign hook present")
+		case !st.Current:
+			fmt.Fprintln(ctx.Stdout, "pre-push hook: outdated or modified; reinstall to update")
 		default:
 			fmt.Fprintln(ctx.Stdout, "pre-push hook: installed")
 		}
 		fmt.Fprintln(ctx.Stdout, "path:", st.HookPath)
 		fmt.Fprintln(ctx.Stdout, "installed by build-bouncer:", st.Ours)
+		fmt.Fprintln(ctx.Stdout, "current build-bouncer hook:", st.Current)
 		fmt.Fprintln(ctx.Stdout, "executable by Git:", st.Executable)
 		fmt.Fprintln(ctx.Stdout, "copied binary present for this OS:", st.CopiedBinary)
 		return exitOK
