@@ -513,9 +513,10 @@ func TestHookUsesEffectivePathInsideSubmodule(t *testing.T) {
 		t.Fatalf("install in submodule: %d %s", code, stderr)
 	}
 	st, err := hooks.GetStatus()
-	if err != nil || !st.Current || st.RepoRoot != child {
+	if err != nil || !st.Current {
 		t.Fatalf("submodule hook status incorrect: %+v %v", st, err)
 	}
+	assertSameHookFile(t, st.RepoRoot, child)
 	if _, err := os.Stat(st.HookPath); err != nil {
 		t.Fatalf("submodule effective hook missing: %v", err)
 	}
