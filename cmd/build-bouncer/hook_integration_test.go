@@ -69,7 +69,13 @@ func TestHookSubcommandsInstallStatusUninstall(t *testing.T) {
 	if !strings.Contains(stdout, "installed by build-bouncer: true") {
 		t.Fatalf("expected status ours true, got %q", stdout)
 	}
-	if !strings.Contains(stdout, "copied binary present: true") {
+	if !strings.Contains(stdout, "current build-bouncer hook: true") {
+		t.Fatalf("expected current installed hook, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "executable by Git: true") {
+		t.Fatalf("expected executable active hook, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "copied binary present for this OS: true") {
 		t.Fatalf("expected copied binary present, got %q", stdout)
 	}
 
@@ -108,7 +114,7 @@ func TestHookSubcommandsInstallNoCopy(t *testing.T) {
 	if !strings.Contains(stdout, "installed by build-bouncer: true") {
 		t.Fatalf("expected status ours true, got %q", stdout)
 	}
-	if !strings.Contains(stdout, "copied binary present: false") {
+	if !strings.Contains(stdout, "copied binary present for this OS: false") {
 		t.Fatalf("expected copied binary absent, got %q", stdout)
 	}
 

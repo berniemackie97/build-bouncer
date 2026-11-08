@@ -1,11 +1,11 @@
-// Package hooks contains helpers for installing, uninstalling, and inspecting the
-// git pre-push hook used by build-bouncer.
 package hooks
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 type Status struct {
@@ -13,6 +13,8 @@ type Status struct {
 	HookPath     string
 	Installed    bool
 	Ours         bool
+	Current      bool
+	Executable   bool
 	CopiedBinary bool
 }
 
@@ -23,37 +25,35 @@ func GetStatus() (Status, error) {
 	}
 
 	hookPath := filepath.Join(hooksDir, "pre-push")
-	st := Status{
-		RepoRoot: repoRoot,
-		HookPath: hookPath,
-	}
-
-	// Hook status
-	if b, readErr := os.ReadFile(hookPath); readErr == nil {
+	st := Status{RepoRoot: repoRoot, HookPath: hookPath}
+	info, err := os.Lstat(hookPath)
+	if err == nil {
+		if !info.Mode().IsRegular() {
+			return st, fmt.Errorf("pre-push hook is not a regular file: %s", hookPath)
+		}
+		data, err := os.ReadFile(hookPath)
+		if err != nil {
+			return st, err
+		}
 		st.Installed = true
-		st.Ours = bytes.Contains(b, []byte(prePushMarker))
-	} else if !os.IsNotExist(readErr) {
-		return st, readErr
+		st.Ours = ownedPrePushHook(data)
+		st.Current = bytes.Equal(data, []byte(renderPrePushHook(true))) ||
+			bytes.Equal(data, []byte(renderPrePushHook(false)))
+		st.Executable = runtime.GOOS == "windows" || info.Mode().Perm()&0o111 != 0
+	} else if !os.IsNotExist(err) {
+		return st, err
 	}
 
-	// Copied binary status (we only claim it's present if we can stat it)
-	p1, p2 := copiedBinaryPaths(hooksDir)
-
-	if p1 != "" {
-		if _, statErr := os.Stat(p1); statErr == nil {
-			st.CopiedBinary = true
-		} else if !os.IsNotExist(statErr) {
-			return st, statErr
-		}
+	unixPath, windowsPath := copiedBinaryPaths(hooksDir)
+	binaryPath := unixPath
+	if runtime.GOOS == "windows" {
+		binaryPath = windowsPath
 	}
-
-	if p2 != "" {
-		if _, statErr := os.Stat(p2); statErr == nil {
-			st.CopiedBinary = true
-		} else if !os.IsNotExist(statErr) {
-			return st, statErr
-		}
+	binary, err := os.Lstat(binaryPath)
+	if err == nil {
+		st.CopiedBinary = binary.Mode().IsRegular() && (runtime.GOOS == "windows" || binary.Mode().Perm()&0o111 != 0)
+	} else if !os.IsNotExist(err) {
+		return st, err
 	}
-
 	return st, nil
 }

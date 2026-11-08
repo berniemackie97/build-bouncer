@@ -29,7 +29,7 @@ func UninstallPrePushHook(force bool) error {
 	if err != nil {
 		return err
 	}
-	ours := strings.Contains(string(data), prePushMarker)
+	ours := ownedPrePushHook(data)
 	if !ours && !force {
 		return fmt.Errorf("pre-push hook exists but was not installed by build-bouncer (use --force to remove)")
 	}
