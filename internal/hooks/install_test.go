@@ -51,6 +51,9 @@ func TestHookSelectsCopiedBinaryForHostAndArchitecture(t *testing.T) {
 				}
 			}
 			binary := filepath.Join(binDir, "build-bouncer-"+tc.binarySystem+"-"+tc.binaryArch)
+			if tc.binarySystem == "windows" {
+				binary += ".exe"
+			}
 			if tc.hasCopy {
 				if err := os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 					t.Fatal(err)
