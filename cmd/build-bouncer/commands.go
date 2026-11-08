@@ -117,6 +117,7 @@ func runCheck(args []string, ctx cli.Context) int {
 		Context:          checkContext,
 		CI:               *ci,
 		Verbose:          *verbose || *ci,
+		Output:           ctx.Stdout,
 		LogDir:           *logDir,
 		MaxLogBytes:      cfg.Runner.MaxLogBytes,
 		MaxSavedLogs:     cfg.Runner.MaxSavedLogs,
