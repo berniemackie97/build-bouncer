@@ -234,7 +234,7 @@ func TestHookInstallForceOverwritesForeignHook(t *testing.T) {
 	}
 }
 
-func TestHookUninstallCleansUpTempFiles(t *testing.T) {
+func TestHookUninstallPreservesUnverifiedTempFiles(t *testing.T) {
 	repo := withTempRepo(t)
 
 	code, _, stderr := runHookCmd([]string{"install"})
@@ -436,7 +436,7 @@ func TestHookUninstallPreservesHookWhenBinaryCleanupFails(t *testing.T) {
 	}
 }
 
-func TestHookUninstallRemovesOnlyOwnedStaleTemporaryFiles(t *testing.T) {
+func TestHookUninstallLeavesUnverifiedTemporaryFiles(t *testing.T) {
 	repo := withTempRepo(t)
 	if code, _, stderr := runHookCmd([]string{"install"}); code != exitOK {
 		t.Fatalf("hook install: %d %s", code, stderr)
