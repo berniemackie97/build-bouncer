@@ -86,8 +86,17 @@ func TestHookSelectsCopiedBinaryForHostAndArchitecture(t *testing.T) {
 			if tc.copy && tc.hasCopy && matchesSystem && matchesArch {
 				want = binary
 			}
-			if got := strings.TrimSpace(string(output)); got != want {
-				t.Fatalf("selected %q, want %q", got, want)
+			got := strings.TrimSpace(string(output))
+			if want == "build-bouncer" {
+				if got != want {
+					t.Fatalf("selected %q, want %q", got, want)
+				}
+				return
+			}
+			actualInfo, actualErr := os.Stat(got)
+			expectedInfo, expectedErr := os.Stat(want)
+			if actualErr != nil || expectedErr != nil || !os.SameFile(actualInfo, expectedInfo) {
+				t.Fatalf("selected %q, want file %q (stat: %v, %v)", got, want, actualErr, expectedErr)
 			}
 		})
 	}
