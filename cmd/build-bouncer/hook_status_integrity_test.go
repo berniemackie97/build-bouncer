@@ -193,3 +193,76 @@ func TestHookStatusDetectsModifiedAndLegacyInstallation(t *testing.T) {
 		t.Fatalf("reinstall did not restore current hook: %+v, %v", st, err)
 	}
 }
+
+func TestUnmodifiedHookCanBeReinstalledWithoutForce(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "path installation", args: []string{"install", "--no-copy"}},
+		{name: "copied executable", args: []string{"install"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := withTempRepo(t)
+			hookPath := filepath.Join(repo, ".git", "hooks", "pre-push")
+			if code, _, stderr := runHookCmd(tc.args); code != exitOK {
+				t.Fatalf("initial install: %d %s", code, stderr)
+			}
+			before, err := os.ReadFile(hookPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if code, _, stderr := runHookCmd(tc.args); code != exitOK {
+				t.Fatalf("idempotent reinstall: %d %s", code, stderr)
+			}
+			after, err := os.ReadFile(hookPath)
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatalf("reinstall changed generated script: %v", err)
+			}
+			if code, _, stderr := runHookCmd([]string{"uninstall"}); code != exitOK {
+				t.Fatalf("unforced uninstall of generated script: %d %s", code, stderr)
+			}
+			if _, err := os.Lstat(hookPath); !os.IsNotExist(err) {
+				t.Fatalf("generated hook remained after uninstall: %v", err)
+			}
+		})
+	}
+}
+
+func TestRefusedModificationLeavesCopiedExecutableUntouched(t *testing.T) {
+	repo := withTempRepo(t)
+	if code, _, stderr := runHookCmd([]string{"install"}); code != exitOK {
+		t.Fatalf("install copied hook: %d %s", code, stderr)
+	}
+	hookPath := filepath.Join(repo, ".git", "hooks", "pre-push")
+	binary := filepath.Join(repo, ".git", "hooks", "bin", "build-bouncer")
+	if runtime.GOOS == "windows" {
+		binary += ".exe"
+	}
+	beforeBinary, err := os.Stat(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hook, err := os.ReadFile(hookPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	modified := append(hook, []byte("# teammate customization\n")...)
+	if err := os.WriteFile(hookPath, modified, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range [][]string{{"install"}, {"uninstall"}} {
+		if code, _, stderr := runHookCmd(action); code != exitUsage ||
+			!strings.Contains(stderr, "modified or older") {
+			t.Fatalf("%v should reject modified hook: %d %q", action, code, stderr)
+		}
+		actualHook, err := os.ReadFile(hookPath)
+		if err != nil || !bytes.Equal(actualHook, modified) {
+			t.Fatalf("%v damaged hook: %v", action, err)
+		}
+		afterBinary, err := os.Stat(binary)
+		if err != nil || !os.SameFile(beforeBinary, afterBinary) {
+			t.Fatalf("%v replaced or removed copied executable: %v", action, err)
+		}
+	}
+}
