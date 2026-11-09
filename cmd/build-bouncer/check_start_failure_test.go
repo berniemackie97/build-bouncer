@@ -51,3 +51,26 @@ func TestCheckStartFailureUsesFailedExecutionExitInAllModes(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckStartFailureShowsEarlierRetainedFailureLog(t *testing.T) {
+	root := withTempRepo(t)
+	cfg := &config.Config{Checks: []config.Check{
+		{Name: "first-failed-check", Run: "exit 7"},
+		{Name: "missing-directory", Run: "echo never", Cwd: "missing-workdir"},
+	}}
+	if err := config.Save(config.DefaultConfigPath(root), cfg); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCheck(nil, cli.Context{Stdout: &stdout, Stderr: &stderr}); code != exitRunFailed {
+		t.Fatalf("check failed to block: exit=%d stderr=%q", code, stderr.String())
+	}
+	for _, detail := range []string{"first-failed-check", "missing-directory", "missing-workdir", "Full log:", "build-bouncer-"} {
+		if !strings.Contains(stderr.String(), detail) {
+			t.Fatalf("missing saved failure evidence %q: %s", detail, stderr.String())
+		}
+	}
+	if strings.Contains(stdout.String(), "All checks passed") {
+		t.Fatalf("runtime error was presented as success: %q", stdout.String())
+	}
+}

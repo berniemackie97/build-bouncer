@@ -167,6 +167,16 @@ func runCheck(args []string, ctx cli.Context) int {
 			fmt.Fprintln(ctx.Stderr, tui.Section("Failed Checks"))
 			for _, check := range rep.Failures {
 				fmt.Fprintln(ctx.Stderr, tui.Cross(check))
+				if reason := strings.TrimSpace(rep.FailureHeadlines[check]); reason != "" {
+					fmt.Fprintln(ctx.Stderr, tui.Dim("  "+reason))
+				}
+				if path := strings.TrimSpace(rep.LogFiles[check]); path != "" {
+					label := "Full log: "
+					if rep.LogTruncated[check] {
+						label = "Full log (truncated): "
+					}
+					fmt.Fprintln(ctx.Stderr, tui.Arrow(label+path))
+				}
 			}
 			printCanceledChecks(ctx.Stderr, rep)
 			return exitRunFailed
