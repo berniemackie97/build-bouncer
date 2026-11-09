@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/berniemackie97/build-bouncer/internal/git"
 	"github.com/berniemackie97/build-bouncer/internal/storage"
 )
 
@@ -278,8 +279,7 @@ func weightedPick(entries []Entry) Entry {
 }
 
 func resolveStatePath(root string) string {
-	gitDir := filepath.Join(root, ".git")
-	if st, err := os.Stat(gitDir); err == nil && st.IsDir() {
+	if gitDir, ok := git.ResolveGitDir(root); ok {
 		return filepath.Join(gitDir, "build-bouncer", "banter_state.json")
 	}
 	return filepath.Join(root, ".buildbouncer", "state", "banter_state.json")
