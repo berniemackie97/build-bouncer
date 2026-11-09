@@ -1,0 +1,80 @@
+package runner
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/berniemackie97/build-bouncer/internal/config"
+)
+
+func TestFailedCheckStartPreservesFailureAndCanceledPeers(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{Checks: []config.Check{
+		{Name: "missing-working-directory", Run: "echo must-not-start", Cwd: "missing-workdir"},
+		{Name: "not-started", Run: "echo must-not-start"},
+	}}
+	report, err := RunAllReport(root, cfg, Options{MaxParallel: 1, FailFast: true})
+	if !errors.Is(err, ErrCheckExecution) || !strings.Contains(err.Error(), "missing-working-directory") {
+		t.Fatalf("startup error lost its type and identity: report=%+v err=%v", report, err)
+	}
+	if len(report.Failures) != 1 || report.Failures[0] != "missing-working-directory" {
+		t.Fatalf("failed check disappeared from report: %+v", report)
+	}
+	if len(report.Canceled) != 1 || report.Canceled[0] != "not-started" {
+		t.Fatalf("canceled peer missing from report: %+v", report)
+	}
+	if !strings.Contains(report.Unavailable["missing-working-directory"], "missing-workdir") ||
+		!strings.Contains(report.FailureHeadlines["missing-working-directory"], "missing-workdir") {
+		t.Fatalf("missing actionable execution error: %+v", report)
+	}
+	if len(report.LogFiles) != 0 {
+		t.Fatalf("failed process start invented a retained log: %+v", report.LogFiles)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "missing-workdir")); !os.IsNotExist(statErr) {
+		t.Fatalf("check created nonexistent working directory: %v", statErr)
+	}
+}
+
+func TestFailedCheckStartPreservesCompletedFailureEvidence(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{Checks: []config.Check{
+		{Name: "failed-check", Run: failCommand("first-failure")},
+		{Name: "bad-working-directory", Run: "echo must-not-start", Cwd: "missing-workdir"},
+	}}
+	report, err := RunAllReport(root, cfg, Options{MaxParallel: 1})
+	if !errors.Is(err, ErrCheckExecution) {
+		t.Fatalf("expected check execution error: %v", err)
+	}
+	if len(report.Failures) != 2 || report.Failures[0] != "failed-check" || report.Failures[1] != "bad-working-directory" {
+		t.Fatalf("failed/completed checks were lost: %+v", report)
+	}
+	if !strings.Contains(report.FailureTails["failed-check"], "first-failure") {
+		t.Fatalf("completed check output missing: %+v", report.FailureTails)
+	}
+	logPath := report.LogFiles["failed-check"]
+	if !strings.HasSuffix(logPath, ".log") {
+		t.Fatalf("completed check log was discarded: %+v", report.LogFiles)
+	}
+	logData, readErr := os.ReadFile(logPath)
+	if readErr != nil || !strings.Contains(string(logData), "first-failure") {
+		t.Fatalf("retained evidence is not readable: %q %v", logData, readErr)
+	}
+	if report.LogFiles["bad-working-directory"] != "" {
+		t.Fatalf("never-started check has invented log: %+v", report.LogFiles)
+	}
+	if !strings.Contains(report.Unavailable["bad-working-directory"], "missing-workdir") {
+		t.Fatalf("missing launch diagnosis: %+v", report.Unavailable)
+	}
+}
+
+func TestOrdinaryCheckFailureStillReturnsOutcomeWithoutExecutionError(t *testing.T) {
+	report, err := RunAllReport(t.TempDir(), &config.Config{Checks: []config.Check{
+		{Name: "failed-check", Run: failCommand("ordinary-failure")},
+	}}, Options{})
+	if err != nil || len(report.Failures) != 1 || len(report.Unavailable) != 0 {
+		t.Fatalf("ordinary process exit misclassified as startup error: %+v %v", report, err)
+	}
+}

@@ -162,6 +162,15 @@ func runCheck(args []string, ctx cli.Context) int {
 			printCanceledChecks(ctx.Stderr, rep)
 			return exitRunFailed
 		}
+		if errors.Is(err, runner.ErrCheckExecution) {
+			fmt.Fprintln(ctx.Stderr, "")
+			fmt.Fprintln(ctx.Stderr, tui.Section("Failed Checks"))
+			for _, check := range rep.Failures {
+				fmt.Fprintln(ctx.Stderr, tui.Cross(check))
+			}
+			printCanceledChecks(ctx.Stderr, rep)
+			return exitRunFailed
+		}
 		if errors.Is(err, runner.ErrNoChecksExecuted) || errors.Is(err, runner.ErrOutputWrite) {
 			return exitRunFailed
 		}
