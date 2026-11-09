@@ -152,6 +152,7 @@ func (buf *limitedBuffer) String() string {
 
 var (
 	ErrNoChecksExecuted = errors.New("no checks executed")
+	ErrCheckExecution   = errors.New("check execution failed")
 	ErrOutputWrite      = errors.New("runner output write failed")
 )
 
@@ -377,12 +378,17 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 	failFastTriggered := false
 
 	for result := range resultsChannel {
-		if result.runErr != nil && firstFatalError == nil {
-			firstFatalError = result.runErr
-			stopAll()
-		}
 		if result.runErr != nil {
-			continue
+			if firstFatalError == nil {
+				firstFatalError = fmt.Errorf("check %q: %w", result.name, result.runErr)
+				stopAll()
+			}
+			if result.outcome.ExitCode == 0 {
+				result.outcome.ExitCode = 1
+			}
+			if result.outcome.Reason == "" {
+				result.outcome.Reason = "execution error: " + result.runErr.Error()
+			}
 		}
 
 		if result.outcome.Skipped {
@@ -482,7 +488,7 @@ func RunAllReport(repoRoot string, configuration *config.Config, options Options
 		return report, fmt.Errorf("%w: %w", ErrOutputWrite, err)
 	}
 	if firstFatalError != nil {
-		return Report{}, firstFatalError
+		return report, fmt.Errorf("%w: %w", ErrCheckExecution, firstFatalError)
 	}
 	if err := parentContext.Err(); err != nil {
 		return report, err
@@ -514,6 +520,13 @@ func runOne(
 	}
 	if timeoutDuration > config.MaxCheckTimeout {
 		return runOutcome{ExitCode: 1}, fmt.Errorf("check %q timeout %s exceeds limit %s", checkName, timeoutDuration, config.MaxCheckTimeout)
+	}
+	workingInfo, err := os.Stat(workingDirectory)
+	if err != nil {
+		return runOutcome{ExitCode: 1}, fmt.Errorf("working directory %q: %w", workingDirectory, err)
+	}
+	if !workingInfo.IsDir() {
+		return runOutcome{ExitCode: 1}, fmt.Errorf("working directory %q is not a directory", workingDirectory)
 	}
 
 	limits, err := resolveLogLimits(options)
