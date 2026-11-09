@@ -242,7 +242,10 @@ func runCheck(args []string, ctx cli.Context) int {
 		}
 
 		if !*ci {
-			insult := runner.PickInsult(cfgDir, cfg.Insults, rep)
+			insult, stateErr := runner.PickInsult(cfgDir, cfg.Insults, rep)
+			if stateErr != nil {
+				fmt.Fprintln(ctx.Stderr, "Failure message state:", stateErr)
+			}
 			insult = strings.TrimSpace(insult)
 			if insult != "" {
 				fmt.Fprintln(ctx.Stderr, "")

@@ -63,7 +63,10 @@ func TestPickInsultUsesTemplateAndDetail(t *testing.T) {
 		LogFiles:     map[string]string{},
 	}
 
-	msg := PickInsult(root, config.Insults{Mode: "snarky", File: "pack.json", Locale: "en"}, rep)
+	msg, err := PickInsult(root, config.Insults{Mode: "snarky", File: "pack.json", Locale: "en"}, rep)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(msg, "ExampleTest") && !strings.Contains(msg, "boom") {
 		t.Fatalf("expected insult to include detail, got %q", msg)
 	}

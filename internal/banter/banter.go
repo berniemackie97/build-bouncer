@@ -3,7 +3,6 @@ package banter
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -151,7 +150,7 @@ func (p *Picker) Flush() error {
 }
 
 func (p *Picker) flushPending(pending map[string][]string) (err error) {
-	unlock, err := lockStateFile(p.statePath)
+	unlock, err := storage.LockStateFile(p.statePath)
 	if err != nil {
 		return err
 	}
@@ -168,25 +167,6 @@ func (p *Picker) flushPending(pending map[string][]string) (err error) {
 		state.Recent[entryType] = history
 	}
 	return saveState(p.statePath, state)
-}
-
-func lockStateFile(statePath string) (func() error, error) {
-	lockPath := statePath + ".lock"
-	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
-		return nil, err
-	}
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		if err := os.Mkdir(lockPath, 0o700); err == nil {
-			return func() error { return os.Remove(lockPath) }, nil
-		} else if !errors.Is(err, os.ErrExist) {
-			return nil, fmt.Errorf("lock banter state: %w", err)
-		}
-		if !time.Now().Before(deadline) {
-			return nil, fmt.Errorf("banter state lock %q is busy or left by an interrupted process; inspect before removing it", lockPath)
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
 }
 
 func (p *Picker) filter(entryType string, enforceCooldown bool) []Entry {
