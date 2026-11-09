@@ -24,9 +24,9 @@ func TestCheckReportsOptionalInsultHistoryErrorsWithoutChangingEnforcement(t *te
 		t.Run(tc.name, func(t *testing.T) {
 			root := withTempRepo(t)
 			cfg := &config.Config{
-				Checks: []config.Check{{Name: "tests", Run: "exit 7", AllowFailure: tc.allowed}},
+				Checks:     []config.Check{{Name: "tests", Run: "exit 7", AllowFailure: tc.allowed}},
 				Protection: config.Protection{Level: tc.level},
-				Insults: config.Insults{File: ".buildbouncer/insults.json", Locale: "en", Mode: "snarky"},
+				Insults:    config.Insults{File: ".buildbouncer/insults.json", Locale: "en", Mode: "snarky"},
 			}
 			if err := config.Save(config.DefaultConfigPath(root), cfg); err != nil {
 				t.Fatal(err)
