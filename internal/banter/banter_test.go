@@ -373,3 +373,58 @@ func TestPickerFlushRetainsPendingAfterStateFailure(t *testing.T) {
 		t.Fatalf("retry did not preserve selection: %+v %v", saved, err)
 	}
 }
+
+func TestBanterStateUsesGitMetadataForLinkedCheckout(t *testing.T) {
+	base := t.TempDir()
+	checkout := filepath.Join(base, "checkout")
+	metadata := filepath.Join(base, "metadata")
+	if err := os.MkdirAll(checkout, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(metadata, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	pointer := filepath.Join(checkout, ".git")
+	if err := os.WriteFile(pointer, []byte("gitdir: ../metadata\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(checkout, "banter.json"),
+		[]byte(`{"entries":[{"id":"intro","type":"intro","text":"hello"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	picker, err := Load(checkout, Config{File: "banter.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := picker.Pick("intro"); text != "hello" {
+		t.Fatalf("unexpected pick: %q", text)
+	}
+	if err := picker.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	expected := filepath.Join(metadata, "build-bouncer", "banter_state.json")
+	if picker.statePath != expected {
+		t.Fatalf("state location: got=%q want=%q", picker.statePath, expected)
+	}
+	state, err := loadState(expected)
+	if err != nil || len(state.Recent["intro"]) != 1 || state.Recent["intro"][0] != "intro" {
+		t.Fatalf("private banter history was not saved: %+v %v", state, err)
+	}
+	if _, err := os.Lstat(filepath.Join(checkout, ".buildbouncer", "state")); !os.IsNotExist(err) {
+		t.Fatalf("banter state leaked into working checkout: %v", err)
+	}
+	if _, err := os.Lstat(expected + ".lock"); !os.IsNotExist(err) {
+		t.Fatalf("banter state lock was retained: %v", err)
+	}
+}
+
+func TestInvalidGitPointerKeepsEstablishedBanterFallback(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".git"), []byte("gitdir: ../missing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(root, ".buildbouncer", "state", "banter_state.json")
+	if got := resolveStatePath(root); got != want {
+		t.Fatalf("invalid metadata pointer must fall back: got=%q want=%q", got, want)
+	}
+}

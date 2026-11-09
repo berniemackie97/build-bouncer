@@ -38,8 +38,7 @@ func FindRepoRoot() (string, error) {
 func findRepoRootFrom(start string) (string, bool) {
 	dir := start
 	for {
-		candidate := filepath.Join(dir, ".git")
-		if isGitMarker(candidate) {
+		if _, ok := ResolveGitDir(dir); ok {
 			return dir, true
 		}
 
@@ -51,57 +50,49 @@ func findRepoRootFrom(start string) (string, bool) {
 	}
 }
 
-// isGitMarker returns true if path is either:
-//   - a .git directory (normal repo), OR
-//   - a .git file that looks like a worktree/submodule pointer ("gitdir: <path>").
-func isGitMarker(path string) bool {
-	st, err := os.Stat(path)
+// ResolveGitDir locates the metadata directory for a repository checkout.
+// Linked worktrees and submodules store the metadata location in a .git file.
+func ResolveGitDir(repoRoot string) (string, bool) {
+	marker := filepath.Join(repoRoot, ".git")
+	info, err := os.Lstat(marker)
 	if err != nil {
-		return false
+		return "", false
 	}
-	if st.IsDir() {
-		return true
+	if info.IsDir() {
+		return marker, true
 	}
-	if !st.Mode().IsRegular() {
-		return false
+	if !info.Mode().IsRegular() {
+		return "", false
 	}
 
-	// Worktrees/submodules store a small text file like:
-	//   gitdir: /actual/path/to/git/dir
-	// Read only a small prefix to validate.
-	const maxRead = 4096
-	b, err := readFilePrefix(path, maxRead)
+	data, err := readFilePrefix(marker, 4096)
 	if err != nil {
-		return false
+		return "", false
 	}
-
-	text := strings.TrimSpace(string(b))
-	if text == "" {
-		return false
-	}
-
-	// Only consider the first non-empty line.
-	lines := strings.Split(text, "\n")
-	first := ""
-	for _, raw := range lines {
-		line := strings.TrimSpace(raw)
-		if line != "" {
-			first = line
-			break
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
 		}
+		const prefix = "gitdir:"
+		if len(line) < len(prefix) || !strings.EqualFold(line[:len(prefix)], prefix) {
+			return "", false
+		}
+		target := strings.TrimSpace(line[len(prefix):])
+		if target == "" {
+			return "", false
+		}
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(repoRoot, target)
+		}
+		target = filepath.Clean(target)
+		info, err := os.Stat(target)
+		if err != nil || !info.IsDir() {
+			return "", false
+		}
+		return target, true
 	}
-	if first == "" {
-		return false
-	}
-
-	lower := strings.ToLower(first)
-	const prefix = "gitdir:"
-	if !strings.HasPrefix(lower, prefix) {
-		return false
-	}
-
-	rest := strings.TrimSpace(first[len(prefix):])
-	return rest != ""
+	return "", false
 }
 
 func readFilePrefix(path string, maxBytes int) ([]byte, error) {

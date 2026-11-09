@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/berniemackie97/build-bouncer/internal/config"
 )
 
 func TestResolveDefaultLogDir(t *testing.T) {
@@ -98,5 +100,50 @@ func TestFileExists(t *testing.T) {
 	}
 	if fileExists(filepath.Join(root, "missing")) {
 		t.Fatalf("expected fileExists(missing) to be false")
+	}
+}
+
+func TestDefaultCheckLogsUseLinkedGitMetadata(t *testing.T) {
+	base := t.TempDir()
+	checkout := filepath.Join(base, "checkout")
+	meta := filepath.Join(base, "meta")
+	if err := os.MkdirAll(checkout, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(meta, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(checkout, ".git"), []byte("gitdir: ../meta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wantDir := filepath.Join(meta, "build-bouncer", "logs")
+	wantInsults := filepath.Join(meta, "build-bouncer", "insults_state.json")
+	if got := resolveInsultStatePath(checkout); got != wantInsults {
+		t.Fatalf("worktree insult history path: got=%q want=%q", got, wantInsults)
+	}
+	if err := saveInsultState(wantInsults, insultState{Version: 1, Recent: []string{"failed"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(wantInsults); err != nil {
+		t.Fatalf("insult history was not stored under Git metadata: %v", err)
+	}
+	if got := resolveDefaultLogDir(checkout); got != wantDir {
+		t.Fatalf("worktree log path: got=%q want=%q", got, wantDir)
+	}
+	report, err := RunAllReport(checkout, &config.Config{Checks: []config.Check{{
+		Name: "failed", Run: failCommand("worktree failure"),
+	}}}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Failures) != 1 || report.LogFiles["failed"] == "" ||
+		filepath.Dir(report.LogFiles["failed"]) != wantDir {
+		t.Fatalf("failed check log escaped Git metadata: %+v", report)
+	}
+	if _, err := os.Stat(report.LogFiles["failed"]); err != nil {
+		t.Fatalf("failed check log was not persisted: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(checkout, ".buildbouncer", "logs")); !os.IsNotExist(err) {
+		t.Fatalf("logs were created inside checkout: %v", err)
 	}
 }
