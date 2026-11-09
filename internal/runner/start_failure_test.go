@@ -99,3 +99,41 @@ func TestCheckWorkingDirectoryMustBeDirectory(t *testing.T) {
 		t.Fatalf("non-directory check failure lost or misclassified: %+v", report)
 	}
 }
+
+func TestParallelCheckStartFailurePreservesEveryOutcome(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{Checks: []config.Check{
+		{Name: "bad-working-directory", Run: "echo never", Cwd: "missing-workdir"},
+		{Name: "in-flight", Run: failCommand("concurrent-failure")},
+	}}
+	report, err := RunAllReport(root, cfg, Options{MaxParallel: 2})
+	if !errors.Is(err, ErrCheckExecution) {
+		t.Fatalf("parallel start failure was not classified: %+v %v", report, err)
+	}
+	if !strings.Contains(report.Unavailable["bad-working-directory"], "missing-workdir") {
+		t.Fatalf("startup failure disappeared: %+v", report)
+	}
+	outcomes := make(map[string]int, len(cfg.Checks))
+	for _, name := range report.Failures {
+		outcomes[name]++
+	}
+	for _, name := range report.Canceled {
+		outcomes[name]++
+	}
+	for _, name := range report.Skipped {
+		outcomes[name]++
+	}
+	for _, check := range cfg.Checks {
+		if outcomes[check.Name] != 1 {
+			t.Fatalf("parallel check %q had %d terminal outcomes: %+v", check.Name, outcomes[check.Name], report)
+		}
+	}
+	if len(report.Skipped) != 0 || report.LogFiles["bad-working-directory"] != "" {
+		t.Fatalf("parallel start failure skipped or fabricated a log: %+v", report)
+	}
+	for _, name := range report.Failures {
+		if name == "in-flight" && !strings.Contains(report.FailureTails[name], "concurrent-failure") {
+			t.Fatalf("finished in-flight failure lost its output: %+v", report)
+		}
+	}
+}
