@@ -41,7 +41,7 @@ func TestEditLockChild(t *testing.T) {
 		called = true
 		return nil
 	})
-	if err == nil || called || !strings.Contains(err.Error(), "edit lock exists") || !strings.Contains(err.Error(), path+".edit-lock") {
+	if err == nil || called || !strings.Contains(err.Error(), "edit lock exists") || !strings.Contains(err.Error(), filepath.Base(path)+".edit-lock") {
 		t.Fatalf("other process entered edit lock: called=%t err=%v", called, err)
 	}
 }
