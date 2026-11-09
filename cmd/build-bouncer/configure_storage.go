@@ -12,12 +12,22 @@ import (
 )
 
 func saveConfigured(path string, before, after *config.Config) error {
+	return config.WithEditLock(path, func() error {
+		return saveConfiguredLocked(path, before, after)
+	})
+}
+
+func saveConfiguredLocked(path string, before, after *config.Config) error {
 	original, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	if _, err := config.Parse(original); err != nil {
+	current, err := config.Parse(original)
+	if err != nil {
 		return err
+	}
+	if !reflect.DeepEqual(before, current) {
+		return fmt.Errorf("configuration changed during editing; retry")
 	}
 	var document yaml.Node
 	if err := yaml.Unmarshal(original, &document); err != nil {
