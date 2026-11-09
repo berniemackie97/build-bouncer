@@ -78,3 +78,24 @@ func TestOrdinaryCheckFailureStillReturnsOutcomeWithoutExecutionError(t *testing
 		t.Fatalf("ordinary process exit misclassified as startup error: %+v %v", report, err)
 	}
 }
+
+func TestCheckWorkingDirectoryMustBeDirectory(t *testing.T) {
+	root := t.TempDir()
+	workingPath := filepath.Join(root, "not-a-directory")
+	if err := os.WriteFile(workingPath, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report, err := RunAllReport(root, &config.Config{Checks: []config.Check{{
+		Name: "bad-working-directory", Run: "echo never", Cwd: "not-a-directory",
+	}}}, Options{})
+	if !errors.Is(err, ErrCheckExecution) ||
+		!strings.Contains(err.Error(), "not-a-directory") ||
+		!strings.Contains(err.Error(), "is not a directory") {
+		t.Fatalf("non-directory path was not rejected: report=%+v err=%v", report, err)
+	}
+	if len(report.Failures) != 1 || report.Failures[0] != "bad-working-directory" ||
+		!strings.Contains(report.Unavailable["bad-working-directory"], "not-a-directory") ||
+		len(report.LogFiles) != 0 {
+		t.Fatalf("non-directory check failure lost or misclassified: %+v", report)
+	}
+}

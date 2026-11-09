@@ -521,6 +521,13 @@ func runOne(
 	if timeoutDuration > config.MaxCheckTimeout {
 		return runOutcome{ExitCode: 1}, fmt.Errorf("check %q timeout %s exceeds limit %s", checkName, timeoutDuration, config.MaxCheckTimeout)
 	}
+	workingInfo, err := os.Stat(workingDirectory)
+	if err != nil {
+		return runOutcome{ExitCode: 1}, fmt.Errorf("working directory %q: %w", workingDirectory, err)
+	}
+	if !workingInfo.IsDir() {
+		return runOutcome{ExitCode: 1}, fmt.Errorf("working directory %q is not a directory", workingDirectory)
+	}
 
 	limits, err := resolveLogLimits(options)
 	if err != nil {
