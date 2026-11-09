@@ -66,7 +66,7 @@ func TestResolveGitDirPointerValidation(t *testing.T) {
 		want  string
 	}{
 		{name: "relative", value: "gitdir: ../metadata\n", want: metadata},
-		{name: "absolute", value: "gitdir: "+metadata+"\n", want: metadata},
+		{name: "absolute", value: "gitdir: " + metadata + "\n", want: metadata},
 		{name: "mixed case", value: "GiTdIr: ../metadata\n", want: metadata},
 		{name: "invalid marker", value: "not a git directory\n"},
 		{name: "dangling", value: "gitdir: ../missing\n"},

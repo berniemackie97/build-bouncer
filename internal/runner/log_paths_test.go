@@ -117,6 +117,16 @@ func TestDefaultCheckLogsUseLinkedGitMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantDir := filepath.Join(meta, "build-bouncer", "logs")
+	wantInsults := filepath.Join(meta, "build-bouncer", "insults_state.json")
+	if got := resolveInsultStatePath(checkout); got != wantInsults {
+		t.Fatalf("worktree insult history path: got=%q want=%q", got, wantInsults)
+	}
+	if err := saveInsultState(wantInsults, insultState{Version: 1, Recent: []string{"failed"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(wantInsults); err != nil {
+		t.Fatalf("insult history was not stored under Git metadata: %v", err)
+	}
 	if got := resolveDefaultLogDir(checkout); got != wantDir {
 		t.Fatalf("worktree log path: got=%q want=%q", got, wantDir)
 	}

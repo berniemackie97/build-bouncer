@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/berniemackie97/build-bouncer/internal/config"
+	"github.com/berniemackie97/build-bouncer/internal/git"
 	"github.com/berniemackie97/build-bouncer/internal/storage"
 )
 
@@ -149,7 +150,7 @@ func loadInsultPack(path string) (insultPack, error) {
 }
 
 func resolveInsultStatePath(root string) string {
-	if gitDir, ok := resolveGitDir(root); ok {
+	if gitDir, ok := git.ResolveGitDir(root); ok {
 		return filepath.Join(gitDir, "build-bouncer", "insults_state.json")
 	}
 	return filepath.Join(root, config.ConfigDirName, "state", "insults_state.json")
