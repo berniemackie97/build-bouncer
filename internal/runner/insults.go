@@ -2,6 +2,8 @@ package runner
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -51,16 +53,13 @@ func nextRandomIntn(upperBoundExclusive int) int {
 	return randomValue
 }
 
-// PickInsult loads the pack, filters templates based on failures, then picks a weighted insult.
-// If anything about the pack is busted, we fall back to a plain message.
-// The goal here is never crash the run even if the insults are messed up.
-func PickInsult(root string, insults config.Insults, report Report) string {
+// PickInsult returns optional failure feedback; history errors never affect check enforcement.
+func PickInsult(root string, insults config.Insults, report Report) (string, error) {
 	insultPackPath := filepath.Join(root, filepath.FromSlash(insults.File))
 	packData, packErr := loadInsultPack(insultPackPath)
 	if packErr != nil || len(packData.Templates) == 0 {
-		return formatInsult(insults.Mode, fallbackFailureSummary(report))
+		return formatInsult(insults.Mode, fallbackFailureSummary(report)), nil
 	}
-
 	if packData.MaxHistory <= 0 {
 		packData.MaxHistory = 40
 	}
@@ -68,60 +67,65 @@ func PickInsult(root string, insults config.Insults, report Report) string {
 		packData.DefaultCooldown = 0
 	}
 
-	category := categoryFromFailures(report.Failures)
+	message, err := selectAndPersistInsult(resolveInsultStatePath(root), packData, insults.Locale, report)
+	if err != nil {
+		return formatInsult(insults.Mode, fallbackFailureSummary(report)), fmt.Errorf("failure-message history: %w", err)
+	}
+	return formatInsult(insults.Mode, message), nil
+}
 
-	locale := strings.TrimSpace(insults.Locale)
+func selectAndPersistInsult(path string, pack insultPack, locale string, report Report) (message string, err error) {
+	locale = strings.TrimSpace(locale)
 	if locale == "" {
 		locale = "en"
 	}
-	localeLanguage := baseLocale(locale)
-
-	statePath := resolveInsultStatePath(root)
-	state := loadInsultState(statePath)
-
+	category := categoryFromFailures(report.Failures)
 	failingCheck := pickFailingCheck(report.Failures)
-
-	// detail is best effort. If we can find a file:line, use it.
-	// If we cannot, just use the check name to avoid empty placeholder replacements.
 	failureDetail := extractDetail(category, report, failingCheck)
 	if strings.TrimSpace(failureDetail) == "" {
 		failureDetail = failingCheck
 	}
-	trimmedFailureDetail := trimDetail(failureDetail)
+	failureDetail = trimDetail(failureDetail)
 
-	// 1) Normal filtering with cooldown
-	candidateTemplates := filterTemplatesWithLocaleFallback(packData, category, locale, localeLanguage, state)
-
-	// 2) If we filtered ourselves into a corner due to cooldown history, relax it.
-	if len(candidateTemplates) == 0 {
-		candidateTemplates = filterTemplatesWithLocaleFallback(packData, category, locale, localeLanguage, insultState{Version: state.Version})
+	unlock, err := storage.LockStateFile(path)
+	if err != nil {
+		return "", err
 	}
-	if len(candidateTemplates) == 0 {
-		candidateTemplates = filterTemplatesWithLocaleFallback(packData, "any", locale, localeLanguage, insultState{Version: state.Version})
+	defer func() { err = errors.Join(err, unlock()) }()
+
+	state, err := loadInsultState(path)
+	if err != nil {
+		return "", err
 	}
-	if len(candidateTemplates) == 0 {
-		return formatInsult(insults.Mode, fallbackFailureSummary(report))
+	candidates := filterTemplatesWithLocaleFallback(pack, category, locale, baseLocale(locale), state)
+	if len(candidates) == 0 {
+		candidates = filterTemplatesWithLocaleFallback(pack, category, locale, baseLocale(locale), insultState{Version: state.Version})
+	}
+	if len(candidates) == 0 {
+		candidates = filterTemplatesWithLocaleFallback(pack, "any", locale, baseLocale(locale), insultState{Version: state.Version})
+	}
+	if len(candidates) == 0 {
+		return fallbackFailureSummary(report), nil
 	}
 
-	chosenTemplate := weightedPick(candidateTemplates)
-
-	// Fill placeholders and make sure the message includes at least some context.
-	message := strings.TrimSpace(chosenTemplate.Text)
+	chosen := weightedPick(candidates)
+	message = strings.TrimSpace(chosen.Text)
 	message = strings.ReplaceAll(message, "{check}", failingCheck)
 	message = strings.ReplaceAll(message, "{checks}", strings.Join(report.Failures, ", "))
-	message = strings.ReplaceAll(message, "{detail}", trimmedFailureDetail)
-	message = ensureInsultContext(message, failingCheck, trimmedFailureDetail)
+	message = strings.ReplaceAll(message, "{detail}", failureDetail)
+	message = ensureInsultContext(message, failingCheck, failureDetail)
 
-	// Record the template ID so we can enforce cooldown history next run.
-	if chosenTemplate.ID != "" {
-		state.Recent = append([]string{chosenTemplate.ID}, state.Recent...)
-		if len(state.Recent) > packData.MaxHistory {
-			state.Recent = state.Recent[:packData.MaxHistory]
-		}
-		_ = saveInsultState(statePath, state)
+	if chosen.ID == "" {
+		return message, nil
 	}
-
-	return formatInsult(insults.Mode, message)
+	state.Recent = append([]string{chosen.ID}, state.Recent...)
+	if len(state.Recent) > pack.MaxHistory {
+		state.Recent = state.Recent[:pack.MaxHistory]
+	}
+	if err := saveInsultState(path, state); err != nil {
+		return "", err
+	}
+	return message, nil
 }
 
 func fallbackFailureSummary(report Report) string {
@@ -156,21 +160,22 @@ func resolveInsultStatePath(root string) string {
 	return filepath.Join(root, config.ConfigDirName, "state", "insults_state.json")
 }
 
-func loadInsultState(path string) insultState {
-	fileBytes, readErr := os.ReadFile(path)
-	if readErr != nil {
-		return insultState{Version: 1, Recent: nil}
+func loadInsultState(path string) (insultState, error) {
+	fileBytes, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return insultState{Version: 1}, nil
 	}
-
+	if err != nil {
+		return insultState{}, fmt.Errorf("read failure-message history: %w", err)
+	}
 	var state insultState
-	if unmarshalErr := json.Unmarshal(fileBytes, &state); unmarshalErr != nil {
-		return insultState{Version: 1, Recent: nil}
+	if err := json.Unmarshal(fileBytes, &state); err != nil {
+		return insultState{}, fmt.Errorf("parse failure-message history %q: %w", path, err)
 	}
-
 	if state.Version <= 0 {
 		state.Version = 1
 	}
-	return state
+	return state, nil
 }
 
 func saveInsultState(path string, state insultState) error {
